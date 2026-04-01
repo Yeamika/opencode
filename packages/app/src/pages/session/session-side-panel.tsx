@@ -65,8 +65,8 @@ export function SessionSidePanel(props: {
   })
 
   const reviewEmptyKey = createMemo(() => {
-    if (sync.project && !sync.project.vcs) return "session.review.noVcs"
     if (sync.data.config.snapshot === false) return "session.review.noSnapshot"
+    if (sync.project && !sync.project.vcs) return "session.review.noVcs"
     return "session.review.noChanges"
   })
 

@@ -4,6 +4,7 @@ import { Global } from "../global"
 import { NamedError } from "@opencode-ai/util/error"
 import z from "zod"
 import { git } from "@/util/git"
+import { Flag } from "@/flag/flag"
 import { AppFileSystem } from "@/filesystem"
 import { makeRuntime } from "@/effect/run-service"
 import { Effect, Exit, Layer, Option, RcMap, Schema, ServiceMap, TxReentrantLock } from "effect"
@@ -110,6 +111,7 @@ export namespace Storage {
           }
           if (!worktree) continue
           if (!(yield* fs.isDir(worktree))) continue
+          if (Flag.OPENCODE_DISABLE_VCS) continue
           const result = yield* Effect.promise(() =>
             git(["rev-list", "--max-parents=0", "--all"], {
               cwd: worktree,

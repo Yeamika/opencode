@@ -636,9 +636,9 @@ export default function Page() {
     return sync.data.session_diff[id] !== undefined
   })
   const reviewEmptyKey = createMemo(() => {
+    if (sync.data.config.snapshot === false) return "session.review.noSnapshot"
     const project = sync.project
     if (project && !project.vcs) return "session.review.noVcs"
-    if (sync.data.config.snapshot === false) return "session.review.noSnapshot"
     return "session.review.empty"
   })
 
