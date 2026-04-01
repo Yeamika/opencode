@@ -220,7 +220,7 @@ export const ReadTool = Tool.define("read", {
     await FileTime.read(ctx.sessionID, filepath)
 
     if (instructions.length > 0) {
-      output += `\n\n<system-reminder>\n${instructions.map((i) => i.content).join("\n\n")}\n</system-reminder>`
+      output += `\n\n<opencode-system-reminder>\n${instructions.map((i) => i.content).join("\n\n")}\n</opencode-system-reminder>`
     }
 
     return {
