@@ -44,6 +44,12 @@ function createWorkerFetch(client: RpcClient): typeof fetch {
 function createEventSource(client: RpcClient): EventSource {
   return {
     on: (handler) => client.on<Event>("event", handler),
+    setDirectory: (directory) => {
+      void client.call("setDirectory", { directory })
+    },
+    reload: (directory) => {
+      return client.call("reload", { directory }).then(() => {})
+    },
     setWorkspace: (workspaceID) => {
       void client.call("setWorkspace", { workspaceID })
     },
@@ -129,10 +135,13 @@ export const TuiThreadCommand = cmd({
         return
       }
       const cwd = Filesystem.resolve(process.cwd())
+      const displayID = `tui_${crypto.randomUUID().slice(0, 8)}`
 
       const worker = new Worker(file, {
         env: Object.fromEntries(
-          Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
+          [...Object.entries(process.env), ["OPENCODE_DISPLAY_ID", displayID]].filter(
+            (entry): entry is [string, string] => entry[1] !== undefined,
+          ),
         ),
       })
       worker.onerror = (e) => {
@@ -144,7 +153,7 @@ export const TuiThreadCommand = cmd({
         Log.Default.error(e)
       }
       const reload = () => {
-        client.call("reload", undefined).catch((err) => {
+        client.call("reload", { directory: cwd }).catch((err) => {
           Log.Default.warn("worker reload failed", {
             error: errorMessage(err),
           })
@@ -210,6 +219,7 @@ export const TuiThreadCommand = cmd({
           },
           config,
           directory: cwd,
+          displayID,
           fetch: transport.fetch,
           events: transport.events,
           args: {
@@ -219,6 +229,7 @@ export const TuiThreadCommand = cmd({
             model: args.model,
             prompt,
             fork: args.fork,
+            transport: "local",
           },
         })
       } finally {

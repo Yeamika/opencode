@@ -44,6 +44,8 @@ export const TuiEvent = {
     "tui.session.select",
     z.object({
       sessionID: SessionID.zod.describe("Session ID to navigate to"),
+      displayID: z.string().describe("TUI display ID to target"),
+      directory: z.string().optional().describe("Directory to switch the targeted TUI into before opening the session"),
     }),
   ),
 }

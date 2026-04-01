@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test"
+import { Bus } from "../../src/bus"
+import { TuiEvent } from "../../src/cli/cmd/tui/event"
 import { Session } from "../../src/session"
 import { Log } from "../../src/util/log"
 import { Instance } from "../../src/project/instance"
@@ -25,7 +27,7 @@ describe("tui.selectSession endpoint", () => {
         const response = await app.request("/tui/select-session", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionID: session.id }),
+          body: JSON.stringify({ sessionID: session.id, displayID: "tui_test1234" }),
         })
 
         // #then
@@ -51,7 +53,7 @@ describe("tui.selectSession endpoint", () => {
         const response = await app.request("/tui/select-session", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionID: nonExistentSessionID }),
+          body: JSON.stringify({ sessionID: nonExistentSessionID, displayID: "tui_test1234" }),
         })
 
         // #then
@@ -73,11 +75,65 @@ describe("tui.selectSession endpoint", () => {
         const response = await app.request("/tui/select-session", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionID: invalidSessionID }),
+          body: JSON.stringify({ sessionID: invalidSessionID, displayID: "tui_test1234" }),
         })
 
         // #then
         expect(response.status).toBe(400)
+      },
+    })
+  })
+
+  test("should return 400 when display ID is missing", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+
+        const app = Server.Default()
+        const response = await app.request("/tui/select-session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionID: session.id }),
+        })
+
+        expect(response.status).toBe(400)
+
+        await Session.remove(session.id)
+      },
+    })
+  })
+
+  test("should publish targeted display selection", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const event = new Promise<{ sessionID: string; displayID?: string }>((resolve) => {
+          const unsub = Bus.subscribe(TuiEvent.SessionSelect, (evt) => {
+            unsub()
+            resolve(evt.properties)
+            return "done"
+          })
+        })
+
+        const app = Server.Default()
+        const response = await app.request(`/tui/select-session?directory=${encodeURIComponent(tmp.path)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionID: session.id, displayID: "tui_test1234" }),
+        })
+
+        expect(response.status).toBe(200)
+        expect(await event).toEqual({
+          sessionID: session.id,
+          displayID: "tui_test1234",
+          directory: tmp.path,
+        })
+
+        await Session.remove(session.id)
       },
     })
   })
