@@ -18,6 +18,15 @@ import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
 export namespace Project {
   const log = Log.create({ service: "project" })
 
+  function novcs(dir: string) {
+    return {
+      id: ProjectID.make("dir:" + Buffer.from(AppFileSystem.resolve(dir)).toString("base64url")),
+      worktree: AppFileSystem.resolve(dir),
+      sandbox: AppFileSystem.resolve(dir),
+      vcs: undefined,
+    }
+  }
+
   export const Info = z
     .object({
       id: ProjectID.zod,
@@ -169,6 +178,8 @@ export namespace Project {
         type DiscoveryResult = { id: ProjectID; worktree: string; sandbox: string; vcs: Info["vcs"] }
 
         const data: DiscoveryResult = yield* Effect.gen(function* () {
+          if (Flag.OPENCODE_DISABLE_VCS) return novcs(directory)
+
           const dotgitMatches = yield* fs.up({ targets: [".git"], start: directory }).pipe(Effect.orDie)
           const dotgit = dotgitMatches[0]
 
@@ -378,6 +389,7 @@ export namespace Project {
 
       const initGit = Effect.fn("Project.initGit")(function* (input: { directory: string; project: Info }) {
         if (input.project.vcs === "git") return input.project
+        if (Flag.OPENCODE_DISABLE_VCS) throw new Error("VCS is disabled")
         if (!(yield* Effect.sync(() => which("git")))) throw new Error("Git is not installed")
         const result = yield* git(["init", "--quiet"], { cwd: input.directory })
         if (result.code !== 0) {

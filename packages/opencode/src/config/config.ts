@@ -864,7 +864,7 @@ export namespace Config {
         .boolean()
         .optional()
         .describe(
-          "Enable or disable snapshot tracking. When false, filesystem snapshots are not recorded and undoing or reverting will not undo/redo file changes. Defaults to true.",
+          "Enable or disable snapshot tracking. When false, filesystem snapshots are not recorded and undoing or reverting will not undo/redo file changes. Defaults to false.",
         ),
       plugin: PluginSpec.array().optional(),
       share: z
@@ -1440,6 +1440,7 @@ export namespace Config {
           }
 
           if (!result.username) result.username = os.userInfo().username
+          if (result.snapshot === undefined) result.snapshot = false
 
           if (result.autoshare === true && !result.share) {
             result.share = "auto"

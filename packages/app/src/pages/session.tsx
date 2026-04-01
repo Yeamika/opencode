@@ -748,10 +748,16 @@ export default function Page() {
     scrollToMessage(msgs[targetIndex], "auto")
   }
 
-  const sessionEmptyKey = createMemo(() => {
+  const diffsReady = createMemo(() => {
+    const id = params.id
+    if (!id) return true
+    if (!hasReview()) return true
+    return sync.data.session_diff[id] !== undefined
+  })
+  const reviewEmptyKey = createMemo(() => {
+    if (sync.data.config.snapshot === false) return "session.review.noSnapshot"
     const project = sync.project
     if (project && !project.vcs) return "session.review.noVcs"
-    if (sync.data.config.snapshot === false) return "session.review.noSnapshot"
     return "session.review.empty"
   })
 

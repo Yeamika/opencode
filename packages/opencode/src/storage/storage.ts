@@ -110,6 +110,7 @@ export namespace Storage {
           }
           if (!worktree) continue
           if (!(yield* fs.isDir(worktree))) continue
+          if (Flag.OPENCODE_DISABLE_VCS) continue
           const result = yield* Effect.promise(() =>
             Git.run(["rev-list", "--max-parents=0", "--all"], {
               cwd: worktree,
