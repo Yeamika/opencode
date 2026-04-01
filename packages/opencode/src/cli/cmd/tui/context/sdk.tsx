@@ -5,19 +5,25 @@ import { batch, onCleanup, onMount } from "solid-js"
 
 export type EventSource = {
   on: (handler: (event: Event) => void) => () => void
+  setDirectory?: (directory: string) => void
+  reload?: (directory: string) => Promise<void>
   setWorkspace?: (workspaceID?: string) => void
+}
+
+type Props = {
+  url: string
+  directory?: string
+  fetch?: typeof fetch
+  headers?: RequestInit["headers"]
+  events?: EventSource
+  displayID?: string
 }
 
 export const { use: useSDK, provider: SDKProvider } = createSimpleContext({
   name: "SDK",
-  init: (props: {
-    url: string
-    directory?: string
-    fetch?: typeof fetch
-    headers?: RequestInit["headers"]
-    events?: EventSource
-  }) => {
+  init: (props: Props) => {
     const abort = new AbortController()
+    let directory = props.directory
     let workspaceID: string | undefined
     let sse: AbortController | undefined
 
@@ -25,11 +31,24 @@ export const { use: useSDK, provider: SDKProvider } = createSimpleContext({
       return createOpencodeClient({
         baseUrl: props.url,
         signal: abort.signal,
-        directory: props.directory,
+        directory,
         fetch: props.fetch,
         headers: props.headers,
         experimental_workspaceID: workspaceID,
+        experimental_displayID: props.displayID,
       })
+    }
+
+    async function reload(next: string) {
+      const url = new URL("/project/reload", props.url)
+      url.searchParams.set("directory", next)
+      const response = await (props.fetch ?? fetch)(url, {
+        method: "POST",
+        headers: props.headers,
+      })
+      if (!response.ok) {
+        throw new Error(`reload failed (${response.status})`)
+      }
     }
 
     let sdk = createSDK()
@@ -109,12 +128,34 @@ export const { use: useSDK, provider: SDKProvider } = createSimpleContext({
       get client() {
         return sdk
       },
-      get workspaceID() {
-        return workspaceID
+      get directory() {
+        return directory
       },
-      directory: props.directory,
+      get displayID() {
+        return props.displayID
+      },
       event: emitter,
       fetch: props.fetch ?? fetch,
+      headers: props.headers,
+      setDirectory(next: string) {
+        if (directory === next) return
+        directory = next
+        workspaceID = undefined
+        sdk = createSDK()
+        props.events?.setDirectory?.(next)
+        if (!props.events) startSSE()
+      },
+      async reload(next: string) {
+        directory = next
+        workspaceID = undefined
+        sdk = createSDK()
+        if (props.events) {
+          await props.events.reload?.(next)
+        } else {
+          await reload(next)
+        }
+        if (!props.events) startSSE()
+      },
       setWorkspace(next?: string) {
         if (workspaceID === next) return
         workspaceID = next

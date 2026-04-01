@@ -6,9 +6,8 @@ import { InstanceBootstrap } from "@/project/bootstrap"
 import { Rpc } from "@/util/rpc"
 import { upgrade } from "@/cli/upgrade"
 import { Config } from "@/config/config"
-import { Bus } from "@/bus"
 import { GlobalBus } from "@/bus/global"
-import type { Event } from "@opencode-ai/sdk/v2"
+import { createOpencodeClient, type Event } from "@opencode-ai/sdk/v2"
 import { Flag } from "@/flag/flag"
 import { setTimeout as sleep } from "node:timers/promises"
 import { writeHeapSnapshot } from "node:v8"
@@ -46,55 +45,52 @@ const eventStream = {
   abort: undefined as AbortController | undefined,
 }
 
+const state = {
+  directory: process.cwd(),
+  workspaceID: undefined as string | undefined,
+  displayID: process.env.OPENCODE_DISPLAY_ID,
+}
+
 const startEventStream = (input: { directory: string; workspaceID?: string }) => {
   if (eventStream.abort) eventStream.abort.abort()
   const abort = new AbortController()
   eventStream.abort = abort
   const signal = abort.signal
 
+  const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init)
+    const auth = getAuthorizationHeader()
+    if (auth) request.headers.set("Authorization", auth)
+    return Server.Default().fetch(request)
+  }) as typeof globalThis.fetch
+
+  const sdk = createOpencodeClient({
+    baseUrl: "http://opencode.internal",
+    directory: input.directory,
+    experimental_workspaceID: input.workspaceID,
+    experimental_displayID: state.displayID,
+    fetch: fetchFn,
+    signal,
+  })
+
   ;(async () => {
     while (!signal.aborted) {
-      const shouldReconnect = await Instance.provide({
-        directory: input.directory,
-        init: InstanceBootstrap,
-        fn: () =>
-          new Promise<boolean>((resolve) => {
-            Rpc.emit("event", {
-              type: "server.connected",
-              properties: {},
-            } satisfies Event)
+      const events = await Promise.resolve(
+        sdk.event.subscribe(
+          {},
+          {
+            signal,
+          },
+        ),
+      ).catch(() => undefined)
 
-            let settled = false
-            const settle = (value: boolean) => {
-              if (settled) return
-              settled = true
-              signal.removeEventListener("abort", onAbort)
-              unsub()
-              resolve(value)
-            }
+      if (!events) {
+        await sleep(250)
+        continue
+      }
 
-            const unsub = Bus.subscribeAll((event) => {
-              Rpc.emit("event", event as Event)
-              if (event.type === Bus.InstanceDisposed.type) {
-                settle(true)
-              }
-            })
-
-            const onAbort = () => {
-              settle(false)
-            }
-
-            signal.addEventListener("abort", onAbort, { once: true })
-          }),
-      }).catch((error) => {
-        Log.Default.error("event stream subscribe error", {
-          error: error instanceof Error ? error.message : error,
-        })
-        return false
-      })
-
-      if (!shouldReconnect || signal.aborted) {
-        break
+      for await (const event of events.stream) {
+        Rpc.emit("event", event as Event)
       }
 
       if (!signal.aborted) {
@@ -108,7 +104,7 @@ const startEventStream = (input: { directory: string; workspaceID?: string }) =>
   })
 }
 
-startEventStream({ directory: process.cwd() })
+startEventStream({ directory: state.directory })
 
 export const rpc = {
   async fetch(input: { url: string; method: string; headers: Record<string, string>; body?: string }) {
@@ -148,11 +144,24 @@ export const rpc = {
       },
     })
   },
-  async reload() {
+  async reload(input: { directory: string }) {
+    state.directory = input.directory
+    state.workspaceID = undefined
     await Config.invalidate(true)
+    await Instance.reload({
+      directory: state.directory,
+      init: InstanceBootstrap,
+    })
+    startEventStream({ directory: state.directory })
+  },
+  async setDirectory(input: { directory: string }) {
+    state.directory = input.directory
+    state.workspaceID = undefined
+    startEventStream({ directory: state.directory })
   },
   async setWorkspace(input: { workspaceID?: string }) {
-    startEventStream({ directory: process.cwd(), workspaceID: input.workspaceID })
+    state.workspaceID = input.workspaceID
+    startEventStream({ directory: state.directory, workspaceID: state.workspaceID })
   },
   async shutdown() {
     Log.Default.info("worker shutting down")

@@ -48,6 +48,7 @@ import type { QuestionTool } from "@/tool/question"
 import type { SkillTool } from "@/tool/skill"
 import { useKeyboard, useRenderer, useTerminalDimensions, type JSX } from "@opentui/solid"
 import { useSDK } from "@tui/context/sdk"
+import { useArgs } from "@tui/context/args"
 import { useCommandDialog } from "@tui/component/dialog-command"
 import type { DialogContext } from "@tui/ui/dialog"
 import { useKeybind } from "@tui/context/keybind"
@@ -234,6 +235,7 @@ export function Session() {
   const keybind = useKeybind()
   const dialog = useDialog()
   const renderer = useRenderer()
+  const args = useArgs()
 
   // Allow exit when in child session (prompt is hidden)
   const exit = useExit()
@@ -242,6 +244,18 @@ export function Session() {
     const title = Locale.truncate(session()?.title ?? "", 50)
     const pad = (text: string) => text.padEnd(10, " ")
     const weak = (text: string) => UI.Style.TEXT_DIM + pad(text) + UI.Style.TEXT_NORMAL
+    const quote = (value: string) => `"${value.replace(/"/g, '\\"')}"`
+    const directory = sync.data.path.directory || sdk.directory || ""
+    const continueCommand = (() => {
+      const sessionID = session()?.id
+      if (!sessionID) return ""
+      if (args.transport === "attach" && args.url) {
+        return ["opencode attach", quote(args.url), directory ? `--dir ${quote(directory)}` : "", `-s ${sessionID}`]
+          .filter(Boolean)
+          .join(" ")
+      }
+      return ["opencode", directory ? `--dir ${quote(directory)}` : "", `-s ${sessionID}`].filter(Boolean).join(" ")
+    })()
     const logo = UI.logo("  ").split(/\r?\n/)
     return exit.message.set(
       [
@@ -251,7 +265,11 @@ export function Session() {
         `${logo[3] ?? ""}`,
         ``,
         `  ${weak("Session")}${UI.Style.TEXT_NORMAL_BOLD}${title}${UI.Style.TEXT_NORMAL}`,
-        `  ${weak("Continue")}${UI.Style.TEXT_NORMAL_BOLD}opencode -s ${session()?.id}${UI.Style.TEXT_NORMAL}`,
+        ...(args.transport === "attach" && args.url
+          ? [`  ${weak("Server")}${UI.Style.TEXT_NORMAL_BOLD}${args.url}${UI.Style.TEXT_NORMAL}`]
+          : []),
+        ...(directory ? [`  ${weak("Directory")}${UI.Style.TEXT_NORMAL_BOLD}${directory}${UI.Style.TEXT_NORMAL}`] : []),
+        `  ${weak("Continue")}${UI.Style.TEXT_NORMAL_BOLD}${continueCommand}${UI.Style.TEXT_NORMAL}`,
         ``,
       ].join("\n"),
     )
