@@ -1,6 +1,6 @@
 import { Log } from "../util/log"
 import path from "path"
-import { pathToFileURL } from "url"
+import { fileURLToPath, pathToFileURL } from "url"
 import os from "os"
 import z from "zod"
 import { ModelsDev } from "../provider/models"
@@ -363,6 +363,39 @@ export namespace Config {
 
   export function pluginOptions(plugin: PluginSpec): PluginOptions | undefined {
     return Array.isArray(plugin) ? plugin[1] : undefined
+  }
+
+  export const PluginInfo = z
+    .object({
+      name: z.string(),
+      version: z.string().optional(),
+      specifier: z.string(),
+    })
+    .strict()
+    .meta({
+      ref: "ConfigPluginInfo",
+    })
+
+  export function pluginInfo(plugin: PluginSpec): z.infer<typeof PluginInfo> {
+    const spec = pluginSpecifier(plugin)
+    if (spec.startsWith("file://")) {
+      const parsed = path.parse(fileURLToPath(spec))
+      if (parsed.name === "index") {
+        return { name: parsed.dir ? path.basename(parsed.dir) : parsed.name, specifier: spec }
+      }
+      return { name: parsed.name || parsed.base || spec, specifier: spec }
+    }
+
+    const at = spec.lastIndexOf("@")
+    if (at <= 0) {
+      return { name: spec, version: "latest", specifier: spec }
+    }
+
+    return {
+      name: spec.substring(0, at),
+      version: spec.substring(at + 1),
+      specifier: spec,
+    }
   }
 
   export async function resolvePluginSpec(plugin: PluginSpec, configFilepath: string): Promise<PluginSpec> {
