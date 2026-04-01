@@ -146,7 +146,7 @@ export const Instance = {
 
     disposal.all = iife(async () => {
       Log.Default.info("disposing all instances")
-      const entries = [...cache.entries()]
+      const entries = Array.from(cache.entries())
       for (const [key, value] of entries) {
         if (cache.get(key) !== value) continue
 
@@ -171,5 +171,8 @@ export const Instance = {
     })
 
     return disposal.all
+  },
+  list() {
+    return Array.from(cache.keys())
   },
 }

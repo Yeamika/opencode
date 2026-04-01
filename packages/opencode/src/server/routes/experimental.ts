@@ -16,6 +16,27 @@ import { WorkspaceRoutes } from "./workspace"
 export const ExperimentalRoutes = lazy(() =>
   new Hono()
     .get(
+      "/instance",
+      describeRoute({
+        summary: "List loaded instances",
+        description: "List currently loaded server instances by directory.",
+        operationId: "experimental.instance.list",
+        responses: {
+          200: {
+            description: "Loaded instance directories",
+            content: {
+              "application/json": {
+                schema: resolver(z.array(z.string())),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        return c.json(Instance.list())
+      },
+    )
+    .get(
       "/tool/ids",
       describeRoute({
         summary: "List tool IDs",

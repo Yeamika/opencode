@@ -353,7 +353,7 @@ export const TuiRoutes = lazy(() =>
       "/select-session",
       describeRoute({
         summary: "Select session",
-        description: "Navigate the TUI to display the specified session.",
+        description: "Navigate the targeted TUI display to the specified session.",
         operationId: "tui.selectSession",
         responses: {
           200: {
@@ -369,9 +369,13 @@ export const TuiRoutes = lazy(() =>
       }),
       validator("json", TuiEvent.SessionSelect.properties),
       async (c) => {
-        const { sessionID } = c.req.valid("json")
-        await Session.get(sessionID)
-        await Bus.publish(TuiEvent.SessionSelect, { sessionID })
+        const body = c.req.valid("json")
+        await Session.get(body.sessionID)
+        const directory = c.req.query("directory") || c.req.header("x-opencode-directory")
+        await Bus.publish(TuiEvent.SessionSelect, {
+          ...body,
+          directory: directory || undefined,
+        })
         return c.json(true)
       },
     )
