@@ -63,6 +63,37 @@ IMPORTANT:
 - This tool provides your final answer - no further actions are taken after calling it`
 
 const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested structured output. You MUST use the StructuredOutput tool to provide your final response. Do NOT respond with plain text - you MUST call the StructuredOutput tool with your answer formatted according to the schema.`
+const EXECUTOR_SESSION_PARAM = "ExecutorSessionID"
+
+function hasExecutorSessionParam(schema: Record<string, any>) {
+  const properties = schema?.properties
+  return Boolean(
+    properties && typeof properties === "object" && !Array.isArray(properties)
+    && Object.prototype.hasOwnProperty.call(properties, EXECUTOR_SESSION_PARAM),
+  )
+}
+
+function normalizeExecutorSessionSchema(schema: Record<string, any>) {
+  if (!hasExecutorSessionParam(schema)) return schema
+  const required = Array.isArray(schema.required)
+    ? schema.required.filter((item: string) => item !== EXECUTOR_SESSION_PARAM)
+    : undefined
+  return {
+    ...schema,
+    ...(required ? { required } : {}),
+  }
+}
+
+function injectExecutorSessionArg<Args>(args: Args, sessionID: string, schema: Record<string, any>): Args {
+  if (!hasExecutorSessionParam(schema)) return args
+  if (!args || typeof args !== "object" || Array.isArray(args)) return args
+  const current = (args as Record<string, unknown>)[EXECUTOR_SESSION_PARAM]
+  if (typeof current === "string" && current.trim()) return args
+  return {
+    ...(args as Record<string, unknown>),
+    [EXECUTOR_SESSION_PARAM]: sessionID,
+  } as Args
+}
 
 export namespace SessionPrompt {
   const log = Log.create({ service: "session.prompt" })
@@ -309,7 +340,7 @@ export namespace SessionPrompt {
           messageID: userMessage.info.id,
           sessionID: userMessage.info.sessionID,
           type: "text",
-          text: `<system-reminder>
+          text: `<opencode-system-reminder>
 Plan mode is active. The user indicated that they do not want you to execute yet -- you MUST NOT make any edits (with the exception of the plan file mentioned below), run any non-readonly tools (including changing configs or making commits), or otherwise make any changes to the system. This supersedes any other instructions you have received.
 
 ## Plan File Info:
@@ -378,7 +409,7 @@ This is critical - your turn should only end with either asking the user a quest
 **Important:** Use question tool to clarify requirements/approach, use plan_exit to request plan approval. Do NOT use question tool to ask "Is this plan okay?" - that's what plan_exit does.
 
 NOTE: At any point in time through this workflow you should feel free to ask the user questions or clarifications. Don't make large assumptions about user intent. The goal is to present a well researched plan to the user, and tie any loose ends before implementation begins.
-</system-reminder>`,
+</opencode-system-reminder>`,
           synthetic: true,
         })
         userMessage.parts.push(part)
@@ -438,20 +469,24 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           input.agent,
         )) {
           const schema = ProviderTransform.schema(input.model, z.toJSONSchema(item.parameters))
+          const inputSchema = normalizeExecutorSessionSchema(schema)
           tools[item.id] = tool({
             id: item.id as any,
             description: item.description,
-            inputSchema: jsonSchema(schema as any),
+            inputSchema: jsonSchema(inputSchema as any),
             execute(args, options) {
               return Effect.runPromise(
                 Effect.gen(function* () {
                   const ctx = context(args, options)
+                  let nextArgs = injectExecutorSessionArg(args, ctx.sessionID, schema)
+                  const hookOutput = { args: nextArgs }
                   yield* plugin.trigger(
                     "tool.execute.before",
                     { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID },
-                    { args },
+                    hookOutput,
                   )
-                  const result = yield* Effect.promise(() => item.execute(args, ctx))
+                  nextArgs = hookOutput.args
+                  const result = yield* Effect.promise(() => item.execute(nextArgs, ctx))
                   const output = {
                     ...result,
                     attachments: result.attachments?.map((attachment) => ({
@@ -463,7 +498,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   }
                   yield* plugin.trigger(
                     "tool.execute.after",
-                    { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID, args },
+                    { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID, args: nextArgs },
                     output,
                   )
                   return output
@@ -479,23 +514,26 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
           const schema = yield* Effect.promise(() => Promise.resolve(asSchema(item.inputSchema).jsonSchema))
           const transformed = ProviderTransform.schema(input.model, schema)
-          item.inputSchema = jsonSchema(transformed)
+          item.inputSchema = jsonSchema(normalizeExecutorSessionSchema(transformed))
           item.execute = (args, opts) =>
             Effect.runPromise(
               Effect.gen(function* () {
                 const ctx = context(args, opts)
+                let nextArgs = injectExecutorSessionArg(args, ctx.sessionID, transformed)
+                const hookOutput = { args: nextArgs }
                 yield* plugin.trigger(
                   "tool.execute.before",
                   { tool: key, sessionID: ctx.sessionID, callID: opts.toolCallId },
-                  { args },
+                  hookOutput,
                 )
+                nextArgs = hookOutput.args
                 yield* Effect.promise(() => ctx.ask({ permission: key, metadata: {}, patterns: ["*"], always: ["*"] }))
                 const result: Awaited<ReturnType<NonNullable<typeof execute>>> = yield* Effect.promise(() =>
-                  execute(args, opts),
+                  execute(nextArgs, opts),
                 )
                 yield* plugin.trigger(
                   "tool.execute.after",
-                  { tool: key, sessionID: ctx.sessionID, callID: opts.toolCallId, args },
+                  { tool: key, sessionID: ctx.sessionID, callID: opts.toolCallId, args: nextArgs },
                   result,
                 )
 
@@ -1485,12 +1523,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                       if (p.type !== "text" || p.ignored || p.synthetic) continue
                       if (!p.text.trim()) continue
                       p.text = [
-                        "<system-reminder>",
+                        "<opencode-system-reminder>",
                         "The user sent the following message:",
                         p.text,
                         "",
                         "Please address this message and continue with your tasks.",
-                        "</system-reminder>",
+                        "</opencode-system-reminder>",
                       ].join("\n")
                     }
                   }
