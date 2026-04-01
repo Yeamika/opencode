@@ -47,6 +47,11 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       question: {
         [sessionID: string]: QuestionRequest[]
       }
+      plugin: {
+        name: string
+        version?: string
+        specifier: string
+      }[]
       config: Config
       session: Session[]
       session_status: {
@@ -82,6 +87,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         connected: [],
       },
       provider_auth: {},
+      plugin: [],
       config: {},
       status: "loading",
       agent: [],
@@ -367,11 +373,13 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       const providerListPromise = sdk.client.provider.list({}, { throwOnError: true })
       const agentsPromise = sdk.client.app.agents({}, { throwOnError: true })
       const configPromise = sdk.client.config.get({}, { throwOnError: true })
+      const pluginsPromise = sdk.client.config.plugins({}, { throwOnError: true })
       const blockingRequests: Promise<unknown>[] = [
         providersPromise,
         providerListPromise,
         agentsPromise,
         configPromise,
+        pluginsPromise,
         ...(args.continue ? [sessionListPromise] : []),
       ]
 
@@ -381,6 +389,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           const providerListResponse = providerListPromise.then((x) => x.data!)
           const agentsResponse = agentsPromise.then((x) => x.data ?? [])
           const configResponse = configPromise.then((x) => x.data!)
+          const pluginsResponse = pluginsPromise.then((x) => x.data ?? [])
           const sessionListResponse = args.continue ? sessionListPromise : undefined
 
           return Promise.all([
@@ -388,19 +397,22 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
             providerListResponse,
             agentsResponse,
             configResponse,
+            pluginsResponse,
             ...(sessionListResponse ? [sessionListResponse] : []),
           ]).then((responses) => {
             const providers = responses[0]
             const providerList = responses[1]
             const agents = responses[2]
             const config = responses[3]
-            const sessions = responses[4]
+            const plugins = responses[4]
+            const sessions = responses[5]
 
             batch(() => {
               setStore("provider", reconcile(providers.providers))
               setStore("provider_default", reconcile(providers.default))
               setStore("provider_next", reconcile(providerList))
               setStore("agent", reconcile(agents))
+              setStore("plugin", reconcile(plugins))
               setStore("config", reconcile(config))
               if (sessions !== undefined) setStore("session", reconcile(sessions))
             })
