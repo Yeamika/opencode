@@ -105,8 +105,9 @@ export const ReloadTool = Tool.define("reload", {
     })
 
     const prev = await snapshot()
-    const promise = Reload.request(Instance.directory)
-    Reload.arrive(Instance.directory, ctx.sessionID)
+    const targetDirectory = ctx.extra?.directory ?? Instance.directory
+    const promise = Reload.request(targetDirectory)
+    Reload.arrive(targetDirectory, ctx.sessionID)
     await promise
     const next = await snapshot()
 
@@ -114,7 +115,7 @@ export const ReloadTool = Tool.define("reload", {
       title: "Workspace reloaded",
       output: text(prev, next, ctx.agent),
       metadata: {
-        directory: Instance.directory,
+        directory: targetDirectory,
       },
     }
   },

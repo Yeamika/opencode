@@ -1,0 +1,42 @@
+name: build-cli-artifacts
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - pr/reload-soft-workspace-clean
+
+permissions:
+  contents: read
+
+jobs:
+  build-linux:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-bun
+      - name: Build CLI
+        working-directory: packages/opencode
+        run: ./script/build.ts --single
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opencode-cli-linux
+          path: |
+            packages/opencode/dist/opencode-linux*
+            packages/opencode/dist/opencode-darwin*
+
+  build-windows:
+    runs-on: blacksmith-4vcpu-windows-2025
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-bun
+      - name: Build CLI
+        working-directory: packages/opencode
+        run: ./script/build.ts --single
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opencode-cli-windows
+          path: packages/opencode/dist/opencode-windows*
