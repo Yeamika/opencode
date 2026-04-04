@@ -20,7 +20,7 @@ export const WorkspaceSkillTool = Tool.define("workspaceSkill", {
     content: z.string().optional(),
   }),
   async execute(args, ctx) {
-    const directory = String(ctx.extra?.directory ?? "")
+    const directory = String(ctx.directory ?? "")
     const root = path.join(directory, ".opencode", "skills")
     if (args.mode === "write") {
       if (args.content === undefined) throw new Error("content is required for write")

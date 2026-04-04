@@ -24,7 +24,7 @@ export const WorkspaceMcpTool = Tool.define("workspaceMcp", {
     value: z.record(z.string(), z.any()).optional(),
   }),
   async execute(args, ctx) {
-    const directory = String(ctx.extra?.directory ?? "")
+    const directory = String(ctx.directory ?? "")
     const file = path.join(directory, "opencode.json")
     const json = await safeReadJson(file)
     json.mcp ||= {}

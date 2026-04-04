@@ -402,6 +402,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           abort: options.abortSignal!,
           messageID: input.processor.message.id,
           callID: options.toolCallId,
+          directory: input.session.directory,
+          worktree: input.worktree,
           extra: { model: input.model, bypassAgentCheck: input.bypassAgentCheck },
           agent: input.agent.name,
           messages: input.messages,

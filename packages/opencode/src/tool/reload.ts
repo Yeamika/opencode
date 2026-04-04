@@ -105,7 +105,7 @@ export const ReloadTool = Tool.define("reload", {
     })
 
     const prev = await snapshot()
-    const targetDirectory = ctx.extra?.directory ?? Instance.directory
+    const targetDirectory = ctx.directory ?? Instance.directory
     const promise = Reload.request(targetDirectory)
     Reload.arrive(targetDirectory, ctx.sessionID)
     await promise
