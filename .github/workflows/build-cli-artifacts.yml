@@ -11,15 +11,7 @@ permissions:
 
 jobs:
   build-cli:
-    strategy:
-      fail-fast: false
-      matrix:
-        settings:
-          - host: ubuntu-latest
-            artifact: opencode-cli
-          - host: windows-latest
-            artifact: opencode-cli-windows
-    runs-on: ${{ matrix.settings.host }}
+    runs-on: ubuntu-latest
     defaults:
       run:
         shell: bash
@@ -30,11 +22,6 @@ jobs:
 
       - uses: ./.github/actions/setup-bun
 
-      - name: Remove tree-sitter-powershell on Windows
-        if: runner.os == 'Windows'
-        run: |
-          rm -rf node_modules/tree-sitter-powershell node_modules/.bun/tree-sitter-powershell* || true
-
       - name: Build
         run: ./packages/opencode/script/build.ts
         env:
@@ -44,15 +31,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
       - uses: actions/upload-artifact@v4
-        if: runner.os != 'Windows'
         with:
-          name: ${{ matrix.settings.artifact }}
+          name: opencode-cli
           path: |
             packages/opencode/dist/opencode-darwin*
             packages/opencode/dist/opencode-linux*
-
-      - uses: actions/upload-artifact@v4
-        if: runner.os == 'Windows'
-        with:
-          name: ${{ matrix.settings.artifact }}
-          path: packages/opencode/dist/opencode-windows*
+            packages/opencode/dist/opencode-windows*
