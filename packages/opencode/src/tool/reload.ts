@@ -3,6 +3,7 @@ import { Instance } from "@/project/instance"
 import { Reload } from "@/project/reload"
 import { MCP } from "@/mcp"
 import { Skill } from "@/skill"
+import { Log } from "@/util/log"
 import { ToolRegistry } from "./registry"
 import { Tool } from "./tool"
 
@@ -33,7 +34,7 @@ function fmt(label: string, list: string[]) {
   return [`- ${label}: ${list.join(", ")}`]
 }
 
-function text(prev: Snapshot, next: Snapshot, agent: string) {
+function text(prev: Snapshot, next: Snapshot, agent: string, logPath?: string) {
   const added = {
     tool: diff(prev.tool, next.tool),
     server: diff(prev.server, next.server),
@@ -69,6 +70,7 @@ function text(prev: Snapshot, next: Snapshot, agent: string) {
     "- These counts describe the workspace-wide loaded inventory, not per-session visibility.",
     "- Tool visibility in the current session still depends on session context.",
     `- Current agent: ${agent}`,
+    ...(logPath ? [`- Current opencode log: ${logPath}`] : []),
     "- If something is not visible, report the current agent name.",
   ].join("\n")
 }
@@ -110,12 +112,14 @@ export const ReloadTool = Tool.define("reload", {
     Reload.arrive(targetDirectory, ctx.sessionID)
     await promise
     const next = await snapshot()
+    const logPath = Log.file()
 
     return {
       title: "Workspace reloaded",
-      output: text(prev, next, ctx.agent),
+      output: text(prev, next, ctx.agent, logPath),
       metadata: {
         directory: targetDirectory,
+        opencodeLogPath: logPath || undefined,
       },
     }
   },
