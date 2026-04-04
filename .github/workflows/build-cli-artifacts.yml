@@ -10,33 +10,44 @@ permissions:
   contents: read
 
 jobs:
-  build-linux:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-bun
-      - name: Build CLI
-        working-directory: packages/opencode
-        run: ./script/build.ts --single
-      - uses: actions/upload-artifact@v4
-        with:
-          name: opencode-cli-linux
-          path: |
-            packages/opencode/dist/opencode-linux*
-            packages/opencode/dist/opencode-darwin*
-
-  build-windows:
-    runs-on: windows-latest
+  build-cli:
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - host: ubuntu-latest
+            artifact: opencode-cli
+          - host: windows-latest
+            artifact: opencode-cli-windows
+    runs-on: ${{ matrix.settings.host }}
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-bun
-      - name: Build CLI
-        working-directory: packages/opencode
-        run: ./script/build.ts --single
-      - uses: actions/upload-artifact@v4
         with:
-          name: opencode-cli-windows
+          fetch-tags: true
+
+      - uses: ./.github/actions/setup-bun
+
+      - name: Build
+        run: ./packages/opencode/script/build.ts
+        env:
+          OPENCODE_VERSION: 0.0.0-pr-reload-soft-workspace-clean
+          OPENCODE_RELEASE: ""
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+
+      - uses: actions/upload-artifact@v4
+        if: runner.os != 'Windows'
+        with:
+          name: ${{ matrix.settings.artifact }}
+          path: |
+            packages/opencode/dist/opencode-darwin*
+            packages/opencode/dist/opencode-linux*
+
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows'
+        with:
+          name: ${{ matrix.settings.artifact }}
           path: packages/opencode/dist/opencode-windows*
