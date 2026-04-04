@@ -64,7 +64,7 @@ export namespace Reload {
   async function run(key: string, entry: Entry) {
     if (entry.running) return entry.running
     void publish(key, "running")
-    entry.running = Promise.all([State.dispose(key, { soft: true }), disposeInstance(key)])
+    entry.running = Promise.all([State.dispose(key, { soft: true }), disposeInstance(key, { soft: true })])
       .catch((error) => {
         entry.reject(error)
         throw error

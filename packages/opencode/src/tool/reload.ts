@@ -34,6 +34,17 @@ function fmt(label: string, list: string[]) {
   return [`- ${label}: ${list.join(", ")}`]
 }
 
+type PendingMetadata = {
+  reloadRequested?: boolean
+  directory?: string
+  previous?: Snapshot
+  opencodeLogPath?: string
+}
+
+export function isPendingReloadMetadata(input: unknown): input is PendingMetadata {
+  return !!input && typeof input === "object" && (input as PendingMetadata).reloadRequested === true
+}
+
 function text(prev: Snapshot, next: Snapshot, agent: string, logPath?: string) {
   const added = {
     tool: diff(prev.tool, next.tool),
@@ -108,17 +119,21 @@ export const ReloadTool = Tool.define("reload", {
 
     const prev = await snapshot()
     const targetDirectory = ctx.directory ?? Instance.directory
-    const promise = Reload.request(targetDirectory)
+    void Reload.request(targetDirectory)
     Reload.arrive(targetDirectory, ctx.sessionID)
-    await promise
-    const next = await snapshot()
     const logPath = Log.file()
 
     return {
-      title: "Workspace reloaded",
-      output: text(prev, next, ctx.agent, logPath),
+      title: "Workspace reload requested",
+      output: [
+        "Workspace reload requested.",
+        "The server will apply the reload after active sessions reach the next waitpoint.",
+        ...(logPath ? [`Current opencode log: ${logPath}`] : []),
+      ].join("\n"),
       metadata: {
         directory: targetDirectory,
+        reloadRequested: true,
+        previous: prev,
         opencodeLogPath: logPath || undefined,
       },
     }
