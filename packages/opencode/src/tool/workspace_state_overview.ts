@@ -27,7 +27,7 @@ export const WorkspaceOverviewTool = Tool.define("workspaceOverview", {
   description: "List current workspace MCP config entries, custom tool files, and skill folders.",
   parameters: z.object({}),
   async execute(_args, ctx) {
-    const directory = String(ctx.extra?.directory ?? "")
+    const directory = String(ctx.directory ?? "")
     const configFile = path.join(directory, "opencode.json")
     const config = await safeReadJson(configFile)
     const mcp = Object.keys(config.mcp ?? {}).sort((a, b) => a.localeCompare(b))
