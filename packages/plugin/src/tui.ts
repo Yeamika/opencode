@@ -389,8 +389,22 @@ export type TuiSlots = {
   }
 }
 
+export type TuiDisplayReportEvent = {
+  type: "tui.display.report"
+  properties: {
+    displayID: string
+    directory?: string
+    sessionID?: string
+  }
+}
+
+export type TuiPluginEvent = Event | TuiDisplayReportEvent
+
 export type TuiEventBus = {
-  on: <Type extends Event["type"]>(type: Type, handler: (event: Extract<Event, { type: Type }>) => void) => () => void
+  on: <Type extends TuiPluginEvent["type"]>(
+    type: Type,
+    handler: (event: Extract<TuiPluginEvent, { type: Type }>) => void,
+  ) => () => void
 }
 
 export type TuiDispose = () => void | Promise<void>
@@ -456,7 +470,7 @@ export type TuiDisplay = {
   readonly directory?: string
   readonly sessionID?: string
   report: () => Promise<void>
-  selectSession: (input: { sessionID: string; directory?: string }) => Promise<void>
+  selectSession: (input: { sessionID: string; directory?: string; displayID?: string }) => Promise<void>
 }
 
 export type TuiPluginApi = {

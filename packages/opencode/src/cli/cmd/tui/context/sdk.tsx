@@ -4,11 +4,22 @@ import { createGlobalEmitter } from "@solid-primitives/event-bus"
 import { batch, onCleanup, onMount } from "solid-js"
 
 export type EventSource = {
-  on: (handler: (event: Event) => void) => () => void
+  on: (handler: (event: Event | { type: "tui.display.report"; properties: { displayID: string; directory?: string; sessionID?: string } }) => void) => () => void
   setDirectory?: (directory: string) => void
   reload?: (directory: string) => Promise<void>
   setWorkspace?: (workspaceID?: string) => void
 }
+
+type DisplayReportEvent = {
+  type: "tui.display.report"
+  properties: {
+    displayID: string
+    directory?: string
+    sessionID?: string
+  }
+}
+
+type TuiSdkEvent = Event | DisplayReportEvent
 
 type Props = {
   url: string
@@ -54,10 +65,10 @@ export const { use: useSDK, provider: SDKProvider } = createSimpleContext({
     let sdk = createSDK()
 
     const emitter = createGlobalEmitter<{
-      [key in Event["type"]]: Extract<Event, { type: key }>
+      [key in TuiSdkEvent["type"]]: Extract<TuiSdkEvent, { type: key }>
     }>()
 
-    let queue: Event[] = []
+    let queue: TuiSdkEvent[] = []
     let timer: Timer | undefined
     let last = 0
 
@@ -75,7 +86,7 @@ export const { use: useSDK, provider: SDKProvider } = createSimpleContext({
       })
     }
 
-    const handleEvent = (event: Event) => {
+    const handleEvent = (event: TuiSdkEvent) => {
       queue.push(event)
       const elapsed = Date.now() - last
 
