@@ -451,6 +451,14 @@ export type TuiWorkspace = {
   set: (workspaceID?: string) => void
 }
 
+export type TuiDisplay = {
+  readonly id?: string
+  readonly directory?: string
+  readonly sessionID?: string
+  report: () => Promise<void>
+  selectSession: (input: { sessionID: string; directory?: string }) => Promise<void>
+}
+
 export type TuiPluginApi = {
   app: TuiApp
   command: {
@@ -486,6 +494,7 @@ export type TuiPluginApi = {
   client: OpencodeClient
   scopedClient: (workspaceID?: string) => OpencodeClient
   workspace: TuiWorkspace
+  display: TuiDisplay
   event: TuiEventBus
   renderer: CliRenderer
   slots: TuiSlots
