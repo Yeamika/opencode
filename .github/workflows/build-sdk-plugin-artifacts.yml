@@ -1,0 +1,40 @@
+name: build-sdk-plugin-artifacts
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - pr/tui-attach-session-targeting
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-tags: true
+
+      - uses: ./.github/actions/setup-bun
+
+      - name: Build SDK
+        working-directory: packages/sdk/js
+        run: bun run build
+
+      - name: Build Plugin
+        working-directory: packages/plugin
+        run: bun run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdk-plugin-dist
+          path: |
+            packages/sdk/js/dist/**
+            packages/plugin/dist/**
+            packages/sdk/js/package.json
+            packages/plugin/package.json
