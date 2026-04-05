@@ -471,6 +471,7 @@ export type TuiDisplay = {
   readonly sessionID?: string
   report: () => Promise<void>
   selectSession: (input: { sessionID: string; directory?: string; displayID?: string }) => Promise<void>
+  attachToRunningSession: (input: { sessionID: string; displayID?: string }) => Promise<void>
 }
 
 export type TuiPluginApi = {
