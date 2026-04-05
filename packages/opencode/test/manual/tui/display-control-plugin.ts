@@ -3,6 +3,12 @@ import type { TuiPluginModule } from "@opencode-ai/plugin/tui"
 const plugin: TuiPluginModule = {
   id: "display-control-plugin",
   async tui(api) {
+    const reports = new Map<string, { displayID: string; directory?: string; sessionID?: string }>()
+
+    api.event.on("tui.display.report", (evt) => {
+      reports.set(evt.properties.displayID, evt.properties)
+    })
+
     api.command.register(() => [
       {
         title: "Report Display",
@@ -25,6 +31,21 @@ const plugin: TuiPluginModule = {
           })
         },
       },
+      ...Array.from(reports.values())
+        .filter((report) => report.displayID !== api.display.id && report.sessionID)
+        .map((report) => ({
+          title: `Focus ${report.displayID}`,
+          value: `display.select.${report.displayID}`,
+          description: `Switch ${report.displayID} to ${report.directory ?? "/"}`,
+          onSelect: () => {
+            if (!report.sessionID) return
+            void api.display.selectSession({
+              displayID: report.displayID,
+              sessionID: report.sessionID,
+              directory: report.directory,
+            })
+          },
+        })),
     ])
   },
 }

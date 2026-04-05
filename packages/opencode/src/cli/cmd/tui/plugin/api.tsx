@@ -243,7 +243,8 @@ function displayApi(input: Input): TuiPluginApi["display"] {
       }
     },
     async selectSession(value) {
-      if (!input.sdk.displayID) throw new Error("display.selectSession requires a displayID")
+      const targetDisplayID = value.displayID ?? input.sdk.displayID
+      if (!targetDisplayID) throw new Error("display.selectSession requires a displayID")
       const url = new URL("/tui/select-session", input.sdk.url)
       if (value.directory) url.searchParams.set("directory", value.directory)
       const response = await input.sdk.fetch(url, {
@@ -254,7 +255,7 @@ function displayApi(input: Input): TuiPluginApi["display"] {
         },
         body: JSON.stringify({
           sessionID: value.sessionID,
-          displayID: input.sdk.displayID,
+          displayID: targetDisplayID,
         }),
       })
       if (!response.ok) {
