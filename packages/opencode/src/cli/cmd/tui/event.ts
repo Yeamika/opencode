@@ -48,4 +48,12 @@ export const TuiEvent = {
       directory: z.string().optional().describe("Directory to switch the targeted TUI into before opening the session"),
     }),
   ),
+  DisplayReport: BusEvent.define(
+    "tui.display.report",
+    z.object({
+      displayID: z.string().describe("TUI display ID that is reporting status"),
+      directory: z.string().optional().describe("Current directory visible to this display"),
+      sessionID: SessionID.zod.optional().describe("Current session shown in this display, if any"),
+    }),
+  ),
 }

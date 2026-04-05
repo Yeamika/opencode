@@ -206,6 +206,64 @@ function appApi(): TuiPluginApi["app"] {
   }
 }
 
+function displayApi(input: Input): TuiPluginApi["display"] {
+  return {
+    get id() {
+      return input.sdk.displayID
+    },
+    get directory() {
+      return input.sync.data.path.directory || input.sdk.directory
+    },
+    get sessionID() {
+      const current = input.route.data
+      if (current.type !== "session") return undefined
+      return current.sessionID
+    },
+    async report() {
+      if (!input.sdk.displayID) return
+      const url = new URL("/tui/publish", input.sdk.url)
+      const body = {
+        type: "tui.display.report",
+        properties: {
+          displayID: input.sdk.displayID,
+          directory: input.sync.data.path.directory || input.sdk.directory || undefined,
+          sessionID: input.route.data.type === "session" ? input.route.data.sessionID : undefined,
+        },
+      }
+      const response = await input.sdk.fetch(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(input.sdk.headers ?? {}),
+        },
+        body: JSON.stringify(body),
+      })
+      if (!response.ok) {
+        throw new Error(`display.report failed (${response.status})`)
+      }
+    },
+    async selectSession(value) {
+      if (!input.sdk.displayID) throw new Error("display.selectSession requires a displayID")
+      const url = new URL("/tui/select-session", input.sdk.url)
+      if (value.directory) url.searchParams.set("directory", value.directory)
+      const response = await input.sdk.fetch(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(input.sdk.headers ?? {}),
+        },
+        body: JSON.stringify({
+          sessionID: value.sessionID,
+          displayID: input.sdk.displayID,
+        }),
+      })
+      if (!response.ok) {
+        throw new Error(`display.selectSession failed (${response.status})`)
+      }
+    },
+  }
+}
+
 export function createTuiApi(input: Input): TuiHostPluginApi {
   const map = new Map<string | undefined, OpencodeClient>()
   const scoped: TuiPluginApi["scopedClient"] = (workspaceID) => {
@@ -371,6 +429,7 @@ export function createTuiApi(input: Input): TuiHostPluginApi {
     },
     scopedClient: scoped,
     workspace,
+    display: displayApi(input),
     event: input.sdk.event,
     renderer: input.renderer,
     slots: {
