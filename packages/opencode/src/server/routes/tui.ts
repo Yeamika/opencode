@@ -8,12 +8,6 @@ import { AsyncQueue } from "../../util/queue"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
 
-const TuiDisplayReport = z.object({
-  displayID: z.string(),
-  directory: z.string().optional(),
-  sessionID: z.string().optional(),
-})
-
 const TuiRequest = z.object({
   path: z.string(),
   body: z.any(),
@@ -23,7 +17,6 @@ type TuiRequest = z.infer<typeof TuiRequest>
 
 const request = new AsyncQueue<TuiRequest>()
 const response = new AsyncQueue<any>()
-const reports = new Map<string, z.infer<typeof TuiDisplayReport>>()
 
 export async function callTui(ctx: Context) {
   const body = await ctx.req.json()
@@ -352,32 +345,8 @@ export const TuiRoutes = lazy(() =>
       ),
       async (c) => {
         const evt = c.req.valid("json")
-        if (evt.type === TuiEvent.DisplayReport.type) {
-          reports.set(evt.properties.displayID, evt.properties)
-        }
         await Bus.publish(Object.values(TuiEvent).find((def) => def.type === evt.type)!, evt.properties)
         return c.json(true)
-      },
-    )
-    .get(
-      "/display",
-      describeRoute({
-        summary: "List reported TUI displays",
-        description: "List current TUI display reports that were published by TUI-side plugins.",
-        operationId: "tui.display.list",
-        responses: {
-          200: {
-            description: "Current reported displays",
-            content: {
-              "application/json": {
-                schema: resolver(TuiDisplayReport.array()),
-              },
-            },
-          },
-        },
-      }),
-      async (c) => {
-        return c.json(Array.from(reports.values()))
       },
     )
     .post(
