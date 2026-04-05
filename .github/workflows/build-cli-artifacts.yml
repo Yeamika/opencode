@@ -1,0 +1,39 @@
+name: build-cli-artifacts
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - pr/tui-attach-session-targeting
+
+permissions:
+  contents: read
+
+jobs:
+  build-cli:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-tags: true
+
+      - uses: ./.github/actions/setup-bun
+
+      - name: Build
+        run: ./packages/opencode/script/build.ts
+        env:
+          OPENCODE_VERSION: 0.0.0-pr-tui-attach-session-targeting
+          OPENCODE_RELEASE: ""
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opencode-cli
+          path: |
+            packages/opencode/dist/opencode-darwin*
+            packages/opencode/dist/opencode-linux*
+            packages/opencode/dist/opencode-windows*
