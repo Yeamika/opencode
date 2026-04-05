@@ -262,6 +262,25 @@ function displayApi(input: Input): TuiPluginApi["display"] {
         throw new Error(`display.selectSession failed (${response.status})`)
       }
     },
+    async attachToRunningSession(value) {
+      const targetDisplayID = value.displayID ?? input.sdk.displayID
+      if (!targetDisplayID) throw new Error("display.attachToRunningSession requires a displayID")
+      const url = new URL("/tui/attach-to-running-session", input.sdk.url)
+      const response = await input.sdk.fetch(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(input.sdk.headers ?? {}),
+        },
+        body: JSON.stringify({
+          sessionID: value.sessionID,
+          displayID: targetDisplayID,
+        }),
+      })
+      if (!response.ok) {
+        throw new Error(`display.attachToRunningSession failed (${response.status})`)
+      }
+    },
   }
 }
 

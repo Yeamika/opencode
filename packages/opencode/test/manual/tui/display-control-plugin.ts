@@ -31,6 +31,18 @@ const plugin: TuiPluginModule = {
           })
         },
       },
+      {
+        title: "Attach To Current Session",
+        value: "display.attach.current",
+        description: "Attach the current display to its current running session via the attach-to-running-session chain.",
+        enabled: !!api.display.sessionID,
+        onSelect: () => {
+          if (!api.display.sessionID) return
+          void api.display.attachToRunningSession({
+            sessionID: api.display.sessionID,
+          })
+        },
+      },
       ...Array.from(reports.values())
         .filter((report) => report.displayID !== api.display.id && report.sessionID)
         .map((report) => ({
@@ -43,6 +55,20 @@ const plugin: TuiPluginModule = {
               displayID: report.displayID,
               sessionID: report.sessionID,
               directory: report.directory,
+            })
+          },
+        })),
+      ...Array.from(reports.values())
+        .filter((report) => report.displayID !== api.display.id && report.sessionID)
+        .map((report) => ({
+          title: `Attach ${report.displayID}`,
+          value: `display.attach.${report.displayID}`,
+          description: `Attach ${report.displayID} to its current running session using the attach chain.`,
+          onSelect: () => {
+            if (!report.sessionID) return
+            void api.display.attachToRunningSession({
+              displayID: report.displayID,
+              sessionID: report.sessionID,
             })
           },
         })),

@@ -379,5 +379,43 @@ export const TuiRoutes = lazy(() =>
         return c.json(true)
       },
     )
+    .post(
+      "/attach-to-running-session",
+      describeRoute({
+        summary: "Attach display to running session",
+        description:
+          "Switch the targeted TUI display to a running session and proactively align its directory/workspace before navigation.",
+        operationId: "tui.attachToRunningSession",
+        responses: {
+          200: {
+            description: "Attach request published successfully",
+            content: {
+              "application/json": {
+                schema: resolver(z.boolean()),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "json",
+        z.object({
+          sessionID: TuiEvent.TUIAttachTOrunningsession.properties.shape.sessionID,
+          displayID: TuiEvent.TUIAttachTOrunningsession.properties.shape.displayID,
+        }),
+      ),
+      async (c) => {
+        const body = c.req.valid("json")
+        const session = await Session.get(body.sessionID)
+        await Bus.publish(TuiEvent.TUIAttachTOrunningsession, {
+          sessionID: body.sessionID,
+          displayID: body.displayID,
+          directory: session.directory,
+          workspaceID: session.workspaceID,
+        })
+        return c.json(true)
+      },
+    )
     .route("/control", TuiControlRoutes),
 )

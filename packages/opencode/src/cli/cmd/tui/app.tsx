@@ -827,6 +827,25 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
     })
   })
 
+  sdk.event.on(TuiEvent.TUIAttachTOrunningsession.type, (evt) => {
+    if (evt.properties.displayID !== sdk.displayID) return
+    void (async () => {
+      if (evt.properties.workspaceID) {
+        sdk.setWorkspace(evt.properties.workspaceID)
+      } else {
+        const nextDirectory = typeof evt.properties.directory === "string" ? evt.properties.directory.trim() : ""
+        if (nextDirectory && nextDirectory !== (sync.data.path.directory || sdk.directory || "")) {
+          sdk.setDirectory(nextDirectory)
+        }
+      }
+      await sync.bootstrap().catch(() => {})
+      route.navigate({
+        type: "session",
+        sessionID: evt.properties.sessionID,
+      })
+    })()
+  })
+
   sdk.event.on("session.deleted", (evt) => {
     if (route.data.type === "session" && route.data.sessionID === evt.properties.info.id) {
       route.navigate({ type: "home" })

@@ -145,6 +145,9 @@ export const { use: useSDK, provider: SDKProvider } = createSimpleContext({
       get displayID() {
         return props.displayID
       },
+      get workspaceID() {
+        return workspaceID
+      },
       event: emitter,
       fetch: props.fetch ?? fetch,
       headers: props.headers,
