@@ -6,6 +6,7 @@ import { InstanceBootstrap } from "@/project/bootstrap"
 import { Rpc } from "@/util/rpc"
 import { upgrade } from "@/cli/upgrade"
 import { Config } from "@/config/config"
+import { Reload } from "@/project/reload"
 import { Bus } from "@/bus"
 import { GlobalBus } from "@/bus/global"
 import type { Event } from "@opencode-ai/sdk/v2"
@@ -152,6 +153,7 @@ export const rpc = {
     })
   },
   async reload() {
+    void Reload.request(process.cwd())
     await Config.invalidate(true)
   },
   async setWorkspace(input: { workspaceID?: string }) {
