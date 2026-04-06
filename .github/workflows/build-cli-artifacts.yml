@@ -25,10 +25,16 @@ jobs:
 
       - uses: ./.github/actions/setup-bun
 
+      - name: Generate local package version
+        run: |
+          VERSION="0.0.0-local-yes-$(date -u +'%y%m%d%H%M')"
+          echo "LOCAL_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "LOCAL_VERSION=$VERSION"
+
       - name: Build
         run: ./packages/opencode/script/build.ts
         env:
-          OPENCODE_VERSION: 0.0.0-pr-tui-attach-session-targeting
+          OPENCODE_VERSION: ${{ env.LOCAL_VERSION }}
           OPENCODE_RELEASE: ""
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
