@@ -4,7 +4,10 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - pr/tui-attach-session-targeting
+      - "pr/**"
+  pull_request:
+    branches:
+      - local-yes
 
 permissions:
   contents: read
