@@ -389,6 +389,12 @@ export type TuiSlots = {
   }
 }
 
+export type TuiPromptControl = {
+  append: (text: string) => Promise<void>
+  submit: () => Promise<void>
+  clear: () => Promise<void>
+}
+
 export type TuiDisplayReportEvent = {
   type: "tui.display.report"
   properties: {
@@ -509,6 +515,7 @@ export type TuiPluginApi = {
   client: OpencodeClient
   scopedClient: (workspaceID?: string) => OpencodeClient
   workspace: TuiWorkspace
+  prompt: TuiPromptControl
   display: TuiDisplay
   event: TuiEventBus
   renderer: CliRenderer
