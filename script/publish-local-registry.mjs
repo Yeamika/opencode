@@ -12,9 +12,10 @@ function take(flag, fallback) {
   return args[index + 1]
 }
 
-const artifactDir = path.resolve(take("--artifact-dir", process.cwd()))
+const artifactDir = path.resolve(take("--path", take("--artifact-dir", process.cwd())))
 const registry = take("--registry", process.env.LOCAL_NPM_REGISTRY || "http://desktop-phi:4873/")
 const tag = take("--tag", process.env.LOCAL_NPM_TAG || "")
+const version = take("--version", process.env.LOCAL_NPM_VERSION || "")
 const dryRun = args.includes("--dry-run")
 
 const ignore = new Set(["node_modules", ".git"])
@@ -65,14 +66,25 @@ function alreadyPublished(output) {
     /EPUBLISHCONFLICT/i,
     /forbidden.*pre-existing version/i,
     /cannot modify pre-existing version/i,
+    /already present/i,
   ].some((pattern) => pattern.test(output))
 }
 
-const files = (await walk(artifactDir)).sort((a, b) => {
+const allFiles = (await walk(artifactDir)).sort((a, b) => {
   const diff = orderScore(a) - orderScore(b)
   if (diff !== 0) return diff
   return a.localeCompare(b)
 })
+
+const seenFiles = new Set()
+const files = []
+for (const file of allFiles) {
+  const key = path.basename(file)
+  if (seenFiles.has(key)) continue
+  if (version && !key.includes(version)) continue
+  seenFiles.add(key)
+  files.push(file)
+}
 
 if (files.length === 0) {
   console.error(`No .tgz packages found under ${artifactDir}`)
@@ -82,6 +94,7 @@ if (files.length === 0) {
 console.log(`Publishing ${files.length} package(s) from ${artifactDir}`)
 console.log(`Registry: ${registry}`)
 if (tag) console.log(`Tag: ${tag}`)
+if (version) console.log(`Version filter: ${version}`)
 if (dryRun) console.log(`Mode: dry-run`)
 
 let published = 0
