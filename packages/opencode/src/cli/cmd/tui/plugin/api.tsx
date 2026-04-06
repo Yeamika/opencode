@@ -284,49 +284,6 @@ function displayApi(input: Input): TuiPluginApi["display"] {
   }
 }
 
-function promptApi(input: Input): TuiPluginApi["prompt"] {
-  return {
-    async append(text) {
-      const url = new URL("/tui/append-prompt", input.sdk.url)
-      const response = await input.sdk.fetch(url, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(input.sdk.headers ?? {}),
-        },
-        body: JSON.stringify({ text }),
-      })
-      if (!response.ok) {
-        throw new Error(`prompt.append failed (${response.status})`)
-      }
-    },
-    async submit() {
-      const url = new URL("/tui/submit-prompt", input.sdk.url)
-      const response = await input.sdk.fetch(url, {
-        method: "POST",
-        headers: {
-          ...(input.sdk.headers ?? {}),
-        },
-      })
-      if (!response.ok) {
-        throw new Error(`prompt.submit failed (${response.status})`)
-      }
-    },
-    async clear() {
-      const url = new URL("/tui/clear-prompt", input.sdk.url)
-      const response = await input.sdk.fetch(url, {
-        method: "POST",
-        headers: {
-          ...(input.sdk.headers ?? {}),
-        },
-      })
-      if (!response.ok) {
-        throw new Error(`prompt.clear failed (${response.status})`)
-      }
-    },
-  }
-}
-
 export function createTuiApi(input: Input): TuiHostPluginApi {
   const map = new Map<string | undefined, OpencodeClient>()
   const scoped: TuiPluginApi["scopedClient"] = (workspaceID) => {
@@ -492,7 +449,6 @@ export function createTuiApi(input: Input): TuiHostPluginApi {
     },
     scopedClient: scoped,
     workspace,
-    prompt: promptApi(input),
     display: displayApi(input),
     event: input.sdk.event,
     renderer: input.renderer,
