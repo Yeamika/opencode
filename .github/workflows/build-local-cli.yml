@@ -1,0 +1,214 @@
+name: build-full-packages
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - pr/local-cli-packaging
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    env:
+      LOCAL_VERSION: 0.0.0-local-YES
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-tags: true
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Build CLI targets
+        run: ./packages/opencode/script/build.ts
+        env:
+          OPENCODE_VERSION: ${{ env.LOCAL_VERSION }}
+
+      - name: Build SDK package
+        run: |
+          cd ./packages/sdk/js
+          bun run build
+
+      - name: Build plugin package
+        run: |
+          cd ./packages/plugin
+          bun run build
+
+      - name: Pack windows x64 npm package
+        run: npm pack ./packages/opencode/dist/opencode-windows-x64
+
+      - name: Pack linux arm64 npm package
+        run: npm pack ./packages/opencode/dist/opencode-linux-arm64
+
+      - name: Pack linux x64 npm package
+        run: npm pack ./packages/opencode/dist/opencode-linux-x64
+
+      - name: Prepare opencode-ai launcher package
+        run: |
+          mkdir -p ./packages/opencode/dist/opencode-ai
+          cp -r ./packages/opencode/bin ./packages/opencode/dist/opencode-ai/bin
+          cp ./packages/opencode/script/postinstall.mjs ./packages/opencode/dist/opencode-ai/postinstall.mjs
+          cp ./LICENSE ./packages/opencode/dist/opencode-ai/LICENSE
+          node <<'EOF'
+          const fs = require("fs")
+          const path = require("path")
+          const root = path.resolve("./packages/opencode")
+          const dist = path.join(root, "dist")
+          const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"))
+          const win = JSON.parse(fs.readFileSync(path.join(dist, "opencode-windows-x64", "package.json"), "utf8"))
+          const linuxX64 = JSON.parse(fs.readFileSync(path.join(dist, "opencode-linux-x64", "package.json"), "utf8"))
+          const linux = JSON.parse(fs.readFileSync(path.join(dist, "opencode-linux-arm64", "package.json"), "utf8"))
+          fs.writeFileSync(
+            path.join(dist, "opencode-ai", "package.json"),
+            JSON.stringify(
+              {
+                name: "opencode-ai",
+                version: win.version,
+                license: pkg.license,
+                bin: {
+                  opencode: "./bin/opencode",
+                },
+                scripts: {
+                  postinstall: "node ./postinstall.mjs",
+                },
+                optionalDependencies: {
+                  [win.name]: win.version,
+                  [linuxX64.name]: linuxX64.version,
+                  [linux.name]: linux.version,
+                },
+              },
+              null,
+              2,
+            ),
+          )
+          EOF
+
+      - name: Pack opencode-ai launcher package
+        run: npm pack ./packages/opencode/dist/opencode-ai
+
+      - name: Pack SDK package
+        run: |
+          cp ./packages/sdk/js/package.json ./packages/sdk/js/package.json.bak
+          node <<'EOF'
+          const fs = require("fs")
+          const path = require("path")
+          const file = path.resolve("./packages/sdk/js/package.json")
+           const pkg = JSON.parse(fs.readFileSync(file, "utf8"))
+           pkg.version = process.env.LOCAL_VERSION
+           const map = (value) => {
+            if (typeof value === "string") {
+              const item = value.replace("./src/", "./dist/").replace(/\.ts$/, "")
+              return { import: item + ".js", types: item + ".d.ts" }
+            }
+            if (!value || typeof value !== "object") return value
+            return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, map(item)]))
+          }
+          pkg.exports = map(pkg.exports)
+          fs.writeFileSync(file, JSON.stringify(pkg, null, 2))
+          EOF
+          (cd ./packages/sdk/js && bun pm pack)
+          tar -tf ./packages/sdk/js/opencode-ai-sdk-*.tgz | grep '^package/dist/'
+          mv ./packages/sdk/js/package.json.bak ./packages/sdk/js/package.json
+
+      - name: Pack plugin package
+        run: |
+          cp ./packages/plugin/package.json ./packages/plugin/package.json.bak
+          node <<'EOF'
+          const fs = require("fs")
+          const path = require("path")
+          const file = path.resolve("./packages/plugin/package.json")
+           const pkg = JSON.parse(fs.readFileSync(file, "utf8"))
+           pkg.version = process.env.LOCAL_VERSION
+           pkg.dependencies["@opencode-ai/sdk"] = pkg.version
+          pkg.exports = Object.fromEntries(
+            Object.entries(pkg.exports).map(([key, value]) => {
+              const item = value.replace("./src/", "./dist/").replace(/\.ts$/, "")
+              return [key, { import: item + ".js", types: item + ".d.ts" }]
+            }),
+          )
+          fs.writeFileSync(file, JSON.stringify(pkg, null, 2))
+          EOF
+          (cd ./packages/plugin && bun pm pack)
+          tar -tf ./packages/plugin/opencode-ai-plugin-*.tgz | grep '^package/dist/'
+          mv ./packages/plugin/package.json.bak ./packages/plugin/package.json
+
+      - name: Write package manifest
+        run: |
+          node <<'EOF'
+          const fs = require("fs")
+          const path = require("path")
+          const entries = [
+            { kind: "cli", artifact: "opencode-cli", glob: /^opencode-ai-.*\.tgz$/ },
+            { kind: "cli-binary", artifact: "opencode-windows-x64", glob: /^opencode-windows-x64-.*\.tgz$/ },
+            { kind: "cli-binary", artifact: "opencode-linux-x64", glob: /^opencode-linux-x64-.*\.tgz$/ },
+            { kind: "cli-binary", artifact: "opencode-linux-arm64", glob: /^opencode-linux-arm64-.*\.tgz$/ },
+            { kind: "sdk", artifact: "opencode-sdk", glob: /^opencode-ai-sdk-.*\.tgz$/ },
+            { kind: "pluginsdk", artifact: "opencode-plugin-sdk", glob: /^opencode-ai-plugin-.*\.tgz$/ },
+          ]
+          const root = process.cwd()
+          const files = fs.readdirSync(root)
+          const output = entries.map((item) => {
+            const file = files.find((name) => item.glob.test(name))
+              || fs.readdirSync(path.join(root, 'packages', 'sdk', 'js')).find((name) => item.glob.test(name))
+              || fs.readdirSync(path.join(root, 'packages', 'plugin')).find((name) => item.glob.test(name))
+            return {
+              kind: item.kind,
+              artifact: item.artifact,
+              file: file || null,
+            }
+          })
+          fs.writeFileSync('build-full-packages.json', JSON.stringify(output, null, 2))
+          EOF
+
+      - name: Upload windows x64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-binary-windows-x64
+          path: opencode-windows-x64-*.tgz
+          if-no-files-found: error
+
+      - name: Upload linux arm64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-binary-linux-arm64
+          path: opencode-linux-arm64-*.tgz
+          if-no-files-found: error
+
+      - name: Upload linux x64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-binary-linux-x64
+          path: opencode-linux-x64-*.tgz
+          if-no-files-found: error
+
+      - name: Upload opencode-ai launcher artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencode-cli
+          path: opencode-ai-*.tgz
+          if-no-files-found: error
+
+      - name: Upload SDK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencode-sdk
+          path: packages/sdk/js/opencode-ai-sdk-*.tgz
+          if-no-files-found: error
+
+      - name: Upload plugin artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencode-plugin-sdk
+          path: packages/plugin/opencode-ai-plugin-*.tgz
+          if-no-files-found: error
+
+      - name: Upload package manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-full-packages-manifest
+          path: build-full-packages.json
+          if-no-files-found: error

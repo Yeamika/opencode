@@ -1,0 +1,121 @@
+#!/usr/bin/env node
+
+import fs from "node:fs/promises"
+import path from "node:path"
+import { spawnSync } from "node:child_process"
+
+const args = process.argv.slice(2)
+
+function take(flag, fallback) {
+  const index = args.indexOf(flag)
+  if (index === -1) return fallback
+  return args[index + 1]
+}
+
+const artifactDir = path.resolve(take("--artifact-dir", process.cwd()))
+const registry = take("--registry", process.env.LOCAL_NPM_REGISTRY || "http://desktop-phi:4873/")
+const tag = take("--tag", process.env.LOCAL_NPM_TAG || "")
+const dryRun = args.includes("--dry-run")
+
+const ignore = new Set(["node_modules", ".git"])
+
+async function walk(dir) {
+  const out = []
+  const entries = await fs.readdir(dir, { withFileTypes: true })
+  for (const entry of entries) {
+    if (ignore.has(entry.name)) continue
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory()) {
+      out.push(...(await walk(full)))
+      continue
+    }
+    if (entry.isFile() && entry.name.endsWith(".tgz")) out.push(full)
+  }
+  return out
+}
+
+function orderScore(file) {
+  const name = path.basename(file)
+  if (/^opencode-windows-x64-/.test(name)) return 10
+  if (/^opencode-linux-x64-/.test(name)) return 20
+  if (/^opencode-linux-arm64-/.test(name)) return 30
+  if (/^opencode-ai-/.test(name) && !/^opencode-ai-(sdk|plugin)-/.test(name)) return 40
+  if (/^opencode-ai-sdk-/.test(name)) return 50
+  if (/^opencode-ai-plugin-/.test(name)) return 60
+  return 100
+}
+
+function runNpm(commandArgs) {
+  const result = spawnSync("npm", commandArgs, {
+    cwd: artifactDir,
+    encoding: "utf8",
+    shell: process.platform === "win32",
+  })
+  return {
+    status: result.status ?? 1,
+    stdout: result.stdout || "",
+    stderr: result.stderr || "",
+  }
+}
+
+function alreadyPublished(output) {
+  return [
+    /cannot publish over existing version/i,
+    /previously published/i,
+    /EPUBLISHCONFLICT/i,
+    /forbidden.*pre-existing version/i,
+    /cannot modify pre-existing version/i,
+  ].some((pattern) => pattern.test(output))
+}
+
+const files = (await walk(artifactDir)).sort((a, b) => {
+  const diff = orderScore(a) - orderScore(b)
+  if (diff !== 0) return diff
+  return a.localeCompare(b)
+})
+
+if (files.length === 0) {
+  console.error(`No .tgz packages found under ${artifactDir}`)
+  process.exit(1)
+}
+
+console.log(`Publishing ${files.length} package(s) from ${artifactDir}`)
+console.log(`Registry: ${registry}`)
+if (tag) console.log(`Tag: ${tag}`)
+if (dryRun) console.log(`Mode: dry-run`)
+
+let published = 0
+let skipped = 0
+let failed = 0
+
+for (const file of files) {
+  const rel = path.relative(artifactDir, file)
+  const cmd = ["publish", file, "--registry", registry]
+  if (tag) cmd.push("--tag", tag)
+
+  if (dryRun) {
+    console.log(`[dry-run] npm ${cmd.join(" ")}`)
+    continue
+  }
+
+  const result = runNpm(cmd)
+  const combined = `${result.stdout}\n${result.stderr}`
+  if (result.status === 0) {
+    published += 1
+    console.log(`[published] ${rel}`)
+    continue
+  }
+
+  if (alreadyPublished(combined)) {
+    skipped += 1
+    console.log(`[skipped] ${rel} (already published)`)
+    continue
+  }
+
+  failed += 1
+  console.error(`[failed] ${rel}`)
+  console.error(combined.trim())
+}
+
+console.log(`Summary: published=${published} skipped=${skipped} failed=${failed}`)
+if (failed > 0) process.exit(1)
