@@ -1,10 +1,13 @@
-name: build-local-cli
+name: build-full-packages
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - local-cli-packaging
+      - pr/local-cli-packaging
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -12,6 +15,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-tags: true
 
       - name: Setup Bun
         uses: ./.github/actions/setup-bun
@@ -125,44 +130,79 @@ jobs:
           tar -tf ./packages/plugin/opencode-ai-plugin-*.tgz | grep '^package/dist/'
           mv ./packages/plugin/package.json.bak ./packages/plugin/package.json
 
+      - name: Write package manifest
+        run: |
+          node <<'EOF'
+          const fs = require("fs")
+          const path = require("path")
+          const entries = [
+            { kind: "cli", artifact: "opencode-cli", glob: /^opencode-ai-.*\.tgz$/ },
+            { kind: "cli-binary", artifact: "opencode-windows-x64", glob: /^opencode-windows-x64-.*\.tgz$/ },
+            { kind: "cli-binary", artifact: "opencode-linux-x64", glob: /^opencode-linux-x64-.*\.tgz$/ },
+            { kind: "cli-binary", artifact: "opencode-linux-arm64", glob: /^opencode-linux-arm64-.*\.tgz$/ },
+            { kind: "sdk", artifact: "opencode-sdk", glob: /^opencode-ai-sdk-.*\.tgz$/ },
+            { kind: "pluginsdk", artifact: "opencode-plugin-sdk", glob: /^opencode-ai-plugin-.*\.tgz$/ },
+          ]
+          const root = process.cwd()
+          const files = fs.readdirSync(root)
+          const output = entries.map((item) => {
+            const file = files.find((name) => item.glob.test(name))
+              || fs.readdirSync(path.join(root, 'packages', 'sdk', 'js')).find((name) => item.glob.test(name))
+              || fs.readdirSync(path.join(root, 'packages', 'plugin')).find((name) => item.glob.test(name))
+            return {
+              kind: item.kind,
+              artifact: item.artifact,
+              file: file || null,
+            }
+          })
+          fs.writeFileSync('build-full-packages.json', JSON.stringify(output, null, 2))
+          EOF
+
       - name: Upload windows x64 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: opencode-windows-x64
+          name: cli-binary-windows-x64
           path: opencode-windows-x64-*.tgz
           if-no-files-found: error
 
       - name: Upload linux arm64 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: opencode-linux-arm64
+          name: cli-binary-linux-arm64
           path: opencode-linux-arm64-*.tgz
           if-no-files-found: error
 
       - name: Upload linux x64 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: opencode-linux-x64
+          name: cli-binary-linux-x64
           path: opencode-linux-x64-*.tgz
           if-no-files-found: error
 
       - name: Upload opencode-ai launcher artifact
         uses: actions/upload-artifact@v4
         with:
-          name: opencode-ai
+          name: opencode-cli
           path: opencode-ai-*.tgz
           if-no-files-found: error
 
       - name: Upload SDK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: opencode-ai-sdk
+          name: opencode-sdk
           path: packages/sdk/js/opencode-ai-sdk-*.tgz
           if-no-files-found: error
 
       - name: Upload plugin artifact
         uses: actions/upload-artifact@v4
         with:
-          name: opencode-ai-plugin
+          name: opencode-plugin-sdk
           path: packages/plugin/opencode-ai-plugin-*.tgz
+          if-no-files-found: error
+
+      - name: Upload package manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-full-packages-manifest
+          path: build-full-packages.json
           if-no-files-found: error
