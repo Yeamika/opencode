@@ -26,7 +26,7 @@ jobs:
 
       - name: Generate local package version
         run: |
-          VERSION="0.0.0-local-yes-$(node -e "console.log(require('crypto').randomUUID())")"
+          VERSION="0.0.0-local-yes-$(date -u +'%y%m%d%H%M')"
           echo "LOCAL_VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "LOCAL_VERSION=$VERSION"
 
