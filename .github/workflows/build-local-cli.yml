@@ -12,8 +12,6 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04
-    env:
-      LOCAL_VERSION: 0.0.0-local-YES
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -22,6 +20,12 @@ jobs:
 
       - name: Setup Bun
         uses: ./.github/actions/setup-bun
+
+      - name: Generate local package version
+        run: |
+          VERSION="0.0.0-local-yes-$(node -e "console.log(require('crypto').randomUUID())")"
+          echo "LOCAL_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "LOCAL_VERSION=$VERSION"
 
       - name: Build CLI targets
         run: ./packages/opencode/script/build.ts
