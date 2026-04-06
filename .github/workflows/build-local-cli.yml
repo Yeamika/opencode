@@ -12,6 +12,8 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    env:
+      LOCAL_VERSION: 0.0.0-local-YES
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -23,6 +25,8 @@ jobs:
 
       - name: Build CLI targets
         run: ./packages/opencode/script/build.ts
+        env:
+          OPENCODE_VERSION: ${{ env.LOCAL_VERSION }}
 
       - name: Build SDK package
         run: |
@@ -93,8 +97,9 @@ jobs:
           const fs = require("fs")
           const path = require("path")
           const file = path.resolve("./packages/sdk/js/package.json")
-          const pkg = JSON.parse(fs.readFileSync(file, "utf8"))
-          const map = (value) => {
+           const pkg = JSON.parse(fs.readFileSync(file, "utf8"))
+           pkg.version = process.env.LOCAL_VERSION
+           const map = (value) => {
             if (typeof value === "string") {
               const item = value.replace("./src/", "./dist/").replace(/\.ts$/, "")
               return { import: item + ".js", types: item + ".d.ts" }
@@ -116,8 +121,9 @@ jobs:
           const fs = require("fs")
           const path = require("path")
           const file = path.resolve("./packages/plugin/package.json")
-          const pkg = JSON.parse(fs.readFileSync(file, "utf8"))
-          pkg.dependencies["@opencode-ai/sdk"] = pkg.version
+           const pkg = JSON.parse(fs.readFileSync(file, "utf8"))
+           pkg.version = process.env.LOCAL_VERSION
+           pkg.dependencies["@opencode-ai/sdk"] = pkg.version
           pkg.exports = Object.fromEntries(
             Object.entries(pkg.exports).map(([key, value]) => {
               const item = value.replace("./src/", "./dist/").replace(/\.ts$/, "")
