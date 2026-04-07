@@ -1619,6 +1619,12 @@ export type Config = {
   }
 }
 
+export type ConfigPluginInfo = {
+  name: string
+  version?: string
+  specifier: string
+}
+
 export type BadRequestError = {
   data: unknown
   errors: Array<{
@@ -2652,6 +2658,25 @@ export type ConfigProvidersResponses = {
 }
 
 export type ConfigProvidersResponse = ConfigProvidersResponses[keyof ConfigProvidersResponses]
+
+export type ConfigPluginsData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/config/plugins"
+}
+
+export type ConfigPluginsResponses = {
+  /**
+   * List of configured plugins
+   */
+  200: Array<ConfigPluginInfo>
+}
+
+export type ConfigPluginsResponse = ConfigPluginsResponses[keyof ConfigPluginsResponses]
 
 export type ToolIdsData = {
   body?: never

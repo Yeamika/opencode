@@ -88,5 +88,28 @@ export const ConfigRoutes = lazy(() =>
           default: mapValues(providers, (item) => Provider.sort(Object.values(item.models))[0].id),
         })
       },
+    )
+    .get(
+      "/plugins",
+      describeRoute({
+        summary: "List config plugins",
+        description: "Get plugin display information prepared by the current OpenCode server.",
+        operationId: "config.plugins",
+        responses: {
+          200: {
+            description: "List of configured plugins",
+            content: {
+              "application/json": {
+                schema: resolver(Config.PluginInfo.array()),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        return c.json(
+          (await Config.get()).plugin?.map(Config.pluginInfo).toSorted((a, b) => a.name.localeCompare(b.name)) ?? [],
+        )
+      },
     ),
 )
