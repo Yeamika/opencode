@@ -317,8 +317,8 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
         const mode = pick(kv.get("theme_mode", props.mode))
         draft.mode = lock ?? mode ?? props.mode
         draft.lock = lock
-        const active = config.theme ?? kv.get("theme", "opencode")
-        draft.active = typeof active === "string" ? active : "opencode"
+        const active = config.theme ?? kv.get("theme", "aura")
+        draft.active = typeof active === "string" ? active : "aura"
         draft.ready = false
       }),
     )
@@ -337,7 +337,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
             syncThemes()
           })
           .catch(() => {
-            setStore("active", "opencode")
+            setStore("active", "aura")
           }),
       ]).finally(() => {
         setStore("ready", true)
@@ -356,7 +356,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
             systemTheme = undefined
             syncThemes()
             if (store.active === "system") {
-              setStore("active", "opencode")
+              setStore("active", "aura")
             }
             return
           }
@@ -367,7 +367,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
           systemTheme = undefined
           syncThemes()
           if (store.active === "system") {
-            setStore("active", "opencode")
+              setStore("active", "aura")
           }
         })
     }
@@ -420,7 +420,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
         if (theme) return resolveTheme(theme, store.mode)
       }
 
-      return resolveTheme(store.themes.opencode, store.mode)
+      return resolveTheme(store.themes.aura, store.mode)
     })
 
     createEffect(() => {
