@@ -14,7 +14,7 @@ function take(flag, fallback) {
 
 const artifactDir = path.resolve(take("--path", take("--artifact-dir", process.cwd())))
 const registry = take("--registry", process.env.LOCAL_NPM_REGISTRY || "http://desktop-phi:4873/")
-const tag = take("--tag", process.env.LOCAL_NPM_TAG || "")
+const tag = take("--tag", process.env.LOCAL_NPM_TAG || "local-yes-latest")
 const version = take("--version", process.env.LOCAL_NPM_VERSION || "")
 const dryRun = args.includes("--dry-run")
 
