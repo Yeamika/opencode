@@ -4,6 +4,7 @@ import { streamSSE } from "hono/streaming"
 import { Log } from "@/util/log"
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
+import { GlobalBus } from "@/bus/global"
 import { AsyncQueue } from "../../util/queue"
 
 const log = Log.create({ service: "server" })
@@ -68,6 +69,14 @@ export const EventRoutes = () =>
           }
         })
 
+        async function onGlobal(event: any) {
+          const payload = event?.payload
+          if (!payload || typeof payload.type !== "string") return
+          if (!payload.type.startsWith("tui.")) return
+          q.push(JSON.stringify(payload))
+        }
+        GlobalBus.on("event", onGlobal)
+
         stream.onAbort(stop)
 
         try {
@@ -76,6 +85,7 @@ export const EventRoutes = () =>
             await stream.writeSSE({ data })
           }
         } finally {
+          GlobalBus.off("event", onGlobal)
           stop()
         }
       })

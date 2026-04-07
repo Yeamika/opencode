@@ -70,6 +70,10 @@ export const AttachCommand = cmd({
         directory: directory && existsSync(directory) ? directory : process.cwd(),
         fn: () => TuiConfig.get(),
       })
+      const displayID =
+        typeof process.env.OPENCODE_DISPLAY_ID === "string" && process.env.OPENCODE_DISPLAY_ID.trim()
+          ? process.env.OPENCODE_DISPLAY_ID.trim()
+          : `tui_${crypto.randomUUID().slice(0, 8)}`
       await tui({
         url: args.url,
         config,
@@ -77,8 +81,11 @@ export const AttachCommand = cmd({
           continue: args.continue,
           sessionID: args.session,
           fork: args.fork,
+          transport: "attach",
+          url: args.url,
         },
         directory,
+        displayID,
         headers,
       })
     } finally {

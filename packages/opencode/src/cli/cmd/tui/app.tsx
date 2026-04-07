@@ -34,6 +34,7 @@ import { DialogThemeList } from "@tui/component/dialog-theme-list"
 import { DialogHelp } from "./ui/dialog-help"
 import { CommandProvider, useCommandDialog } from "@tui/component/dialog-command"
 import { DialogAgent } from "@tui/component/dialog-agent"
+import { DialogChangeDirectory } from "@tui/component/dialog-change-directory"
 import { DialogSessionList } from "@tui/component/dialog-session-list"
 import { DialogWorkspaceList } from "@tui/component/dialog-workspace-list"
 import { KeybindProvider, useKeybind } from "@tui/context/keybind"
@@ -166,6 +167,7 @@ export function tui(input: {
   config: TuiConfig.Info
   onSnapshot?: () => Promise<string[]>
   directory?: string
+  displayID?: string
   fetch?: typeof fetch
   headers?: RequestInit["headers"]
   events?: EventSource
@@ -208,6 +210,7 @@ export function tui(input: {
                       <SDKProvider
                         url={input.url}
                         directory={input.directory}
+                        displayID={input.displayID}
                         fetch={input.fetch}
                         headers={input.headers}
                         events={input.events}
@@ -458,6 +461,18 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
       },
       onSelect: () => {
         dialog.replace(() => <DialogSessionList />)
+      },
+    },
+    {
+      title: "Change directory",
+      value: "directory.change",
+      category: "Workspace",
+      slash: {
+        name: "changedirectory",
+        aliases: ["cd"],
+      },
+      onSelect: () => {
+        dialog.replace(() => <DialogChangeDirectory />)
       },
     },
     ...(Flag.OPENCODE_EXPERIMENTAL_WORKSPACES
@@ -800,10 +815,35 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
   })
 
   sdk.event.on(TuiEvent.SessionSelect.type, (evt) => {
+    if (evt.properties.displayID !== sdk.displayID) return
+    const nextDirectory = typeof evt.properties.directory === "string" ? evt.properties.directory.trim() : ""
+    if (nextDirectory && nextDirectory !== (sync.data.path.directory || sdk.directory || "")) {
+      sdk.setDirectory(nextDirectory)
+      void sync.bootstrap().catch(() => {})
+    }
     route.navigate({
       type: "session",
       sessionID: evt.properties.sessionID,
     })
+  })
+
+  sdk.event.on(TuiEvent.TUIAttachTOrunningsession.type, (evt) => {
+    if (evt.properties.displayID !== sdk.displayID) return
+    void (async () => {
+      if (evt.properties.workspaceID) {
+        sdk.setWorkspace(evt.properties.workspaceID)
+      } else {
+        const nextDirectory = typeof evt.properties.directory === "string" ? evt.properties.directory.trim() : ""
+        if (nextDirectory && nextDirectory !== (sync.data.path.directory || sdk.directory || "")) {
+          sdk.setDirectory(nextDirectory)
+        }
+      }
+      await sync.bootstrap().catch(() => {})
+      route.navigate({
+        type: "session",
+        sessionID: evt.properties.sessionID,
+      })
+    })()
   })
 
   sdk.event.on("session.deleted", (evt) => {

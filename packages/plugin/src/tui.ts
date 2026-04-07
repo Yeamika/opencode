@@ -389,8 +389,22 @@ export type TuiSlots = {
   }
 }
 
+export type TuiDisplayReportEvent = {
+  type: "tui.display.report"
+  properties: {
+    displayID: string
+    directory?: string
+    sessionID?: string
+  }
+}
+
+export type TuiPluginEvent = Event | TuiDisplayReportEvent
+
 export type TuiEventBus = {
-  on: <Type extends Event["type"]>(type: Type, handler: (event: Extract<Event, { type: Type }>) => void) => () => void
+  on: <Type extends TuiPluginEvent["type"]>(
+    type: Type,
+    handler: (event: Extract<TuiPluginEvent, { type: Type }>) => void,
+  ) => () => void
 }
 
 export type TuiDispose = () => void | Promise<void>
@@ -451,6 +465,15 @@ export type TuiWorkspace = {
   set: (workspaceID?: string) => void
 }
 
+export type TuiDisplay = {
+  readonly id?: string
+  readonly directory?: string
+  readonly sessionID?: string
+  report: () => Promise<void>
+  selectSession: (input: { sessionID: string; directory?: string; displayID?: string }) => Promise<void>
+  attachToRunningSession: (input: { sessionID: string; displayID?: string }) => Promise<void>
+}
+
 export type TuiPluginApi = {
   app: TuiApp
   command: {
@@ -486,6 +509,7 @@ export type TuiPluginApi = {
   client: OpencodeClient
   scopedClient: (workspaceID?: string) => OpencodeClient
   workspace: TuiWorkspace
+  display: TuiDisplay
   event: TuiEventBus
   renderer: CliRenderer
   slots: TuiSlots

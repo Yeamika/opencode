@@ -44,6 +44,25 @@ export const TuiEvent = {
     "tui.session.select",
     z.object({
       sessionID: SessionID.zod.describe("Session ID to navigate to"),
+      displayID: z.string().describe("TUI display ID to target"),
+      directory: z.string().optional().describe("Directory to switch the targeted TUI into before opening the session"),
+      }),
+  ),
+  TUIAttachTOrunningsession: BusEvent.define(
+    "tui.attach-to-running-session",
+    z.object({
+      sessionID: SessionID.zod.describe("Session ID to attach the targeted display to"),
+      displayID: z.string().describe("TUI display ID to target"),
+      directory: z.string().optional().describe("Directory of the target running session"),
+      workspaceID: z.string().optional().describe("Workspace ID of the target running session, when present"),
+    }),
+  ),
+  DisplayReport: BusEvent.define(
+    "tui.display.report",
+    z.object({
+      displayID: z.string().describe("TUI display ID that is reporting status"),
+      directory: z.string().optional().describe("Current directory visible to this display"),
+      sessionID: SessionID.zod.optional().describe("Current session shown in this display, if any"),
     }),
   ),
 }
