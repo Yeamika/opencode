@@ -3,7 +3,6 @@
 import fs from "node:fs/promises"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
-import os from "node:os"
 
 const args = process.argv.slice(2)
 
@@ -84,14 +83,8 @@ function addDistTag(spec, distTag) {
 }
 
 async function readPackageInfo(file) {
-  const temp = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-publish-"))
-  const result = spawnSync("tar", ["-xOf", file, "package/package.json"], {
-    cwd: temp,
-    encoding: "utf8",
-    shell: process.platform === "win32",
-  })
-  await fs.rm(temp, { recursive: true, force: true })
-  if ((result.status ?? 1) !== 0) {
+  const result = runNpm(["view", file, "name", "version", "--json"])
+  if (result.status !== 0) {
     throw new Error(`Failed to inspect package ${file}: ${result.stderr || result.stdout}`)
   }
   const parsed = JSON.parse(result.stdout)
