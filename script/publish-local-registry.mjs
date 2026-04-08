@@ -14,8 +14,8 @@ function take(flag, fallback) {
 
 const artifactDir = path.resolve(take("--path", take("--artifact-dir", process.cwd())))
 const registry = take("--registry", process.env.LOCAL_NPM_REGISTRY || "http://desktop-phi:4873/")
-const tag = take("--tag", process.env.LOCAL_NPM_TAG || "")
-const extraTags = (take("--extra-tags", process.env.LOCAL_NPM_EXTRA_TAGS || "latest,local-yes-latest") || "")
+const tag = take("--tag", process.env.LOCAL_NPM_TAG || "local-yes-latest")
+const extraTags = (take("--extra-tags", process.env.LOCAL_NPM_EXTRA_TAGS || "latest") || "")
   .split(",")
   .map((item) => item.trim())
   .filter(Boolean)
