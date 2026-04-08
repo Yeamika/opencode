@@ -1,6 +1,7 @@
 import { Hono, type Context } from "hono"
 import { describeRoute, validator, resolver } from "hono-openapi"
 import z from "zod"
+import { randomUUID } from "node:crypto"
 import { Bus } from "../../bus"
 import { Session } from "../../session"
 import { TuiEvent } from "@/cli/cmd/tui/event"
@@ -17,6 +18,26 @@ type TuiRequest = z.infer<typeof TuiRequest>
 
 const request = new AsyncQueue<TuiRequest>()
 const response = new AsyncQueue<any>()
+const pendingAcks = new Map<string, { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>()
+
+function waitForAck(requestID: string, timeoutMs = 5000) {
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingAcks.delete(requestID)
+      reject(new Error(`Timed out waiting for TUI ack: ${requestID}`))
+    }, timeoutMs)
+    pendingAcks.set(requestID, { resolve, reject, timer })
+  })
+}
+
+function resolveAck(requestID: string) {
+  const pending = pendingAcks.get(requestID)
+  if (!pending) return false
+  clearTimeout(pending.timer)
+  pendingAcks.delete(requestID)
+  pending.resolve()
+  return true
+}
 
 export async function callTui(ctx: Context) {
   const body = await ctx.req.json()
@@ -350,6 +371,37 @@ export const TuiRoutes = lazy(() =>
       },
     )
     .post(
+      "/ack",
+      describeRoute({
+        summary: "Acknowledge TUI control delivery",
+        description: "Used by a TUI client to acknowledge that it received a directed control event.",
+        operationId: "tui.ack",
+        responses: {
+          200: {
+            description: "Ack accepted",
+            content: {
+              "application/json": {
+                schema: resolver(z.boolean()),
+              },
+            },
+          },
+          ...errors(400),
+        },
+      }),
+      validator(
+        "json",
+        z.object({
+          requestID: z.string(),
+          displayID: z.string().optional(),
+        }),
+      ),
+      async (c) => {
+        const body = c.req.valid("json")
+        if (!resolveAck(body.requestID)) return c.json(false, 400)
+        return c.json(true)
+      },
+    )
+    .post(
       "/select-session",
       describeRoute({
         summary: "Select session",
@@ -372,10 +424,17 @@ export const TuiRoutes = lazy(() =>
         const body = c.req.valid("json")
         await Session.get(body.sessionID)
         const directory = c.req.query("directory") || c.req.header("x-opencode-directory")
+        const requestID = randomUUID()
         await Bus.publish(TuiEvent.SessionSelect, {
           ...body,
           directory: directory || undefined,
+          requestID,
         })
+        try {
+          await waitForAck(requestID)
+        } catch (error) {
+          return c.json({ ok: false, error: String(error instanceof Error ? error.message : error) }, 504)
+        }
         return c.json(true)
       },
     )
@@ -408,12 +467,19 @@ export const TuiRoutes = lazy(() =>
       async (c) => {
         const body = c.req.valid("json")
         const session = await Session.get(body.sessionID)
+        const requestID = randomUUID()
         await Bus.publish(TuiEvent.TUIAttachTOrunningsession, {
           sessionID: body.sessionID,
           displayID: body.displayID,
           directory: session.directory,
           workspaceID: session.workspaceID,
+          requestID,
         })
+        try {
+          await waitForAck(requestID)
+        } catch (error) {
+          return c.json({ ok: false, error: String(error instanceof Error ? error.message : error) }, 504)
+        }
         return c.json(true)
       },
     )

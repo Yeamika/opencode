@@ -816,6 +816,18 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
 
   sdk.event.on(TuiEvent.SessionSelect.type, (evt) => {
     if (evt.properties.displayID !== sdk.displayID) return
+    const requestID = (evt as any).properties?.requestID as string | undefined
+    if (requestID) {
+      const url = new URL("/tui/ack", sdk.url)
+      void sdk.fetch(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(sdk.headers ?? {}),
+        },
+        body: JSON.stringify({ requestID, displayID: sdk.displayID }),
+      }).catch(() => {})
+    }
     const nextDirectory = typeof evt.properties.directory === "string" ? evt.properties.directory.trim() : ""
     if (nextDirectory && nextDirectory !== (sync.data.path.directory || sdk.directory || "")) {
       sdk.setDirectory(nextDirectory)
@@ -829,6 +841,18 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
 
   sdk.event.on(TuiEvent.TUIAttachTOrunningsession.type, (evt) => {
     if (evt.properties.displayID !== sdk.displayID) return
+    const requestID = (evt as any).properties?.requestID as string | undefined
+    if (requestID) {
+      const url = new URL("/tui/ack", sdk.url)
+      void sdk.fetch(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(sdk.headers ?? {}),
+        },
+        body: JSON.stringify({ requestID, displayID: sdk.displayID }),
+      }).catch(() => {})
+    }
     void (async () => {
       if (evt.properties.workspaceID) {
         sdk.setWorkspace(evt.properties.workspaceID)
