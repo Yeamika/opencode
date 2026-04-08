@@ -82,16 +82,25 @@ function addDistTag(spec, distTag) {
   return { ok: false, output: combined }
 }
 
-async function readPackageInfo(file) {
-  const result = runNpm(["view", file, "name", "version", "--json"])
-  if (result.status !== 0) {
-    throw new Error(`Failed to inspect package ${file}: ${result.stderr || result.stdout}`)
+function readPackageInfo(file) {
+  const base = path.basename(file)
+  const mappings = [
+    { prefix: "opencode-ai-sdk-", name: "@opencode-ai/sdk" },
+    { prefix: "opencode-ai-plugin-", name: "@opencode-ai/plugin" },
+    { prefix: "opencode-ai-", name: "opencode-ai" },
+    { prefix: "opencode-windows-x64-", name: "opencode-windows-x64" },
+    { prefix: "opencode-linux-x64-", name: "opencode-linux-x64" },
+    { prefix: "opencode-linux-arm64-", name: "opencode-linux-arm64" },
+  ]
+  for (const item of mappings) {
+    if (base.startsWith(item.prefix) && base.endsWith(".tgz")) {
+      return {
+        name: item.name,
+        version: base.slice(item.prefix.length, -4),
+      }
+    }
   }
-  const parsed = JSON.parse(result.stdout)
-  return {
-    name: parsed.name,
-    version: parsed.version,
-  }
+  throw new Error(`Failed to infer package metadata from file name: ${base}`)
 }
 
 const allFiles = (await walk(artifactDir)).sort((a, b) => {
