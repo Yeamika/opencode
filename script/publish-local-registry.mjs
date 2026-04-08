@@ -14,7 +14,11 @@ function take(flag, fallback) {
 
 const artifactDir = path.resolve(take("--path", take("--artifact-dir", process.cwd())))
 const registry = take("--registry", process.env.LOCAL_NPM_REGISTRY || "http://desktop-phi:4873/")
-const tag = take("--tag", process.env.LOCAL_NPM_TAG || "local-yes-latest")
+const tag = take("--tag", process.env.LOCAL_NPM_TAG || "")
+const extraTags = (take("--extra-tags", process.env.LOCAL_NPM_EXTRA_TAGS || "latest,local-yes-latest") || "")
+  .split(",")
+  .map((item) => item.trim())
+  .filter(Boolean)
 const version = take("--version", process.env.LOCAL_NPM_VERSION || "")
 const dryRun = args.includes("--dry-run")
 
@@ -70,6 +74,26 @@ function alreadyPublished(output) {
   ].some((pattern) => pattern.test(output))
 }
 
+function addDistTag(spec, distTag) {
+  const result = runNpm(["dist-tag", "add", spec, distTag, "--registry", registry])
+  const combined = `${result.stdout}\n${result.stderr}`
+  if (result.status === 0) return { ok: true }
+  if (alreadyPublished(combined)) return { ok: true, skipped: true }
+  return { ok: false, output: combined }
+}
+
+async function readPackageInfo(file) {
+  const result = runNpm(["view", file, "name", "version", "--json"])
+  if (result.status !== 0) {
+    throw new Error(`Failed to inspect package ${file}: ${result.stderr || result.stdout}`)
+  }
+  const parsed = JSON.parse(result.stdout)
+  return {
+    name: parsed.name,
+    version: parsed.version,
+  }
+}
+
 const allFiles = (await walk(artifactDir)).sort((a, b) => {
   const diff = orderScore(a) - orderScore(b)
   if (diff !== 0) return diff
@@ -116,6 +140,17 @@ for (const file of files) {
   if (result.status === 0) {
     published += 1
     console.log(`[published] ${rel}`)
+    const pkg = await readPackageInfo(file)
+    for (const distTag of extraTags) {
+      const tagResult = addDistTag(`${pkg.name}@${pkg.version}`, distTag)
+      if (!tagResult.ok) {
+        failed += 1
+        console.error(`[failed-tag] ${rel} -> ${distTag}`)
+        console.error((tagResult.output || "").trim())
+      } else {
+        console.log(`[tagged] ${pkg.name}@${pkg.version} -> ${distTag}`)
+      }
+    }
     continue
   }
 
