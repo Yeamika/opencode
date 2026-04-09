@@ -1,12 +1,16 @@
-const disposers = new Set<(directory: string) => Promise<void>>()
+type DisposeOptions = {
+  soft?: boolean
+}
 
-export function registerDisposer(disposer: (directory: string) => Promise<void>) {
+const disposers = new Set<(directory: string, options?: DisposeOptions) => Promise<void>>()
+
+export function registerDisposer(disposer: (directory: string, options?: DisposeOptions) => Promise<void>) {
   disposers.add(disposer)
   return () => {
     disposers.delete(disposer)
   }
 }
 
-export async function disposeInstance(directory: string) {
-  await Promise.allSettled([...disposers].map((disposer) => disposer(directory)))
+export async function disposeInstance(directory: string, options?: DisposeOptions) {
+  await Promise.allSettled([...disposers].map((disposer) => disposer(directory, options)))
 }
