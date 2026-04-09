@@ -21,6 +21,8 @@ export namespace Tool {
     agent: string
     abort: AbortSignal
     callID?: string
+    directory?: string
+    worktree?: string
     extra?: { [key: string]: any }
     messages: MessageV2.WithParts[]
     metadata(input: { title?: string; metadata?: M }): void
