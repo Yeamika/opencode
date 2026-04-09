@@ -78,8 +78,11 @@ function normalizeExecutorSessionSchema(schema: Record<string, any>) {
   const required = Array.isArray(schema.required)
     ? schema.required.filter((item: string) => item !== EXECUTOR_SESSION_PARAM)
     : undefined
+  const properties = { ...(schema.properties ?? {}) }
+  delete properties[EXECUTOR_SESSION_PARAM]
   return {
     ...schema,
+    properties,
     ...(required ? { required } : {}),
   }
 }
