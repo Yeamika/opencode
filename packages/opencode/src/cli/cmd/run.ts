@@ -411,6 +411,7 @@ export const RunCommand = cmd({
 
     async function execute(sdk: OpencodeClient) {
       let sessionID = ""
+      let activeAbort: AbortController | undefined
 
       function tool(part: ToolPart) {
         try {
@@ -444,10 +445,112 @@ export const RunCommand = cmd({
       let error: string | undefined
       let idle = false
       const toggles = new Map<string, boolean>()
+      const seenPartIDs = new Set<string>()
+
+      function markPart(part: Message["parts"][number]) {
+        if (!part.id) return false
+        if (seenPartIDs.has(part.id)) return false
+        seenPartIDs.add(part.id)
+        return true
+      }
+
+      function showAssistantHeader(info: { agent?: string; modelID?: string }) {
+        if (args.format === "json") return
+        if (toggles.get("start") === true) return
+        UI.empty()
+        UI.println(`> ${info.agent} · ${info.modelID}`)
+        UI.empty()
+        toggles.set("start", true)
+      }
+
+      function consumeCompletedPart(part: Message["parts"][number]) {
+        if (!markPart(part)) return
+
+        if (part.type === "tool") {
+          if (part.state.status === "completed") {
+            if (emit("tool_use", { part })) return
+            tool(part)
+            return
+          }
+          if (part.state.status === "error") {
+            if (emit("tool_use", { part })) return
+            inline({
+              icon: "✗",
+              title: `${part.tool} failed`,
+            })
+            UI.error(part.state.error)
+          }
+          return
+        }
+
+        if (part.type === "step-start") {
+          emit("step_start", { part })
+          return
+        }
+
+        if (part.type === "step-finish") {
+          emit("step_finish", { part })
+          return
+        }
+
+        if (part.type === "text" && part.time?.end) {
+          if (emit("text", { part })) return
+          const text = part.text.trim()
+          if (!text) return
+          if (!process.stdout.isTTY) {
+            process.stdout.write(text + EOL)
+            return
+          }
+          UI.empty()
+          UI.println(text)
+          UI.empty()
+          return
+        }
+
+        if (part.type === "reasoning" && part.time?.end && args.thinking) {
+          if (emit("reasoning", { part })) return
+          const text = part.text.trim()
+          if (!text) return
+          const line = `Thinking: ${text}`
+          if (process.stdout.isTTY) {
+            UI.empty()
+            UI.println(`${UI.Style.TEXT_DIM}\u001b[3m${line}\u001b[0m${UI.Style.TEXT_NORMAL}`)
+            UI.empty()
+            return
+          }
+          process.stdout.write(line + EOL)
+        }
+      }
+
+      async function backfill() {
+        const messages = await sdk.session.messages({ sessionID, limit: 50 }).then((x) => x.data ?? []).catch(() => [])
+        for (const msg of messages) {
+          if (msg.info.role !== "assistant") continue
+          showAssistantHeader({ agent: msg.info.agent, modelID: msg.info.modelID })
+          for (const part of msg.parts) {
+            consumeCompletedPart(part)
+          }
+        }
+      }
+
+      async function pollUntilIdle() {
+        while (!idle) {
+          await sleep(250)
+          await backfill()
+          const statuses = await sdk.session.status().then((x) => x.data ?? {}).catch(() => undefined)
+          if (statuses?.[sessionID]?.type === "idle") {
+            idle = true
+            activeAbort?.abort()
+            await backfill()
+            break
+          }
+        }
+      }
 
       async function loop() {
         while (!idle) {
           const abort = new AbortController()
+          activeAbort = abort
           const events = await sdk.event.subscribe({}, { signal: abort.signal }).catch(() => undefined)
           if (!events) {
             if (!idle) await sleep(250)
@@ -459,13 +562,12 @@ export const RunCommand = cmd({
               if (
                 event.type === "message.updated" &&
                 event.properties.info.role === "assistant" &&
-                args.format !== "json" &&
                 toggles.get("start") !== true
               ) {
-                UI.empty()
-                UI.println(`> ${event.properties.info.agent} · ${event.properties.info.modelID}`)
-                UI.empty()
-                toggles.set("start", true)
+                showAssistantHeader({
+                  agent: event.properties.info.agent,
+                  modelID: event.properties.info.modelID,
+                })
               }
 
               if (event.type === "message.part.updated") {
@@ -473,16 +575,8 @@ export const RunCommand = cmd({
                 if (part.sessionID !== sessionID) continue
 
                 if (part.type === "tool" && (part.state.status === "completed" || part.state.status === "error")) {
-                  if (emit("tool_use", { part })) continue
-                  if (part.state.status === "completed") {
-                    tool(part)
-                    continue
-                  }
-                  inline({
-                    icon: "✗",
-                    title: `${part.tool} failed`,
-                  })
-                  UI.error(part.state.error)
+                  consumeCompletedPart(part)
+                  continue
                 }
 
                 if (
@@ -497,38 +591,23 @@ export const RunCommand = cmd({
                 }
 
                 if (part.type === "step-start") {
-                  if (emit("step_start", { part })) continue
+                  consumeCompletedPart(part)
+                  continue
                 }
 
                 if (part.type === "step-finish") {
-                  if (emit("step_finish", { part })) continue
+                  consumeCompletedPart(part)
+                  continue
                 }
 
                 if (part.type === "text" && part.time?.end) {
-                  if (emit("text", { part })) continue
-                  const text = part.text.trim()
-                  if (!text) continue
-                  if (!process.stdout.isTTY) {
-                    process.stdout.write(text + EOL)
-                    continue
-                  }
-                  UI.empty()
-                  UI.println(text)
-                  UI.empty()
+                  consumeCompletedPart(part)
+                  continue
                 }
 
                 if (part.type === "reasoning" && part.time?.end && args.thinking) {
-                  if (emit("reasoning", { part })) continue
-                  const text = part.text.trim()
-                  if (!text) continue
-                  const line = `Thinking: ${text}`
-                  if (process.stdout.isTTY) {
-                    UI.empty()
-                    UI.println(`${UI.Style.TEXT_DIM}\u001b[3m${line}\u001b[0m${UI.Style.TEXT_NORMAL}`)
-                    UI.empty()
-                    continue
-                  }
-                  process.stdout.write(line + EOL)
+                  consumeCompletedPart(part)
+                  continue
                 }
               }
 
@@ -569,6 +648,7 @@ export const RunCommand = cmd({
               }
             }
           } finally {
+            activeAbort = undefined
             abort.abort()
           }
 
@@ -651,6 +731,10 @@ export const RunCommand = cmd({
         console.error(e)
         process.exit(1)
       })
+      const pollTask = pollUntilIdle().catch((e) => {
+        console.error(e)
+        process.exit(1)
+      })
 
       if (args.command) {
         await sdk.session.command({
@@ -672,7 +756,7 @@ export const RunCommand = cmd({
         })
       }
 
-      await loopTask
+      await Promise.all([loopTask, pollTask])
     }
 
     if (args.attach) {
