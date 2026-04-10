@@ -449,7 +449,6 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
 
   const connected = useConnected()
   const activeDirectory = createMemo(() => (sync.data.path.directory || sdk.directory || "").trim())
-  let requestedReloadDirectory: string | undefined
 
   const requestWorkspaceReload = async () => {
     const directory = activeDirectory()
@@ -461,14 +460,12 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
       return
     }
     try {
-      requestedReloadDirectory = directory
       await sdk.reload(directory)
       toast.show({
         variant: "info",
         message: `Workspace reload requested for ${directory}`,
       })
     } catch (error) {
-      requestedReloadDirectory = undefined
       toast.show({
         variant: "error",
         message: errorMessage(error),
@@ -853,18 +850,6 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
       variant: evt.properties.variant,
       duration: evt.properties.duration,
     })
-  })
-
-  sdk.event.on("project.reload.updated", (evt) => {
-    const directory = typeof evt.properties.directory === "string" ? evt.properties.directory.trim() : ""
-    if (!directory || requestedReloadDirectory !== directory) return
-    if (evt.properties.status !== "idle") return
-    requestedReloadDirectory = undefined
-    toast.show({
-      variant: "success",
-      message: `Workspace reload completed for ${directory}`,
-    })
-    void sync.bootstrap().catch(() => {})
   })
 
   sdk.event.on(TuiEvent.SessionSelect.type, (evt) => {
