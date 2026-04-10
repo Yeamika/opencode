@@ -79,6 +79,10 @@ export const TuiThreadCommand = cmd({
         type: "string",
         describe: "path to start opencode in",
       })
+      .option("dir", {
+        type: "string",
+        describe: "directory to run in",
+      })
       .option("model", {
         type: "string",
         alias: ["m"],
@@ -121,11 +125,23 @@ export const TuiThreadCommand = cmd({
         return
       }
 
-      // Resolve relative --project paths from PWD, then use the real cwd after
-      // chdir so the thread and worker share the same directory key.
+      // Resolve relative --dir / [project] paths from PWD, then use the real cwd
+      // after chdir so the thread and worker share the same directory key.
       const root = Filesystem.resolve(process.env.PWD ?? process.cwd())
-      const next = args.project
-        ? Filesystem.resolve(path.isAbsolute(args.project) ? args.project : path.join(root, args.project))
+      const requested = (() => {
+        if (args.dir && args.project) {
+          const dir = Filesystem.resolve(path.isAbsolute(args.dir) ? args.dir : path.join(root, args.dir))
+          const project = Filesystem.resolve(path.isAbsolute(args.project) ? args.project : path.join(root, args.project))
+          if (dir !== project) {
+            UI.error("Use either --dir or [project], not both")
+            return
+          }
+        }
+        return args.dir ?? args.project
+      })()
+      if (args.dir && args.project && !requested) return
+      const next = requested
+        ? Filesystem.resolve(path.isAbsolute(requested) ? requested : path.join(root, requested))
         : Filesystem.resolve(process.cwd())
       const file = await target()
       try {
