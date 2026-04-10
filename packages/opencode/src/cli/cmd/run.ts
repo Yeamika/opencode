@@ -6,7 +6,6 @@ import { cmd } from "./cmd"
 import { Flag } from "../../flag/flag"
 import { bootstrap } from "../bootstrap"
 import { EOL } from "os"
-import { setTimeout as sleep } from "node:timers/promises"
 import { Filesystem } from "../../util/filesystem"
 import { createOpencodeClient, type Message, type OpencodeClient, type ToolPart } from "@opencode-ai/sdk/v2"
 import { Server } from "../../server/server"
@@ -410,8 +409,6 @@ export const RunCommand = cmd({
     }
 
     async function execute(sdk: OpencodeClient) {
-      let sessionID = ""
-
       function tool(part: ToolPart) {
         try {
           if (part.tool === "bash") return bash(props<typeof BashTool>(part))
@@ -441,139 +438,121 @@ export const RunCommand = cmd({
         return false
       }
 
+      const events = await sdk.event.subscribe()
       let error: string | undefined
-      let idle = false
-      const toggles = new Map<string, boolean>()
 
       async function loop() {
-        while (!idle) {
-          const abort = new AbortController()
-          const events = await sdk.event.subscribe({}, { signal: abort.signal }).catch(() => undefined)
-          if (!events) {
-            if (!idle) await sleep(250)
-            continue
+        const toggles = new Map<string, boolean>()
+
+        for await (const event of events.stream) {
+          if (
+            event.type === "message.updated" &&
+            event.properties.info.role === "assistant" &&
+            args.format !== "json" &&
+            toggles.get("start") !== true
+          ) {
+            UI.empty()
+            UI.println(`> ${event.properties.info.agent} · ${event.properties.info.modelID}`)
+            UI.empty()
+            toggles.set("start", true)
           }
 
-          try {
-            for await (const event of events.stream) {
-              if (
-                event.type === "message.updated" &&
-                event.properties.info.role === "assistant" &&
-                args.format !== "json" &&
-                toggles.get("start") !== true
-              ) {
-                UI.empty()
-                UI.println(`> ${event.properties.info.agent} · ${event.properties.info.modelID}`)
-                UI.empty()
-                toggles.set("start", true)
+          if (event.type === "message.part.updated") {
+            const part = event.properties.part
+            if (part.sessionID !== sessionID) continue
+
+            if (part.type === "tool" && (part.state.status === "completed" || part.state.status === "error")) {
+              if (emit("tool_use", { part })) continue
+              if (part.state.status === "completed") {
+                tool(part)
+                continue
               }
-
-              if (event.type === "message.part.updated") {
-                const part = event.properties.part
-                if (part.sessionID !== sessionID) continue
-
-                if (part.type === "tool" && (part.state.status === "completed" || part.state.status === "error")) {
-                  if (emit("tool_use", { part })) continue
-                  if (part.state.status === "completed") {
-                    tool(part)
-                    continue
-                  }
-                  inline({
-                    icon: "✗",
-                    title: `${part.tool} failed`,
-                  })
-                  UI.error(part.state.error)
-                }
-
-                if (
-                  part.type === "tool" &&
-                  part.tool === "task" &&
-                  part.state.status === "running" &&
-                  args.format !== "json"
-                ) {
-                  if (toggles.get(part.id) === true) continue
-                  task(props<typeof TaskTool>(part))
-                  toggles.set(part.id, true)
-                }
-
-                if (part.type === "step-start") {
-                  if (emit("step_start", { part })) continue
-                }
-
-                if (part.type === "step-finish") {
-                  if (emit("step_finish", { part })) continue
-                }
-
-                if (part.type === "text" && part.time?.end) {
-                  if (emit("text", { part })) continue
-                  const text = part.text.trim()
-                  if (!text) continue
-                  if (!process.stdout.isTTY) {
-                    process.stdout.write(text + EOL)
-                    continue
-                  }
-                  UI.empty()
-                  UI.println(text)
-                  UI.empty()
-                }
-
-                if (part.type === "reasoning" && part.time?.end && args.thinking) {
-                  if (emit("reasoning", { part })) continue
-                  const text = part.text.trim()
-                  if (!text) continue
-                  const line = `Thinking: ${text}`
-                  if (process.stdout.isTTY) {
-                    UI.empty()
-                    UI.println(`${UI.Style.TEXT_DIM}\u001b[3m${line}\u001b[0m${UI.Style.TEXT_NORMAL}`)
-                    UI.empty()
-                    continue
-                  }
-                  process.stdout.write(line + EOL)
-                }
-              }
-
-              if (event.type === "session.error") {
-                const props = event.properties
-                if (props.sessionID !== sessionID || !props.error) continue
-                let err = String(props.error.name)
-                if ("data" in props.error && props.error.data && "message" in props.error.data) {
-                  err = String(props.error.data.message)
-                }
-                error = error ? error + EOL + err : err
-                if (emit("error", { error: props.error })) continue
-                UI.error(err)
-              }
-
-              if (
-                event.type === "session.status" &&
-                event.properties.sessionID === sessionID &&
-                event.properties.status.type === "idle"
-              ) {
-                idle = true
-                abort.abort()
-                break
-              }
-
-              if (event.type === "permission.asked") {
-                const permission = event.properties
-                if (permission.sessionID !== sessionID) continue
-                UI.println(
-                  UI.Style.TEXT_WARNING_BOLD + "!",
-                  UI.Style.TEXT_NORMAL +
-                    `permission requested: ${permission.permission} (${permission.patterns.join(", ")}); auto-rejecting`,
-                )
-                await sdk.permission.reply({
-                  requestID: permission.id,
-                  reply: "reject",
-                })
-              }
+              inline({
+                icon: "✗",
+                title: `${part.tool} failed`,
+              })
+              UI.error(part.state.error)
             }
-          } finally {
-            abort.abort()
+
+            if (
+              part.type === "tool" &&
+              part.tool === "task" &&
+              part.state.status === "running" &&
+              args.format !== "json"
+            ) {
+              if (toggles.get(part.id) === true) continue
+              task(props<typeof TaskTool>(part))
+              toggles.set(part.id, true)
+            }
+
+            if (part.type === "step-start") {
+              if (emit("step_start", { part })) continue
+            }
+
+            if (part.type === "step-finish") {
+              if (emit("step_finish", { part })) continue
+            }
+
+            if (part.type === "text" && part.time?.end) {
+              if (emit("text", { part })) continue
+              const text = part.text.trim()
+              if (!text) continue
+              if (!process.stdout.isTTY) {
+                process.stdout.write(text + EOL)
+                continue
+              }
+              UI.empty()
+              UI.println(text)
+              UI.empty()
+            }
+
+            if (part.type === "reasoning" && part.time?.end && args.thinking) {
+              if (emit("reasoning", { part })) continue
+              const text = part.text.trim()
+              if (!text) continue
+              const line = `Thinking: ${text}`
+              if (process.stdout.isTTY) {
+                UI.empty()
+                UI.println(`${UI.Style.TEXT_DIM}\u001b[3m${line}\u001b[0m${UI.Style.TEXT_NORMAL}`)
+                UI.empty()
+                continue
+              }
+              process.stdout.write(line + EOL)
+            }
           }
 
-          if (!idle) {
-            await sleep(50)
+          if (event.type === "session.error") {
+            const props = event.properties
+            if (props.sessionID !== sessionID || !props.error) continue
+            let err = String(props.error.name)
+            if ("data" in props.error && props.error.data && "message" in props.error.data) {
+              err = String(props.error.data.message)
+            }
+            error = error ? error + EOL + err : err
+            if (emit("error", { error: props.error })) continue
+            UI.error(err)
+          }
+
+          if (
+            event.type === "session.status" &&
+            event.properties.sessionID === sessionID &&
+            event.properties.status.type === "idle"
+          ) {
+            break
+          }
+
+          if (event.type === "permission.asked") {
+            const permission = event.properties
+            if (permission.sessionID !== sessionID) continue
+            UI.println(
+              UI.Style.TEXT_WARNING_BOLD + "!",
+              UI.Style.TEXT_NORMAL +
+                `permission requested: ${permission.permission} (${permission.patterns.join(", ")}); auto-rejecting`,
+            )
+            await sdk.permission.reply({
+              requestID: permission.id,
+              reply: "reject",
+            })
           }
         }
       }
@@ -640,14 +619,14 @@ export const RunCommand = cmd({
         return args.agent
       })()
 
-      sessionID = (await session(sdk)) ?? ""
+      const sessionID = await session(sdk)
       if (!sessionID) {
         UI.error("Session not found")
         process.exit(1)
       }
       await share(sdk, sessionID)
 
-      const loopTask = loop().catch((e) => {
+      loop().catch((e) => {
         console.error(e)
         process.exit(1)
       })
@@ -671,8 +650,6 @@ export const RunCommand = cmd({
           parts: [...files, { type: "text", text: message }],
         })
       }
-
-      await loopTask
     }
 
     if (args.attach) {
