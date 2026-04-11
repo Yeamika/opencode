@@ -5,7 +5,6 @@ import { Instance } from "@/project/instance"
 import { InstanceBootstrap } from "@/project/bootstrap"
 import { Rpc } from "@/util/rpc"
 import { upgrade } from "@/cli/upgrade"
-import { Config } from "@/config/config"
 import { GlobalBus } from "@/bus/global"
 import { createOpencodeClient, type Event } from "@opencode-ai/sdk/v2"
 import { Flag } from "@/flag/flag"
@@ -107,6 +106,23 @@ const startEventStream = (input: { directory: string; workspaceID?: string }) =>
   })
 }
 
+async function requestReload(directory: string) {
+  const url = new URL("/project/reload", "http://opencode.internal")
+  url.searchParams.set("directory", directory)
+  const headers: Record<string, string> = {}
+  const auth = getAuthorizationHeader()
+  if (auth) headers.Authorization = auth
+  const response = await Server.Default().fetch(
+    new Request(url, {
+      method: "POST",
+      headers,
+    }),
+  )
+  if (!response.ok) {
+    throw new Error(`reload failed (${response.status})`)
+  }
+}
+
 startEventStream({ directory: state.directory })
 
 export const rpc = {
@@ -150,11 +166,7 @@ export const rpc = {
   async reload(input: { directory: string }) {
     state.directory = input.directory
     state.workspaceID = undefined
-    await Config.invalidate(true)
-    await Instance.reload({
-      directory: state.directory,
-      init: InstanceBootstrap,
-    })
+    await requestReload(state.directory)
     startEventStream({ directory: state.directory })
   },
   async setDirectory(input: { directory: string }) {

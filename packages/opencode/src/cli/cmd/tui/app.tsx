@@ -448,6 +448,35 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
   )
 
   const connected = useConnected()
+  const activeDirectory = createMemo(() => (sync.data.path.directory || sdk.directory || "").trim())
+  let requestedReloadDirectory: string | undefined
+
+  const requestWorkspaceReload = async () => {
+    const directory = activeDirectory()
+    if (!directory) {
+      toast.show({
+        variant: "error",
+        message: "No active directory to reload",
+      })
+      return
+    }
+    try {
+      requestedReloadDirectory = directory
+      await sdk.reload(directory)
+      toast.show({
+        variant: "info",
+        message: `Workspace reload requested for ${directory}`,
+      })
+    } catch (error) {
+      requestedReloadDirectory = undefined
+      toast.show({
+        variant: "error",
+        message: errorMessage(error),
+        duration: 5000,
+      })
+    }
+  }
+
   command.register(() => [
     {
       title: "Switch session",
@@ -473,6 +502,18 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
       },
       onSelect: () => {
         dialog.replace(() => <DialogChangeDirectory />)
+      },
+    },
+    {
+      title: "Reload workspace",
+      value: "workspace.reload",
+      category: "Workspace",
+      slash: {
+        name: "reload",
+      },
+      onSelect: async (dialog) => {
+        await requestWorkspaceReload()
+        dialog.clear()
       },
     },
     ...(Flag.OPENCODE_EXPERIMENTAL_WORKSPACES
@@ -812,6 +853,18 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
       variant: evt.properties.variant,
       duration: evt.properties.duration,
     })
+  })
+
+  sdk.event.on("project.reload.updated", (evt) => {
+    const directory = typeof evt.properties.directory === "string" ? evt.properties.directory.trim() : ""
+    if (!directory || requestedReloadDirectory !== directory) return
+    if (evt.properties.status !== "idle") return
+    requestedReloadDirectory = undefined
+    toast.show({
+      variant: "success",
+      message: `Workspace reload completed for ${directory}`,
+    })
+    void sync.bootstrap().catch(() => {})
   })
 
   sdk.event.on(TuiEvent.SessionSelect.type, (evt) => {
