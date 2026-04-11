@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { Deferred, Effect, Exit, Fiber, Ref, Scope } from "effect"
+import { Deferred, Effect, Exit, Fiber, Option, Ref, Scope } from "effect"
 import { Runner } from "../../src/effect/runner"
 import { it } from "../lib/effect"
 
@@ -105,6 +105,25 @@ describe("Runner", () => {
       expect(a).toBe("first-result")
       expect(b).toBe("first-result")
       expect(yield* Ref.get(ran)).toEqual(["first"])
+    }),
+  )
+
+  it.live(
+    "ensureRunning returns before slow onIdle cleanup finishes",
+    Effect.gen(function* () {
+      const s = yield* Scope.Scope
+      const gate = yield* Deferred.make<void>()
+      const runner = Runner.make<string>(s, {
+        onIdle: Deferred.await(gate),
+      })
+
+      const result = yield* runner.ensureRunning(Effect.succeed("ok")).pipe(Effect.timeoutOption("50 millis"))
+      expect(Option.isSome(result)).toBe(true)
+      if (Option.isSome(result)) {
+        expect(result.value).toBe("ok")
+      }
+
+      yield* Deferred.succeed(gate, undefined)
     }),
   )
 
@@ -450,6 +469,7 @@ describe("Runner", () => {
         onIdle: Ref.update(count, (n) => n + 1),
       })
       yield* runner.ensureRunning(Effect.succeed("ok"))
+      yield* Effect.sleep("10 millis")
       expect(yield* Ref.get(count)).toBe(1)
     }),
   )

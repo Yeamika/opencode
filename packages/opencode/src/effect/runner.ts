@@ -70,8 +70,8 @@ export namespace Runner {
         (st) =>
           [
             Effect.gen(function* () {
-              if (st._tag === "Running" && st.run.id === id) yield* idle
               yield* complete(done, exit)
+              if (st._tag === "Running" && st.run.id === id) yield* idle
             }),
             st._tag === "Running" && st.run.id === id ? ({ _tag: "Idle" } as const) : st,
           ] as const,

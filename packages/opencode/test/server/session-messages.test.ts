@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
+import { createOpencodeClient } from "@opencode-ai/sdk/v2"
 import { Instance } from "../../src/project/instance"
 import { Server } from "../../src/server/server"
 import { Session } from "../../src/session"
@@ -52,6 +53,45 @@ async function fill(sessionID: SessionID, count: number, time = (i: number) => D
 }
 
 describe("session messages endpoint", () => {
+  test("prompt route resolves without hanging for no-reply requests", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await withoutWatcher(() =>
+      Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const session = await Session.create({})
+          const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
+            const request = new Request(input, init)
+            return Server.Default().fetch(request)
+          }) as typeof fetch
+          const sdk = createOpencodeClient({
+            baseUrl: "http://opencode.internal",
+            fetch: fetchFn,
+            directory: tmp.path,
+          })
+
+          const result = await Promise.race([
+            sdk.session.prompt({
+              sessionID: session.id,
+              noReply: true,
+              parts: [{ type: "text", text: "hi" }],
+            }),
+            Bun.sleep(500).then(() => "timeout" as const),
+          ])
+
+          expect(result).not.toBe("timeout")
+          if (result !== "timeout") {
+            expect(result.error).toBeUndefined()
+            expect(result.data?.info.sessionID).toBe(session.id)
+            expect(result.data?.parts[0]?.type).toBe("text")
+          }
+
+          await Session.remove(session.id)
+        },
+      }),
+    )
+  })
+
   test("returns cursor headers for older pages", async () => {
     await using tmp = await tmpdir({ git: true })
     await withoutWatcher(() =>

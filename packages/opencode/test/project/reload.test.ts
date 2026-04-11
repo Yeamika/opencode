@@ -1,6 +1,7 @@
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test"
 import fs from "fs/promises"
 import path from "path"
+import { MCP } from "../../src/mcp"
 import { Instance } from "../../src/project/instance"
 import { Reload } from "../../src/project/reload"
 import { MessageID, SessionID } from "../../src/session/schema"
@@ -9,6 +10,7 @@ import { tmpdir } from "../fixture/fixture"
 
 describe("project.reload", () => {
   afterEach(async () => {
+    mock.restore()
     await Instance.disposeAll()
   })
 
@@ -138,6 +140,67 @@ describe("project.reload", () => {
           expect(result.output).toContain("(+1)")
           expect(result.output).toContain("Changes:")
           expect(result.output).toContain("Skills added: reload_test_skill")
+        } finally {
+          Reload.leave(Instance.directory, a)
+          Reload.leave(Instance.directory, b)
+          await task.catch(() => undefined)
+        }
+      },
+    })
+  })
+
+  test("reload tool reports MCP tool count changes after reload", async () => {
+    await using tmp = await tmpdir()
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const tool = await ReloadTool.init()
+        const a = SessionID.make("session_reload-mcp-a")
+        const b = SessionID.make("session_reload-mcp-b")
+        Reload.enter(Instance.directory, a)
+        Reload.enter(Instance.directory, b)
+
+        const status = spyOn(MCP, "status").mockResolvedValue({
+          "reload-mcp": { status: "connected" },
+        } as any)
+
+        let count = 0
+        const tools = spyOn(MCP, "tools").mockImplementation(async () => {
+          count += 1
+          if (count === 1) {
+            return {
+              reload_mcp_test_tool: {} as any,
+            }
+          }
+          return {
+            reload_mcp_test_tool: {} as any,
+            reload_mcp_next_tool: {} as any,
+          }
+        })
+
+        const task = tool.execute(
+          {},
+          {
+            sessionID: a,
+            messageID: MessageID.make("message_reload-mcp"),
+            callID: "call_reload-mcp",
+            agent: "build",
+            abort: AbortSignal.any([]),
+            messages: [],
+            metadata: () => {},
+            ask: async () => {},
+          },
+        )
+
+        try {
+          await Bun.sleep(50)
+          await Reload.wait(Instance.directory, b)
+          const result = await task
+          expect(result.output).toContain("MCP servers: 1 (no change)")
+          expect(result.output).toContain("MCP tools: 1 -> 2 (+1)")
+          expect(status).toHaveBeenCalledTimes(2)
+          expect(tools).toHaveBeenCalledTimes(2)
         } finally {
           Reload.leave(Instance.directory, a)
           Reload.leave(Instance.directory, b)

@@ -39,7 +39,6 @@ import { NamedError } from "@opencode-ai/util/error"
 import { SessionProcessor } from "./processor"
 import { TaskTool } from "@/tool/task"
 import { Tool } from "@/tool/tool"
-import { isPendingReloadMetadata } from "@/tool/reload"
 import { Permission } from "@/permission"
 import { Reload } from "@/project/reload"
 import { Skill } from "@/skill"
@@ -1406,65 +1405,14 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         }
       })
 
-      function reloadText(prev: { tool: string[]; server: string[]; mcp: string[]; skill: string[] }, next: { tool: string[]; server: string[]; mcp: string[]; skill: string[] }, agent: string, logPath?: string) {
-        const diff = (a: string[], b: string[]) => b.filter((item) => !new Set(a).has(item))
-        const count = (label: string, a: number, b: number) =>
-          a === b ? `- ${label}: ${b} (no change)` : `- ${label}: ${a} -> ${b} (${b - a > 0 ? `+${b - a}` : b - a})`
-        const fmt = (label: string, list: string[]) => (list.length === 0 ? [] : [`- ${label}: ${list.join(", ")}`])
-        const addedServer = diff(prev.server, next.server)
-        const removedServer = diff(next.server, prev.server)
-        const addedSkill = diff(prev.skill, next.skill)
-        const removedSkill = diff(next.skill, prev.skill)
-        return [
-          "Workspace reload completed.",
-          "",
-          "Workspace inventory:",
-          count("Workspace tools", prev.tool.length, next.tool.length),
-          count("MCP servers", prev.server.length, next.server.length),
-          count("MCP tools", prev.mcp.length, next.mcp.length),
-          count("Skills", prev.skill.length, next.skill.length),
-          ...(addedServer.length > 0 || removedServer.length > 0 || addedSkill.length > 0 || removedSkill.length > 0
-            ? ["", "Changes:", ...fmt("MCP added", addedServer), ...fmt("MCP removed", removedServer), ...fmt("Skills added", addedSkill), ...fmt("Skills removed", removedSkill)]
-            : []),
-          "",
-          "Note:",
-          "- These counts describe the workspace-wide loaded inventory, not per-session visibility.",
-          "- Tool visibility in the current session still depends on session context.",
-          `- Current agent: ${agent}`,
-          ...(logPath ? [`- Current opencode log: ${logPath}`] : []),
-          "- If something is not visible, report the current agent name.",
-        ].join("\n")
-      }
-
       const waitForReloadPoint = Effect.fn("SessionPrompt.waitForReloadPoint")(function* (input: {
         sessionID: SessionID
         directory: string
-        agent: string
       }) {
         const promise = Reload.wait(input.directory, input.sessionID)
         if (!promise) return
 
         yield* Effect.promise(() => promise)
-
-        const latest = yield* lastAssistant(input.sessionID)
-        if (latest.info.role !== "assistant") return
-        const part = latest.parts.findLast((item) => item.type === "tool" && item.tool === "reload")
-        if (!part || part.state.status !== "completed" || !isPendingReloadMetadata(part.state.metadata)) return
-
-        const next = yield* reloadSnapshot()
-        const logPath = Log.file()
-        yield* sessions.updatePart({
-          ...part,
-          state: {
-            ...part.state,
-            title: "Workspace reloaded",
-            output: reloadText(part.state.metadata.previous ?? { tool: [], server: [], mcp: [], skill: [] }, next, input.agent, logPath),
-            metadata: {
-              directory: input.directory,
-              opencodeLogPath: logPath || undefined,
-            },
-          },
-        })
       })
 
       const runLoop: (sessionID: SessionID) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.run")(
@@ -1475,7 +1423,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           const session = yield* sessions.get(sessionID)
 
           while (true) {
-            yield* waitForReloadPoint({ sessionID, directory: session.directory, agent: "unknown" })
+            yield* waitForReloadPoint({ sessionID, directory: session.directory })
             yield* status.set(sessionID, { type: "busy" })
             log.info("loop", { step, sessionID })
 
