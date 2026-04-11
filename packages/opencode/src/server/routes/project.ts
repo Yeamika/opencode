@@ -2,7 +2,6 @@ import { Hono } from "hono"
 import { describeRoute, validator } from "hono-openapi"
 import { resolver } from "hono-openapi"
 import { Instance } from "../../project/instance"
-import { Reload } from "../../project/reload"
 import { Project } from "../../project/project"
 import z from "zod"
 import { ProjectID } from "../../project/schema"
@@ -53,38 +52,6 @@ export const ProjectRoutes = lazy(() =>
       }),
       async (c) => {
         return c.json(Instance.project)
-      },
-    )
-    .post(
-      "/reload",
-      describeRoute({
-        summary: "Request workspace reload",
-        description:
-          "Request an asynchronous workspace reload for the current directory. Active sessions will continue to the next waitpoint and then observe refreshed workspace state.",
-        operationId: "project.reload",
-        responses: {
-          200: {
-            description: "Reload request accepted",
-            content: {
-              "application/json": {
-                schema: resolver(
-                  z.object({
-                    directory: z.string(),
-                    status: z.literal("pending"),
-                  }),
-                ),
-              },
-            },
-          },
-        },
-      }),
-      async (c) => {
-        const directory = Instance.directory
-        void Reload.request(directory)
-        return c.json({
-          directory,
-          status: "pending" as const,
-        })
       },
     )
     .post(

@@ -122,11 +122,8 @@ export const Instance = {
   restore<R>(ctx: InstanceContext, fn: () => R): R {
     return context.provide(ctx, fn)
   },
-  state<S>(init: () => S, dispose?: (state: Awaited<S>) => Promise<void>, opts?: { keep?: boolean }): () => S {
-    return State.create(() => Instance.directory, init, dispose, opts)
-  },
-  forget(directory: string) {
-    cache.delete(Filesystem.resolve(directory))
+  state<S>(init: () => S, dispose?: (state: Awaited<S>) => Promise<void>): () => S {
+    return State.create(() => Instance.directory, init, dispose)
   },
   async reload(input: { directory: string; init?: () => Promise<any>; project?: Project.Info; worktree?: string }) {
     const directory = Filesystem.resolve(input.directory)

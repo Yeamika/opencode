@@ -27,11 +27,6 @@ import { Log } from "@/util/log"
 import { LspTool } from "./lsp"
 import { Truncate } from "./truncate"
 import { ApplyPatchTool } from "./apply_patch"
-import { ReloadTool } from "./reload"
-import { WorkspaceMcpTool } from "./workspace_mcp"
-import { WorkspaceToolTool } from "./workspace_tool"
-import { WorkspaceSkillTool } from "./workspace_skill"
-import { WorkspaceOverviewTool } from "./workspace_state_overview"
 import { Glob } from "../util/glob"
 import { pathToFileURL } from "url"
 import { Effect, Layer, ServiceMap } from "effect"
@@ -127,11 +122,6 @@ export namespace ToolRegistry {
       const invalid = yield* build(InvalidTool)
       const ask = yield* build(QuestionTool)
       const bash = yield* build(BashTool)
-      const reload = yield* build(ReloadTool)
-      const workspaceMcp = yield* build(WorkspaceMcpTool)
-      const workspaceTool = yield* build(WorkspaceToolTool)
-      const workspaceSkill = yield* build(WorkspaceSkillTool)
-      const workspaceOverview = yield* build(WorkspaceOverviewTool)
       const read = yield* build(ReadTool)
       const glob = yield* build(GlobTool)
       const grep = yield* build(GrepTool)
@@ -156,11 +146,6 @@ export namespace ToolRegistry {
           invalid,
           ...(question ? [ask] : []),
           bash,
-          reload,
-          workspaceOverview,
-          workspaceMcp,
-          workspaceTool,
-          workspaceSkill,
           read,
           glob,
           grep,

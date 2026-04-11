@@ -1,6 +1,0 @@
-{
-  "type": "remote",
-  "url": "http://host.docker.internal:8811/mcp",
-  "enabled": false,
-  "oauth": false
-}

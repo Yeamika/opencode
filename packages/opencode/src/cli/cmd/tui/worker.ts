@@ -6,7 +6,6 @@ import { InstanceBootstrap } from "@/project/bootstrap"
 import { Rpc } from "@/util/rpc"
 import { upgrade } from "@/cli/upgrade"
 import { Config } from "@/config/config"
-import { Reload } from "@/project/reload"
 import { GlobalBus } from "@/bus/global"
 import { createOpencodeClient, type Event } from "@opencode-ai/sdk/v2"
 import { Flag } from "@/flag/flag"
@@ -151,7 +150,6 @@ export const rpc = {
   async reload(input: { directory: string }) {
     state.directory = input.directory
     state.workspaceID = undefined
-    void Reload.request(input.directory)
     await Config.invalidate(true)
     await Instance.reload({
       directory: state.directory,

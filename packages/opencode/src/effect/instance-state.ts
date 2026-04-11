@@ -32,7 +32,6 @@ export namespace InstanceState {
 
   export const make = <A, E = never, R = never>(
     init: (ctx: InstanceContext) => Effect.Effect<A, E, R | Scope.Scope>,
-    options?: { preserveOnSoft?: boolean },
   ): Effect.Effect<InstanceState<A, E, Exclude<R, Scope.Scope>>, never, R | Scope.Scope> =>
     Effect.gen(function* () {
       const cache = yield* ScopedCache.make<string, A, E, R>({
@@ -43,10 +42,7 @@ export namespace InstanceState {
           }),
       })
 
-      const off = registerDisposer((directory, disposeOptions) => {
-        if (disposeOptions?.soft && options?.preserveOnSoft) return Promise.resolve()
-        return Effect.runPromise(ScopedCache.invalidate(cache, directory))
-      })
+      const off = registerDisposer((directory) => Effect.runPromise(ScopedCache.invalidate(cache, directory)))
       yield* Effect.addFinalizer(() => Effect.sync(off))
 
       return {
