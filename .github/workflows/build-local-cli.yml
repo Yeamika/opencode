@@ -16,11 +16,10 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       OPENCODE_CHANNEL: local-yes
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-tags: true
 
@@ -175,49 +174,49 @@ jobs:
           EOF
 
       - name: Upload windows x64 artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: cli-binary-windows-x64
           path: opencode-windows-x64-*.tgz
           if-no-files-found: error
 
       - name: Upload linux arm64 artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: cli-binary-linux-arm64
           path: opencode-linux-arm64-*.tgz
           if-no-files-found: error
 
       - name: Upload linux x64 artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: cli-binary-linux-x64
           path: opencode-linux-x64-*.tgz
           if-no-files-found: error
 
       - name: Upload opencode-ai launcher artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: opencode-cli
           path: opencode-ai-*.tgz
           if-no-files-found: error
 
       - name: Upload SDK artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: opencode-sdk
           path: packages/sdk/js/opencode-ai-sdk-*.tgz
           if-no-files-found: error
 
       - name: Upload plugin artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: opencode-plugin-sdk
           path: packages/plugin/opencode-ai-plugin-*.tgz
           if-no-files-found: error
 
       - name: Upload package manifest
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: build-full-packages-manifest
           path: build-full-packages.json
