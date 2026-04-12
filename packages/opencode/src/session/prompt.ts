@@ -1658,7 +1658,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               .get(input.sessionID)
               .pipe(
                 Effect.flatMap((current) => (current.type === "idle" ? Effect.void : status.set(input.sessionID, { type: "idle" }))),
-                Effect.catchAllCause((cause) =>
+                Effect.catchCause((cause) =>
                   Effect.sync(() =>
                     log.error("failed to finalize session status", {
                       sessionID: input.sessionID,
