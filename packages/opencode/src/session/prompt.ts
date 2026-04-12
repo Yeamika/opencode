@@ -1652,7 +1652,23 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       )(function* (input: z.infer<typeof LoopInput>) {
         const s = yield* InstanceState.get(state)
         const runner = getRunner(s.runners, input.sessionID)
-        return yield* runner.ensureRunning(runLoop(input.sessionID))
+        return yield* runner.ensureRunning(runLoop(input.sessionID)).pipe(
+          Effect.ensuring(
+            status
+              .get(input.sessionID)
+              .pipe(
+                Effect.flatMap((current) => (current.type === "idle" ? Effect.void : status.set(input.sessionID, { type: "idle" }))),
+                Effect.catchAllCause((cause) =>
+                  Effect.sync(() =>
+                    log.error("failed to finalize session status", {
+                      sessionID: input.sessionID,
+                      error: Cause.squash(cause),
+                    }),
+                  ),
+                ),
+              ),
+          ),
+        )
       })
 
       const shell: (input: ShellInput) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.shell")(

@@ -324,6 +324,7 @@ it.live("loop calls LLM and returns assistant message", () =>
     Effect.fnUntraced(function* ({ llm }) {
       const prompt = yield* SessionPrompt.Service
       const sessions = yield* Session.Service
+      const status = yield* SessionStatus.Service
       const chat = yield* sessions.create({
         title: "Pinned",
         permission: [{ permission: "*", pattern: "*", action: "allow" }],
@@ -341,6 +342,7 @@ it.live("loop calls LLM and returns assistant message", () =>
       const parts = result.parts.filter((p) => p.type === "text")
       expect(parts.some((p) => p.type === "text" && p.text === "world")).toBe(true)
       expect(yield* llm.hits).toHaveLength(1)
+      expect((yield* status.get(chat.id)).type).toBe("idle")
     }),
     { git: true, config: providerCfg },
   ),
