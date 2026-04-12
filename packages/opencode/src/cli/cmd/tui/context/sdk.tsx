@@ -4,7 +4,7 @@ import { createGlobalEmitter } from "@solid-primitives/event-bus"
 import { batch, onCleanup, onMount } from "solid-js"
 
 export type EventSource = {
-  on: (handler: (event: Event | { type: "tui.display.report"; properties: { displayID: string; directory?: string; sessionID?: string } }) => void) => () => void
+  on: (handler: (event: TuiSdkEvent) => void) => () => void
   setDirectory?: (directory: string) => void
   reload?: (directory: string) => Promise<void>
   setWorkspace?: (workspaceID?: string) => void
@@ -19,7 +19,15 @@ type DisplayReportEvent = {
   }
 }
 
-type TuiSdkEvent = Event | DisplayReportEvent
+type SseReconnectedEvent = {
+  type: "tui.sse.reconnected"
+  properties: {
+    directory?: string
+    workspaceID?: string
+  }
+}
+
+type TuiSdkEvent = Event | DisplayReportEvent | SseReconnectedEvent
 
 type Props = {
   url: string
@@ -101,13 +109,26 @@ export const { use: useSDK, provider: SDKProvider } = createSimpleContext({
     }
 
     function startSSE() {
+      const restarting = Boolean(sse)
       sse?.abort()
       const ctrl = new AbortController()
       sse = ctrl
+      let notifyReconnect = restarting
       ;(async () => {
         while (true) {
           if (abort.signal.aborted || ctrl.signal.aborted) break
           const events = await sdk.event.subscribe({}, { signal: ctrl.signal })
+
+          if (notifyReconnect && !ctrl.signal.aborted) {
+            notifyReconnect = false
+            handleEvent({
+              type: "tui.sse.reconnected",
+              properties: {
+                directory,
+                workspaceID,
+              },
+            })
+          }
 
           for await (const event of events.stream) {
             if (ctrl.signal.aborted) break
@@ -116,6 +137,7 @@ export const { use: useSDK, provider: SDKProvider } = createSimpleContext({
 
           if (timer) clearTimeout(timer)
           if (queue.length > 0) flush()
+          notifyReconnect = true
         }
       })().catch(() => {})
     }

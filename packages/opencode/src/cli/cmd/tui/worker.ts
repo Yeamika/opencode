@@ -54,10 +54,12 @@ const state = {
 }
 
 const startEventStream = (input: { directory: string; workspaceID?: string }) => {
+  const restarting = Boolean(eventStream.abort)
   if (eventStream.abort) eventStream.abort.abort()
   const abort = new AbortController()
   eventStream.abort = abort
   const signal = abort.signal
+  let notifyReconnect = restarting
 
   const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(input, init)
@@ -91,11 +93,23 @@ const startEventStream = (input: { directory: string; workspaceID?: string }) =>
         continue
       }
 
+      if (notifyReconnect && !signal.aborted) {
+        notifyReconnect = false
+        Rpc.emit("event", {
+          type: "tui.sse.reconnected",
+          properties: {
+            directory: input.directory,
+            workspaceID: input.workspaceID,
+          },
+        })
+      }
+
       for await (const event of events.stream) {
         Rpc.emit("event", event as Event)
       }
 
       if (!signal.aborted) {
+        notifyReconnect = true
         await sleep(250)
       }
     }
