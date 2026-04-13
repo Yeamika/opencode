@@ -25,9 +25,10 @@ async function listNames(dir: string, kind: "file" | "directory") {
 }
 
 export const WorkspaceOverviewTool = Tool.define("workspaceOverview", {
-  description: "List current local/global MCP config entries, plus tool files and skill folders, and print the resolved paths used.",
+  description:
+    "Authoritative control surface for workspace resource state. Inspect the exact local/global config paths and current MCP, tool, and skill inventory before or after workspace mutations.",
   parameters: z.object({
-    scope: z.enum(["local", "global"]).default("local"),
+    scope: z.enum(["local", "global"]).default("local").describe("Which resource root to inspect: the current workspace .opencode directory or the global config directory."),
   }),
   async execute(args, ctx) {
     const directory = String(ctx.directory ?? "")
