@@ -71,7 +71,8 @@ describe("project.reload", () => {
         try {
           const result = await Promise.race([
             task.then((value) => ({ type: "result" as const, value })),
-            Bun.sleep(200).then(() => ({ type: "timeout" as const })),
+            // This assertion is about self-wait deadlock, not sub-second timing.
+            Bun.sleep(2000).then(() => ({ type: "timeout" as const })),
           ])
 
           expect(result.type).toBe("result")

@@ -3,6 +3,17 @@ import { createSimpleContext } from "./helper"
 import { createGlobalEmitter } from "@solid-primitives/event-bus"
 import { batch, onCleanup, onMount } from "solid-js"
 
+type BaseEvent = Exclude<
+  Event,
+  {
+    type:
+      | "project.reload.updated"
+      | "tui.attach-to-running-session"
+      | "tui.display.report"
+      | "tui.session.select"
+  }
+>
+
 export type EventSource = {
   on: (handler: (event: TuiSdkEvent) => void) => () => void
   setDirectory?: (directory: string) => void
@@ -27,7 +38,42 @@ type SseReconnectedEvent = {
   }
 }
 
-type TuiSdkEvent = Event | DisplayReportEvent | SseReconnectedEvent
+type ProjectReloadUpdatedEvent = {
+  type: "project.reload.updated"
+  properties: {
+    directory: string
+    status: "idle" | "pending" | "running"
+  }
+}
+
+type SessionSelectEvent = {
+  type: "tui.session.select"
+  properties: {
+    sessionID: string
+    displayID: string
+    directory?: string
+    requestID?: string
+  }
+}
+
+type AttachToRunningSessionEvent = {
+  type: "tui.attach-to-running-session"
+  properties: {
+    sessionID: string
+    displayID: string
+    directory?: string
+    workspaceID?: string
+    requestID?: string
+  }
+}
+
+export type TuiSdkEvent =
+  | BaseEvent
+  | DisplayReportEvent
+  | SseReconnectedEvent
+  | ProjectReloadUpdatedEvent
+  | SessionSelectEvent
+  | AttachToRunningSessionEvent
 
 type Props = {
   url: string
@@ -132,7 +178,7 @@ export const { use: useSDK, provider: SDKProvider } = createSimpleContext({
 
           for await (const event of events.stream) {
             if (ctrl.signal.aborted) break
-            handleEvent(event)
+            handleEvent(event as TuiSdkEvent)
           }
 
           if (timer) clearTimeout(timer)
@@ -182,6 +228,7 @@ export const { use: useSDK, provider: SDKProvider } = createSimpleContext({
         if (!props.events) startSSE()
       },
       async reload(next: string) {
+        const restart = directory !== next || workspaceID !== undefined
         directory = next
         workspaceID = undefined
         sdk = createSDK()
@@ -190,7 +237,7 @@ export const { use: useSDK, provider: SDKProvider } = createSimpleContext({
         } else {
           await reload(next)
         }
-        if (!props.events) startSSE()
+        if (!props.events && restart) startSSE()
       },
       setWorkspace(next?: string) {
         if (workspaceID === next) return

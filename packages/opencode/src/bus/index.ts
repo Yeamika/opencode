@@ -67,6 +67,9 @@ export namespace Bus {
 
           return { wildcard, typed }
         }),
+        // Keep the per-instance bus alive across soft reload so long-lived
+        // subscribers like /event continue receiving post-reload events.
+        { preserveOnSoft: true },
       )
 
       function getOrCreate<D extends BusEvent.Definition>(state: State, def: D) {

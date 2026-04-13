@@ -5,7 +5,6 @@ import { Log } from "@/util/log"
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
 import { GlobalBus } from "@/bus/global"
-import { Instance } from "@/project/instance"
 import { AsyncQueue } from "../../util/queue"
 
 const log = Log.create({ service: "server" })
@@ -30,7 +29,6 @@ export const EventRoutes = () =>
     }),
     async (c) => {
       log.info("event connected")
-      const directory = Instance.directory
       c.header("Cache-Control", "no-cache, no-transform")
       c.header("X-Accel-Buffering", "no")
       c.header("X-Content-Type-Options", "nosniff")
@@ -74,11 +72,6 @@ export const EventRoutes = () =>
         async function onGlobal(event: any) {
           const payload = event?.payload
           if (!payload || typeof payload.type !== "string") return
-          if (payload.type === Bus.InstanceDisposed.type && event?.directory === directory) {
-            q.push(JSON.stringify(payload))
-            stop()
-            return
-          }
           if (!payload.type.startsWith("tui.")) return
           q.push(JSON.stringify(payload))
         }

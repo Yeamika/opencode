@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test"
 import z from "zod"
 import { Bus } from "../../src/bus"
 import { BusEvent } from "../../src/bus/bus-event"
+import { disposeInstance } from "../../src/effect/instance-registry"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 
@@ -195,6 +196,31 @@ describe("Bus", () => {
   })
 
   describe("instance disposal", () => {
+    test("soft disposal preserves the instance bus across instance recreation", async () => {
+      await using tmp = await tmpdir()
+      const received: string[] = []
+
+      await withInstance(tmp.path, async () => {
+        Bus.subscribeAll((evt) => {
+          received.push(evt.type === TestEvent.Ping.type ? `${evt.type}:${evt.properties.value}` : evt.type)
+        })
+        await Bun.sleep(10)
+        await Bus.publish(TestEvent.Ping, { value: 1 })
+        await Bun.sleep(10)
+      })
+
+      await disposeInstance(tmp.path, { soft: true })
+      Instance.forget(tmp.path)
+
+      await withInstance(tmp.path, async () => {
+        await Bus.publish(TestEvent.Ping, { value: 2 })
+        await Bun.sleep(10)
+      })
+
+      expect(received).toEqual(["test.ping:1", "test.ping:2"])
+      expect(received).not.toContain(Bus.InstanceDisposed.type)
+    })
+
     test("InstanceDisposed is delivered to wildcard subscribers before stream ends", async () => {
       await using tmp = await tmpdir()
       const received: string[] = []

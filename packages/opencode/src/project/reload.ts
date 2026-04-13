@@ -10,6 +10,8 @@ import { State } from "./state"
 
 type Entry = {
   sessions: Set<string>
+  totalSessions: number
+  requestedAt: number
   promise: Promise<void>
   resolve: () => void
   reject: (error?: unknown) => void
@@ -51,26 +53,79 @@ export namespace Reload {
     return Filesystem.resolve(input)
   }
 
-  function mark(key: string, sessionID: string) {
+  function progress(entry: Entry) {
+    const waitingSessionIDs = Array.from(entry.sessions)
+    return {
+      totalSessions: entry.totalSessions,
+      readySessions: entry.totalSessions - waitingSessionIDs.length,
+      waitingSessions: waitingSessionIDs.length,
+      waitingSessionIDs,
+    }
+  }
+
+  function mark(key: string, sessionID: string, source: "arrive" | "wait" | "leave") {
     const entry = pending.get(key)
     if (!entry) return
-    entry.sessions.delete(sessionID)
-    if (entry.sessions.size === 0) {
-      void run(key, entry)
+
+    const wasWaiting = entry.sessions.delete(sessionID)
+    const state = progress(entry)
+
+    if (wasWaiting) {
+      log.info("reload session reached waitpoint", {
+        directory: key,
+        sessionID,
+        source,
+        ...state,
+      })
     }
+
+    if (entry.sessions.size === 0) {
+      log.info("reload wait complete", {
+        directory: key,
+        source,
+        ...state,
+      })
+      void run(key, entry)
+    } else if (wasWaiting) {
+      log.info("reload waiting for sessions", {
+        directory: key,
+        source,
+        ...state,
+      })
+    }
+
     return entry
   }
 
   async function run(key: string, entry: Entry) {
     if (entry.running) return entry.running
+
+    const startedAt = Date.now()
+    log.info("reload instance reloading", {
+      directory: key,
+      waitDuration: startedAt - entry.requestedAt,
+      ...progress(entry),
+    })
+
     void publish(key, "running")
     entry.running = Promise.all([State.dispose(key, { soft: true }), disposeInstance(key, { soft: true })])
       .catch((error) => {
+        log.error("reload failed", {
+          directory: key,
+          duration: Date.now() - startedAt,
+          totalDuration: Date.now() - entry.requestedAt,
+          error,
+        })
         entry.reject(error)
         throw error
       })
       .then(() => {
         Instance.forget(key)
+        log.info("reload completed", {
+          directory: key,
+          duration: Date.now() - startedAt,
+          totalDuration: Date.now() - entry.requestedAt,
+        })
         entry.resolve()
       })
       .finally(() => {
@@ -102,16 +157,28 @@ export namespace Reload {
 
     const entry = pending.get(key)
     if (!entry) return
-    entry.sessions.delete(sessionID)
-    if (entry.sessions.size === 0) {
-      void run(key, entry)
-    }
+
+    if (!entry.sessions.has(sessionID)) return
+
+    log.info("reload session left before waitpoint", {
+      directory: key,
+      sessionID,
+      ...progress(entry),
+    })
+    mark(key, sessionID, "leave")
   }
 
   export function request(directory: string) {
     const key = dir(directory)
     const existing = pending.get(key)
-    if (existing) return existing.promise
+    if (existing) {
+      log.info("reload request joined existing cycle", {
+        directory: key,
+        status: existing.running ? "running" : "pending",
+        ...progress(existing),
+      })
+      return existing.promise
+    }
 
     let resolve = () => {}
     let reject = (_error?: unknown) => {}
@@ -119,14 +186,20 @@ export namespace Reload {
       resolve = next
       reject = fail
     })
+    const sessions = new Set(active.get(key) ?? [])
     const entry: Entry = {
-      sessions: new Set(active.get(key) ?? []),
+      sessions,
+      totalSessions: sessions.size,
+      requestedAt: Date.now(),
       promise,
       resolve,
       reject,
     }
     pending.set(key, entry)
-    log.info("requested", { directory: key, sessions: Array.from(entry.sessions) })
+    log.info("reload requested", {
+      directory: key,
+      ...progress(entry),
+    })
     void publish(key, "pending")
     if (entry.sessions.size === 0) {
       void run(key, entry)
@@ -135,12 +208,36 @@ export namespace Reload {
   }
 
   export function arrive(directory: string, sessionID: string) {
-    mark(dir(directory), sessionID)
+    mark(dir(directory), sessionID, "arrive")
   }
 
   export function wait(directory: string, sessionID: string) {
-    const entry = mark(dir(directory), sessionID)
+    const key = dir(directory)
+    const entry = mark(key, sessionID, "wait")
     if (!entry) return
-    return entry.promise.catch(() => {})
+
+    log.info("reload session waiting for completion", {
+      directory: key,
+      sessionID,
+      status: entry.running ? "running" : "pending",
+      ...progress(entry),
+    })
+
+    return entry.promise
+      .then(() => {
+        log.info("reload session resumed", {
+          directory: key,
+          sessionID,
+          totalDuration: Date.now() - entry.requestedAt,
+        })
+      })
+      .catch((error) => {
+        log.warn("reload session resumed after failure", {
+          directory: key,
+          sessionID,
+          totalDuration: Date.now() - entry.requestedAt,
+          error,
+        })
+      })
   }
 }

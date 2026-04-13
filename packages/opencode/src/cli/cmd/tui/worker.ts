@@ -178,10 +178,13 @@ export const rpc = {
     })
   },
   async reload(input: { directory: string }) {
+    const restart = state.directory !== input.directory || state.workspaceID !== undefined
     state.directory = input.directory
     state.workspaceID = undefined
     await requestReload(state.directory)
-    startEventStream({ directory: state.directory })
+    if (restart) {
+      startEventStream({ directory: state.directory })
+    }
   },
   async setDirectory(input: { directory: string }) {
     state.directory = input.directory

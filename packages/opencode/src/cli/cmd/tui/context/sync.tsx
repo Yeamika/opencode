@@ -112,6 +112,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
     })
 
     const sdk = useSDK()
+    const fullSyncedSessions = new Set<string>()
 
     async function syncWorkspaces() {
       const result = await sdk.client.experimental.workspace.list().catch(() => undefined)
@@ -119,14 +120,64 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       setStore("workspaceList", reconcile(result.data))
     }
 
+    async function syncSession(sessionID: string, options?: { force?: boolean }) {
+      if (!options?.force && fullSyncedSessions.has(sessionID)) return
+
+      const [session, messages, todo, diff] = await Promise.all([
+        sdk.client.session.get({ sessionID }, { throwOnError: true }),
+        sdk.client.session.messages({ sessionID, limit: 100 }),
+        sdk.client.session.todo({ sessionID }),
+        sdk.client.session.diff({ sessionID }),
+      ])
+
+      setStore(
+        produce((draft) => {
+          const match = Binary.search(draft.session, sessionID, (s) => s.id)
+          if (match.found) draft.session[match.index] = session.data!
+          if (!match.found) draft.session.splice(match.index, 0, session.data!)
+          draft.todo[sessionID] = todo.data ?? []
+          draft.message[sessionID] = messages.data!.map((x) => x.info)
+          for (const message of messages.data!) {
+            draft.part[message.info.id] = message.parts
+          }
+          draft.session_diff[sessionID] = diff.data ?? []
+        }),
+      )
+
+      fullSyncedSessions.add(sessionID)
+    }
+
+    async function resyncLoadedSessions() {
+      const sessionIDs = Array.from(fullSyncedSessions)
+      if (sessionIDs.length === 0) return
+
+      await Promise.all(
+        sessionIDs.map((sessionID) =>
+          syncSession(sessionID, { force: true }).catch((error) => {
+            Log.Default.warn("tui session resync failed", {
+              sessionID,
+              error: error instanceof Error ? error.message : String(error),
+            })
+          }),
+        ),
+      )
+    }
+
     sdk.event.listen((e) => {
       const event = e.details
       switch (event.type) {
         case "server.instance.disposed":
-          bootstrap()
+          void resyncLoadedSessions()
+          break
+        case "project.reload.updated":
+          if (event.properties.status === "idle") {
+            void bootstrap({ fatal: false })
+            void resyncLoadedSessions()
+          }
           break
         case "tui.sse.reconnected":
-          bootstrap()
+          void bootstrap({ fatal: false })
+          void resyncLoadedSessions()
           break
         case "permission.replied": {
           const requests = store.permission[event.properties.sessionID]
@@ -364,7 +415,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
     const exit = useExit()
     const args = useArgs()
 
-    async function bootstrap() {
+    async function bootstrap(options?: { fatal?: boolean }) {
       console.log("bootstrapping")
       const start = Date.now() - 30 * 24 * 60 * 60 * 1000
       const sessionListPromise = sdk.client.session
@@ -448,7 +499,9 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
             name: e instanceof Error ? e.name : undefined,
             stack: e instanceof Error ? e.stack : undefined,
           })
-          await exit(e)
+          if (options?.fatal !== false) {
+            await exit(e)
+          }
         })
     }
 
@@ -456,7 +509,6 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       bootstrap()
     })
 
-    const fullSyncedSessions = new Set<string>()
     const result = {
       data: store,
       set: setStore,
@@ -482,28 +534,8 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           if (last.role === "user") return "working"
           return last.time.completed ? "idle" : "working"
         },
-        async sync(sessionID: string) {
-          if (fullSyncedSessions.has(sessionID)) return
-          const [session, messages, todo, diff] = await Promise.all([
-            sdk.client.session.get({ sessionID }, { throwOnError: true }),
-            sdk.client.session.messages({ sessionID, limit: 100 }),
-            sdk.client.session.todo({ sessionID }),
-            sdk.client.session.diff({ sessionID }),
-          ])
-          setStore(
-            produce((draft) => {
-              const match = Binary.search(draft.session, sessionID, (s) => s.id)
-              if (match.found) draft.session[match.index] = session.data!
-              if (!match.found) draft.session.splice(match.index, 0, session.data!)
-              draft.todo[sessionID] = todo.data ?? []
-              draft.message[sessionID] = messages.data!.map((x) => x.info)
-              for (const message of messages.data!) {
-                draft.part[message.info.id] = message.parts
-              }
-              draft.session_diff[sessionID] = diff.data ?? []
-            }),
-          )
-          fullSyncedSessions.add(sessionID)
+        async sync(sessionID: string, options?: { force?: boolean }) {
+          await syncSession(sessionID, options)
         },
       },
       workspace: {

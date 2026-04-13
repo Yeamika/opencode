@@ -43,7 +43,9 @@ function rewrite(request: Request, values: { directory?: string; workspace?: str
   return next
 }
 
-export function createOpencodeClient(config?: Config & { directory?: string; experimental_workspaceID?: string }) {
+export function createOpencodeClient(
+  config?: Config & { directory?: string; experimental_workspaceID?: string; experimental_displayID?: string },
+) {
   if (!config?.fetch) {
     const customFetch: any = (req: any) => {
       // @ts-ignore
