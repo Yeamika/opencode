@@ -2,7 +2,6 @@ import z from "zod"
 import path from "node:path"
 import fs from "node:fs/promises"
 import { Global } from "@/global"
-import { Instance } from "@/project/instance"
 import { Tool } from "./tool"
 
 async function safeReadJson(file: string) {
@@ -16,13 +15,6 @@ async function safeReadJson(file: string) {
 async function writeJson(file: string, data: unknown) {
   await fs.mkdir(path.dirname(file), { recursive: true })
   await fs.writeFile(file, JSON.stringify(data, null, 2))
-}
-
-function isGlobalContext(directory: string) {
-  try {
-    if (Instance.project.id === "global") return true
-  } catch {}
-  return directory === Global.Path.home || directory === Global.Path.config
 }
 
 export const WorkspaceMcpTool = Tool.define("workspaceMcp", {
@@ -43,9 +35,6 @@ export const WorkspaceMcpTool = Tool.define("workspaceMcp", {
     const directory = String(ctx.directory ?? "")
     if ((args.mode === "write" || args.mode === "delete") && args.scope === "global") {
       throw new Error("workspaceMcp only allows write/delete for local scope")
-    }
-    if ((args.mode === "write" || args.mode === "delete") && isGlobalContext(directory)) {
-      throw new Error("workspaceMcp refuses to modify local config when the current session is in the global context")
     }
 
     const file =
