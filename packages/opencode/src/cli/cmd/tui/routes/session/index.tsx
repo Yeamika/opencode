@@ -193,6 +193,25 @@ export function Session() {
   const toast = useToast()
   const sdk = useSDK()
 
+  async function retrySessionNow() {
+    const url = new URL(`/session/${route.sessionID}/retry`, sdk.url)
+    if (sdk.workspaceID) url.searchParams.set("workspace", sdk.workspaceID)
+    else if (sdk.directory) url.searchParams.set("directory", sdk.directory)
+
+    const response = await sdk.fetch(url, {
+      method: "POST",
+      headers: {
+        ...(sdk.headers ?? {}),
+      },
+    })
+
+    if (!response.ok) {
+      throw new Error(`retry now failed (${response.status})`)
+    }
+
+    return (await response.json()) as boolean
+  }
+
   // Handle initial prompt from fork
   let seeded = false
   let lastSwitch: string | undefined = undefined
@@ -504,6 +523,34 @@ export function Session() {
           .catch((error) => {
             toast.show({
               message: error instanceof Error ? error.message : "Failed to unshare session",
+              variant: "error",
+            })
+          })
+        dialog.clear()
+      },
+    },
+    {
+      title: "Retry now",
+      value: "session.retry_now",
+      category: "Session",
+      enabled: sync.data.session_status?.[route.sessionID]?.type === "retry",
+      slash: {
+        name: "retry-now",
+        aliases: ["retry"],
+      },
+      onSelect: async (dialog) => {
+        await retrySessionNow()
+          .then((triggered) => {
+            if (!triggered) {
+              toast.show({
+                message: "Session is no longer waiting to retry",
+                variant: "info",
+              })
+            }
+          })
+          .catch((error) => {
+            toast.show({
+              message: error instanceof Error ? error.message : "Failed to retry session now",
               variant: "error",
             })
           })

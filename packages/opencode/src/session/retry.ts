@@ -1,15 +1,33 @@
 import type { NamedError } from "@opencode-ai/util/error"
-import { Cause, Clock, Duration, Effect, Schedule } from "effect"
+import { InstanceState } from "@/effect/instance-state"
+import { makeRuntime } from "@/effect/run-service"
+import { Log } from "@/util/log"
+import { Cause, Clock, Deferred, Duration, Effect, Layer, Schedule, ServiceMap } from "effect"
 import { MessageV2 } from "./message-v2"
+import { SessionID } from "./schema"
 import { iife } from "@/util/iife"
 
 export namespace SessionRetry {
   export type Err = ReturnType<NamedError["toObject"]>
+  const log = Log.create({ service: "session.retry" })
 
   export const RETRY_INITIAL_DELAY = 2000
   export const RETRY_BACKOFF_FACTOR = 2
-  export const RETRY_MAX_DELAY_NO_HEADERS = 30_000 // 30 seconds
-  export const RETRY_MAX_DELAY = 2_147_483_647 // max 32-bit signed integer for setTimeout
+  export const RETRY_MAX_DELAY_NO_HEADERS = 300_000 // 5 minutes
+  export const RETRY_MAX_DELAY = 300_000 // 5 minutes
+
+  interface WaitState {
+    deferred: Deferred.Deferred<void>
+    startedAt: number
+    next: number
+  }
+
+  export interface Interface {
+    readonly wait: (sessionID: SessionID, delayMs: number) => Effect.Effect<void>
+    readonly triggerNow: (sessionID: SessionID) => Effect.Effect<boolean>
+  }
+
+  export class Service extends ServiceMap.Service<Service, Interface>()("@opencode/SessionRetry") {}
 
   function cap(ms: number) {
     return Math.min(ms, RETRY_MAX_DELAY)
@@ -100,7 +118,61 @@ export namespace SessionRetry {
           yield* opts.set({ attempt: meta.attempt, message, next: now + wait })
           return [meta.attempt, Duration.millis(wait)] as [number, Duration.Duration]
         })
-      }),
-    )
+        }),
+      )
+  }
+
+  export const layer = Layer.effect(
+    Service,
+    Effect.gen(function* () {
+      const state = yield* InstanceState.make(
+        Effect.fn("SessionRetry.state")(() => Effect.succeed(new Map<SessionID, WaitState>())),
+        { preserveOnSoft: true },
+      )
+
+      const wait = Effect.fn("SessionRetry.wait")(function* (sessionID: SessionID, delayMs: number) {
+        const waits = yield* InstanceState.get(state)
+        const deferred = yield* Deferred.make<void>()
+        const startedAt = Date.now()
+        const next = startedAt + delayMs
+        waits.set(sessionID, { deferred, startedAt, next })
+        log.info("waiting", { sessionID, delayMs, next })
+
+        yield* Effect.raceFirst(Deferred.await(deferred), Effect.sleep(Duration.millis(delayMs))).pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              if (waits.get(sessionID)?.deferred === deferred) waits.delete(sessionID)
+            }),
+          ),
+        )
+      })
+
+      const triggerNow = Effect.fn("SessionRetry.triggerNow")(function* (sessionID: SessionID) {
+        const waits = yield* InstanceState.get(state)
+        const current = waits.get(sessionID)
+        if (!current) return false
+
+        waits.delete(sessionID)
+        log.info("triggered immediately", {
+          sessionID,
+          waitingMs: Date.now() - current.startedAt,
+          next: current.next,
+        })
+        yield* Deferred.succeed(current.deferred, undefined).pipe(Effect.ignore)
+        return true
+      })
+
+      return Service.of({ wait, triggerNow })
+    }),
+  )
+
+  const { runPromise } = makeRuntime(Service, layer)
+
+  export async function wait(sessionID: SessionID, delayMs: number) {
+    return runPromise((svc) => svc.wait(SessionID.zod.parse(sessionID), delayMs))
+  }
+
+  export async function triggerNow(sessionID: SessionID) {
+    return runPromise((svc) => svc.triggerNow(SessionID.zod.parse(sessionID)))
   }
 }

@@ -85,6 +85,7 @@ export function Prompt(props: PromptProps) {
   const dialog = useDialog()
   const toast = useToast()
   const status = createMemo(() => sync.data.session_status?.[props.sessionID ?? ""] ?? { type: "idle" })
+  const [statusNow, setStatusNow] = createSignal(Date.now())
   const history = usePromptHistory()
   const stash = usePromptStash()
   const command = useCommandDialog()
@@ -107,6 +108,47 @@ export function Prompt(props: PromptProps) {
   }
 
   const textareaKeybindings = useTextareaKeybindings()
+
+  onMount(() => {
+    const timer = setInterval(() => {
+      setStatusNow(Date.now())
+    }, 1000)
+
+    onCleanup(() => {
+      clearInterval(timer)
+    })
+  })
+
+  const busyText = createMemo(() => {
+    const current = status()
+    if (current.type !== "busy") return ""
+
+    const parts = [current.action ?? "Running"]
+    const duration = formatDuration(Math.max(0, Math.round((statusNow() - current.startedAt) / 1000)))
+    if (duration) parts.push(duration)
+    return parts.join(" · ")
+  })
+
+  async function retryNow() {
+    if (!props.sessionID) return false
+
+    const url = new URL(`/session/${props.sessionID}/retry`, sdk.url)
+    if (sdk.workspaceID) url.searchParams.set("workspace", sdk.workspaceID)
+    else if (sdk.directory) url.searchParams.set("directory", sdk.directory)
+
+    const response = await sdk.fetch(url, {
+      method: "POST",
+      headers: {
+        ...(sdk.headers ?? {}),
+      },
+    })
+
+    if (!response.ok) {
+      throw new Error(`retry now failed (${response.status})`)
+    }
+
+    return (await response.json()) as boolean
+  }
 
   const fileStyleId = syntax().getStyleId("extmark.file")!
   const agentStyleId = syntax().getStyleId("extmark.agent")!
@@ -1150,6 +1192,9 @@ export function Prompt(props: PromptProps) {
                   </Show>
                 </box>
                 <box flexDirection="row" gap={1} flexShrink={0}>
+                  <Show when={status().type === "busy" && busyText()}>
+                    <text fg={theme.textMuted}>{busyText()}</text>
+                  </Show>
                   {(() => {
                     const retry = createMemo(() => {
                       const s = status()
@@ -1169,17 +1214,6 @@ export function Prompt(props: PromptProps) {
                       if (!r) return false
                       return r.message.length > 120
                     })
-                    const [seconds, setSeconds] = createSignal(0)
-                    onMount(() => {
-                      const timer = setInterval(() => {
-                        const next = retry()?.next
-                        if (next) setSeconds(Math.round((next - Date.now()) / 1000))
-                      }, 1000)
-
-                      onCleanup(() => {
-                        clearInterval(timer)
-                      })
-                    })
                     const handleMessageClick = () => {
                       const r = retry()
                       if (!r) return
@@ -1193,15 +1227,46 @@ export function Prompt(props: PromptProps) {
                       if (!r) return ""
                       const baseMessage = message()
                       const truncatedHint = isTruncated() ? " (click to expand)" : ""
-                      const duration = formatDuration(seconds())
-                      const retryInfo = ` [retrying ${duration ? `in ${duration} ` : ""}attempt #${r.attempt}]`
-                      return baseMessage + truncatedHint + retryInfo
+                      const retryIn = Math.max(0, Math.round((r.next - statusNow()) / 1000))
+                      const retryDuration = formatDuration(retryIn)
+                      const waitingDuration = formatDuration(Math.max(0, Math.round((statusNow() - r.waitingAt) / 1000)))
+                      const retryInfo = [
+                        retryDuration ? `retrying in ${retryDuration}` : "retrying now",
+                        waitingDuration ? `waiting ${waitingDuration}` : "",
+                        `attempt #${r.attempt}`,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")
+                      return `${baseMessage}${truncatedHint} [${retryInfo}]`
                     }
 
                     return (
                       <Show when={retry()}>
-                        <box onMouseUp={handleMessageClick}>
-                          <text fg={theme.error}>{retryText()}</text>
+                        <box flexDirection="row" gap={1}>
+                          <box onMouseUp={handleMessageClick}>
+                            <text fg={theme.error}>{retryText()}</text>
+                          </box>
+                          <box
+                            onMouseUp={() => {
+                              void retryNow()
+                                .then((triggered) => {
+                                  if (!triggered) {
+                                    toast.show({
+                                      message: "Session is no longer waiting to retry",
+                                      variant: "info",
+                                    })
+                                  }
+                                })
+                                .catch((error) => {
+                                  toast.show({
+                                    message: error instanceof Error ? error.message : "Failed to retry now",
+                                    variant: "error",
+                                  })
+                                })
+                            }}
+                          >
+                            <text fg={theme.primary}>retry now</text>
+                          </box>
                         </box>
                       </Show>
                     )

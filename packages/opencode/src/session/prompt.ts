@@ -157,15 +157,15 @@ export namespace SessionPrompt {
         if (existing) return existing
           const runner = Runner.make<MessageV2.WithParts>(scope, {
             onIdle: Effect.gen(function* () {
-              const info = yield* sessions.get(sessionID).pipe(Effect.catchAll(() => Effect.succeed(undefined as any)))
+              const info = yield* sessions.get(sessionID).pipe(Effect.catchCause(() => Effect.succeed(undefined as any)))
               if (info?.directory) Reload.leave(info.directory, sessionID)
               runners.delete(sessionID)
-              yield* status.set(sessionID, { type: "idle" })
+              yield* status.set(sessionID, SessionStatus.idle({ updatedAt: Date.now(), action: "Completed" }))
             }),
             onBusy: Effect.gen(function* () {
               const info = yield* sessions.get(sessionID)
               Reload.enter(info.directory, sessionID)
-              yield* status.set(sessionID, { type: "busy" })
+              yield* status.set(sessionID, SessionStatus.busy({ action: "Preparing response" }))
             }),
             onInterrupt: lastAssistant(sessionID),
           busy: () => {
@@ -189,7 +189,7 @@ export namespace SessionPrompt {
         const s = yield* InstanceState.get(state)
         const runner = s.runners.get(sessionID)
         if (!runner || !runner.busy) {
-          yield* status.set(sessionID, { type: "idle" })
+          yield* status.set(sessionID, SessionStatus.idle({ updatedAt: Date.now(), action: "Cancelled" }))
           return
         }
         yield* runner.cancel
@@ -446,7 +446,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           messageID: input.processor.message.id,
           callID: options.toolCallId,
           directory: input.session.directory,
-          worktree: input.worktree,
+          worktree: input.session.directory,
           extra: { model: input.model, bypassAgentCheck: input.bypassAgentCheck },
           agent: input.agent.name,
           messages: input.messages,
@@ -1391,17 +1391,20 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           registry.ids(),
           mcp.status(),
           mcp.tools(),
-          Skill.all(),
+          Effect.promise(() => Skill.all()),
         ])
         const mcpStatus = statusMap as Record<string, { status: string }>
+        const toolList = Array.from(new Set(toolIDs as string[])).sort((a, b) => a.localeCompare(b))
+        const mcpList = Object.keys(mcpTools as Record<string, unknown>).sort((a, b) => a.localeCompare(b))
+        const skillList = skills.map((item: { name: string }) => item.name).sort((a, b) => a.localeCompare(b))
         return {
-          tool: Array.from(new Set(toolIDs)).sort((a, b) => a.localeCompare(b)),
+          tool: toolList,
           server: Object.entries(mcpStatus)
             .filter(([, item]) => item.status === "connected")
             .map(([key]) => key)
             .sort((a, b) => a.localeCompare(b)),
-          mcp: Object.keys(mcpTools).sort((a, b) => a.localeCompare(b)),
-          skill: skills.map((item) => item.name).sort((a, b) => a.localeCompare(b)),
+          mcp: mcpList,
+          skill: skillList,
         }
       })
 
@@ -1424,7 +1427,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
           while (true) {
             yield* waitForReloadPoint({ sessionID, directory: session.directory })
-            yield* status.set(sessionID, { type: "busy" })
+            yield* status.set(sessionID, SessionStatus.busy({ action: "Running session" }))
             log.info("loop", { step, sessionID })
 
             let msgs = yield* MessageV2.filterCompactedEffect(sessionID)
@@ -1656,8 +1659,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           Effect.ensuring(
             status
               .get(input.sessionID)
-              .pipe(
-                Effect.flatMap((current) => (current.type === "idle" ? Effect.void : status.set(input.sessionID, { type: "idle" }))),
+                .pipe(
+                Effect.flatMap((current) =>
+                  current.type === "idle"
+                    ? Effect.void
+                    : status.set(input.sessionID, SessionStatus.idle({ updatedAt: Date.now(), action: "Completed" })),
+                ),
                 Effect.catchCause((cause) =>
                   Effect.sync(() =>
                     log.error("failed to finalize session status", {

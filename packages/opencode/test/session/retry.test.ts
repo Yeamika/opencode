@@ -26,10 +26,10 @@ function wrap(message: unknown): ReturnType<NamedError["toObject"]> {
 }
 
 describe("session.retry.delay", () => {
-  test("caps delay at 30 seconds when headers missing", () => {
+  test("caps delay at 5 minutes when headers missing", () => {
     const error = apiError()
     const delays = Array.from({ length: 10 }, (_, index) => SessionRetry.delay(index + 1, error))
-    expect(delays).toStrictEqual([2000, 4000, 8000, 16000, 30000, 30000, 30000, 30000, 30000, 30000])
+    expect(delays).toStrictEqual([2000, 4000, 8000, 16000, 32000, 64000, 128000, 256000, 300000, 300000])
   })
 
   test("prefers retry-after-ms when shorter than exponential", () => {
@@ -66,12 +66,12 @@ describe("session.retry.delay", () => {
     expect(SessionRetry.delay(1, error)).toBe(2000)
   })
 
-  test("uses retry-after values even when exceeding 10 minutes with headers", () => {
+  test("caps retry-after header delays to five minutes", () => {
     const error = apiError({ "retry-after": "50" })
     expect(SessionRetry.delay(1, error)).toBe(50000)
 
     const longError = apiError({ "retry-after-ms": "700000" })
-    expect(SessionRetry.delay(1, longError)).toBe(700000)
+    expect(SessionRetry.delay(1, longError)).toBe(300000)
   })
 
   test("caps oversized header delays to the runtime timer limit", () => {
@@ -94,12 +94,15 @@ describe("session.retry.delay", () => {
                 parse: (err) => err as MessageV2.APIError,
                 set: (info) =>
                   Effect.promise(() =>
-                    SessionStatus.set(sessionID, {
-                      type: "retry",
+                    SessionStatus.set(
+                      sessionID,
+                      SessionStatus.retry({
                       attempt: info.attempt,
                       message: info.message,
                       next: info.next,
-                    }),
+                      waitingAt: Date.now(),
+                      }),
+                    ),
                   ),
               }),
             )
@@ -113,6 +116,26 @@ describe("session.retry.delay", () => {
           attempt: 2,
           message: "boom",
         })
+      },
+    })
+  })
+
+  test("triggerNow skips an active retry wait", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const sessionID = SessionID.make("session-retry-trigger")
+        const started = Date.now()
+        const waiting = SessionRetry.wait(sessionID, 60_000)
+
+        await sleep(25)
+
+        expect(await SessionRetry.triggerNow(sessionID)).toBe(true)
+        await waiting
+
+        expect(Date.now() - started).toBeLessThan(5_000)
+        expect(await SessionRetry.triggerNow(sessionID)).toBe(false)
       },
     })
   })

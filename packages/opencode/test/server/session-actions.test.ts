@@ -5,6 +5,7 @@ import { Session } from "../../src/session"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { MessageID, PartID, type SessionID } from "../../src/session/schema"
 import { SessionPrompt } from "../../src/session/prompt"
+import { SessionRetry } from "../../src/session/retry"
 import { Log } from "../../src/util/log"
 import { tmpdir } from "../fixture/fixture"
 
@@ -51,6 +52,28 @@ describe("session action routes", () => {
         expect(res.status).toBe(200)
         expect(await res.json()).toBe(true)
         expect(cancel).toHaveBeenCalledWith(session.id)
+
+        await Session.remove(session.id)
+      },
+    })
+  })
+
+  test("retry route calls SessionRetry.triggerNow", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const trigger = spyOn(SessionRetry, "triggerNow").mockResolvedValue(true)
+        const app = Server.Default()
+
+        const res = await app.request(`/session/${session.id}/retry`, {
+          method: "POST",
+        })
+
+        expect(res.status).toBe(200)
+        expect(await res.json()).toBe(true)
+        expect(trigger).toHaveBeenCalledWith(session.id)
 
         await Session.remove(session.id)
       },

@@ -7,25 +7,77 @@ import { Effect, Layer, ServiceMap } from "effect"
 import z from "zod"
 
 export namespace SessionStatus {
+  const Idle = z.object({
+    type: z.literal("idle"),
+    updatedAt: z.number().optional(),
+    action: z.string().optional(),
+  })
+
+  const Busy = z.object({
+    type: z.literal("busy"),
+    startedAt: z.number(),
+    updatedAt: z.number(),
+    action: z.string().optional(),
+  })
+
+  const Retry = z.object({
+    type: z.literal("retry"),
+    attempt: z.number(),
+    message: z.string(),
+    next: z.number(),
+    waitingAt: z.number(),
+    updatedAt: z.number(),
+    action: z.string().optional(),
+  })
+
   export const Info = z
     .union([
-      z.object({
-        type: z.literal("idle"),
-      }),
-      z.object({
-        type: z.literal("retry"),
-        attempt: z.number(),
-        message: z.string(),
-        next: z.number(),
-      }),
-      z.object({
-        type: z.literal("busy"),
-      }),
+      Idle,
+      Retry,
+      Busy,
     ])
     .meta({
       ref: "SessionStatus",
     })
   export type Info = z.infer<typeof Info>
+
+  export function idle(input?: { action?: string; updatedAt?: number }): Extract<Info, { type: "idle" }> {
+    return {
+      type: "idle",
+      ...(input?.updatedAt ? { updatedAt: input.updatedAt } : {}),
+      ...(input?.action ? { action: input.action } : {}),
+    }
+  }
+
+  export function busy(input?: { action?: string; startedAt?: number; updatedAt?: number }): Extract<Info, { type: "busy" }> {
+    const now = input?.updatedAt ?? Date.now()
+    return {
+      type: "busy",
+      startedAt: input?.startedAt ?? now,
+      updatedAt: now,
+      ...(input?.action ? { action: input.action } : {}),
+    }
+  }
+
+  export function retry(input: {
+    attempt: number
+    message: string
+    next: number
+    waitingAt?: number
+    updatedAt?: number
+    action?: string
+  }): Extract<Info, { type: "retry" }> {
+    const now = input.updatedAt ?? Date.now()
+    return {
+      type: "retry",
+      attempt: input.attempt,
+      message: input.message,
+      next: input.next,
+      waitingAt: input.waitingAt ?? now,
+      updatedAt: now,
+      ...(input.action ? { action: input.action } : {}),
+    }
+  }
 
   export const Event = {
     Status: BusEvent.define(
@@ -63,7 +115,7 @@ export namespace SessionStatus {
 
       const get = Effect.fn("SessionStatus.get")(function* (sessionID: SessionID) {
         const data = yield* InstanceState.get(state)
-        return data.get(sessionID) ?? { type: "idle" as const }
+        return data.get(sessionID) ?? idle()
       })
 
       const list = Effect.fn("SessionStatus.list")(function* () {

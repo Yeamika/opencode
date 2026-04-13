@@ -126,15 +126,23 @@ export type EventPermissionReplied = {
 export type SessionStatus =
   | {
       type: "idle"
+      updatedAt?: number
+      action?: string
     }
   | {
       type: "retry"
       attempt: number
       message: string
       next: number
+      waitingAt: number
+      updatedAt: number
+      action?: string
     }
   | {
       type: "busy"
+      startedAt: number
+      updatedAt: number
+      action?: string
     }
 
 export type EventSessionStatus = {

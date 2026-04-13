@@ -1,4 +1,4 @@
-import { Cause, Effect, Layer, ServiceMap } from "effect"
+import { Cause, Effect, Exit, Layer, ServiceMap } from "effect"
 import * as Stream from "effect/Stream"
 import { Agent } from "@/agent/agent"
 import { Bus } from "@/bus"
@@ -69,6 +69,7 @@ export namespace SessionProcessor {
     | LLM.Service
     | Permission.Service
     | Plugin.Service
+    | SessionRetry.Service
     | SessionStatus.Service
   > = Layer.effect(
     Service,
@@ -81,6 +82,7 @@ export namespace SessionProcessor {
       const llm = yield* LLM.Service
       const permission = yield* Permission.Service
       const plugin = yield* Plugin.Service
+      const retry = yield* SessionRetry.Service
       const status = yield* SessionStatus.Service
 
       const create = Effect.fn("SessionProcessor.create")(function* (input: Input) {
@@ -109,10 +111,10 @@ export namespace SessionProcessor {
           })
 
         const handleEvent = Effect.fn("SessionProcessor.handleEvent")(function* (value: StreamEvent) {
-          switch (value.type) {
-            case "start":
-              yield* status.set(ctx.sessionID, { type: "busy" })
-              return
+            switch (value.type) {
+              case "start":
+                yield* status.set(ctx.sessionID, SessionStatus.busy({ action: "Calling model" }))
+                return
 
             case "reasoning-start":
               if (value.id in ctx.reasoningMap) return
@@ -426,7 +428,7 @@ export namespace SessionProcessor {
             sessionID: ctx.assistantMessage.sessionID,
             error: ctx.assistantMessage.error,
           })
-          yield* status.set(ctx.sessionID, { type: "idle" })
+          yield* status.set(ctx.sessionID, SessionStatus.idle({ updatedAt: Date.now(), action: "Completed" }))
         })
 
         const abort = Effect.fn("SessionProcessor.abort")(() =>
@@ -448,7 +450,7 @@ export namespace SessionProcessor {
           ctx.shouldBreak = (yield* config.get()).experimental?.continue_loop_on_deny !== true
 
           return yield* Effect.gen(function* () {
-            yield* Effect.gen(function* () {
+            const runAttempt = Effect.gen(function* () {
               ctx.currentText = undefined
               ctx.reasoningMap = {}
               const stream = llm.stream(streamInput)
@@ -464,21 +466,39 @@ export namespace SessionProcessor {
                 (cause) => !Cause.hasInterruptsOnly(cause),
                 (cause) => Effect.fail(Cause.squash(cause)),
               ),
-              Effect.retry(
-                SessionRetry.policy({
-                  parse,
-                  set: (info) =>
-                    status.set(ctx.sessionID, {
-                      type: "retry",
-                      attempt: info.attempt,
-                      message: info.message,
-                      next: info.next,
-                    }),
-                }),
-              ),
-              Effect.catch(halt),
-              Effect.ensuring(cleanup()),
             )
+
+            yield* Effect.gen(function* () {
+              let attempt = 0
+              while (true) {
+                const exit = yield* runAttempt.pipe(Effect.exit)
+                if (Exit.isSuccess(exit)) break
+                if (Cause.hasInterruptsOnly(exit.cause)) {
+                  return yield* Effect.failCause(exit.cause)
+                }
+
+                const error = Cause.squash(exit.cause)
+                const parsed = parse(error)
+                const message = SessionRetry.retryable(parsed)
+                const retryMessage = message ?? (yield* Effect.fail(error))
+
+                attempt += 1
+                const wait = SessionRetry.delay(attempt, MessageV2.APIError.isInstance(parsed) ? parsed : undefined)
+                const now = Date.now()
+                yield* status.set(
+                  ctx.sessionID,
+                  SessionStatus.retry({
+                    attempt,
+                    message: retryMessage,
+                    next: now + wait,
+                    waitingAt: now,
+                    updatedAt: now,
+                    action: "Waiting to retry",
+                  }),
+                )
+                yield* retry.wait(ctx.sessionID, wait)
+              }
+            }).pipe(Effect.catch(halt), Effect.ensuring(cleanup()))
 
             if (aborted && !ctx.assistantMessage.error) {
               yield* abort()
@@ -514,6 +534,7 @@ export namespace SessionProcessor {
         Layer.provide(LLM.defaultLayer),
         Layer.provide(Permission.defaultLayer),
         Layer.provide(Plugin.defaultLayer),
+        Layer.provide(SessionRetry.layer),
         Layer.provide(SessionStatus.layer.pipe(Layer.provide(Bus.layer))),
         Layer.provide(Bus.layer),
         Layer.provide(Config.defaultLayer),

@@ -8,6 +8,7 @@ import { MessageV2 } from "../../session/message-v2"
 import { SessionPrompt } from "../../session/prompt"
 import { SessionCompaction } from "../../session/compaction"
 import { SessionRevert } from "../../session/revert"
+import { SessionRetry } from "@/session/retry"
 import { SessionStatus } from "@/session/status"
 import { SessionSummary } from "@/session/summary"
 import { Todo } from "../../session/todo"
@@ -383,6 +384,35 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         await SessionPrompt.cancel(c.req.valid("param").sessionID)
         return c.json(true)
+      },
+    )
+    .post(
+      "/:sessionID/retry",
+      describeRoute({
+        summary: "Retry session now",
+        description: "Skip the current retry wait and immediately resume retrying the active session.",
+        operationId: "session.retryNow",
+        responses: {
+          200: {
+            description: "Retry wait skipped",
+            content: {
+              "application/json": {
+                schema: resolver(z.boolean()),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+        }),
+      ),
+      async (c) => {
+        const triggered = await SessionRetry.triggerNow(c.req.valid("param").sessionID)
+        return c.json(triggered)
       },
     )
     .post(
