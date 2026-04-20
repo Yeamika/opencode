@@ -36,7 +36,7 @@ export function DialogSessionList() {
 
   const [recent] = createResource(all, async (value) => {
     if (!value) return undefined
-    const result = await sdk.client.session.list({ limit: 100 })
+    const result = await sdk.client.experimental.session.list({ limit: 100 })
     return result.data ?? []
   })
 
