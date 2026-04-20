@@ -28,16 +28,26 @@ export function DialogSessionList() {
   const [all, setAll] = kv.signal("session_list_all_recent", false)
   const [hover, setHover] = createSignal<string>()
 
+  async function globalList(input?: { search?: string; limit?: number }) {
+    const url = new URL("/experimental/session", sdk.url)
+    if (input?.search) url.searchParams.set("search", input.search)
+    url.searchParams.set("limit", String(input?.limit ?? 100))
+    const res = await sdk.fetch(url, { headers: sdk.headers })
+    if (!res.ok) return []
+    const json = await res.json().catch(() => [])
+    return Array.isArray(json) ? json : []
+  }
+
   const [searchResults] = createResource(search, async (query) => {
     if (!query) return undefined
+    if (all()) return globalList({ search: query, limit: 100 })
     const result = await sdk.client.session.list({ search: query, limit: 30 })
     return result.data ?? []
   })
 
   const [recent] = createResource(all, async (value) => {
     if (!value) return undefined
-    const result = await sdk.client.experimental.session.list({ limit: 100 })
-    return result.data ?? []
+    return globalList({ limit: 100 })
   })
 
   const [extra] = createResource(hover, async (id) => {
