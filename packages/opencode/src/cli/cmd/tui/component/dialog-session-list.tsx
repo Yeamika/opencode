@@ -11,6 +11,8 @@ import { DialogSessionRename } from "./dialog-session-rename"
 import { useKV } from "../context/kv"
 import { createDebouncedSignal } from "../util/signal"
 import { Spinner } from "./spinner"
+import { getFilename } from "@opencode-ai/util/path"
+import { TextAttributes } from "@opentui/core"
 
 export function DialogSessionList() {
   const dialog = useDialog()
@@ -23,6 +25,7 @@ export function DialogSessionList() {
 
   const [toDelete, setToDelete] = createSignal<string>()
   const [search, setSearch] = createDebouncedSignal("", 150)
+  const [all, setAll] = kv.signal("session_list_all_recent", false)
 
   const [searchResults] = createResource(search, async (query) => {
     if (!query) return undefined
@@ -33,27 +36,34 @@ export function DialogSessionList() {
   const currentSessionID = createMemo(() => (route.data.type === "session" ? route.data.sessionID : undefined))
 
   const sessions = createMemo(() => searchResults() ?? sync.data.session)
+  const pick = (id?: string) => sessions().find((item) => item.id === id)
+
+  createEffect(() => {
+    dialog.setSize(all() ? "xlarge" : "large")
+  })
 
   const options = createMemo(() => {
     const today = new Date().toDateString()
     return sessions()
-      .filter((x) => x.parentID === undefined)
-      .toSorted((a, b) => b.time.updated - a.time.updated)
+      .filter((x) => (all() ? true : x.parentID === undefined))
+      .toSorted((a, b) => (b.time.updated ?? b.time.created) - (a.time.updated ?? a.time.created))
       .map((x) => {
-        const date = new Date(x.time.updated)
+        const updated = x.time.updated ?? x.time.created
+        const date = new Date(updated)
         let category = date.toDateString()
         if (category === today) {
           category = "Today"
         }
         const isDeleting = toDelete() === x.id
         const status = sync.data.session_status?.[x.id]
-        const isWorking = !!status && status.type !== "idle"
+        const isWorking = status?.type === "busy"
         return {
           title: isDeleting ? `Press ${keybind.print("session_delete")} again to confirm` : x.title,
           bg: isDeleting ? theme.error : undefined,
           value: x.id,
           category,
-          footer: Locale.time(x.time.updated),
+          description: all() ? getFilename(x.directory) : undefined,
+          footer: Locale.time(updated),
           gutter: isWorking ? <Spinner /> : undefined,
         }
       })
@@ -63,6 +73,48 @@ export function DialogSessionList() {
     dialog.setSize("large")
   })
 
+  const toolbar = createMemo(() => (
+    <box
+      flexDirection="row"
+      gap={1}
+      paddingLeft={1}
+      onMouseUp={() => {
+        setAll((x) => !x)
+        setToDelete(undefined)
+      }}
+    >
+      <text fg={theme.text}>{all() ? "☑" : "☐"}</text>
+      <text fg={theme.textMuted}>All recent sessions</text>
+    </box>
+  ))
+
+  const detail = (option?: { value: string }) => {
+    const item = pick(option?.value)
+    if (!item) return <text fg={theme.textMuted}>Select a session</text>
+    const updated = item.time.updated ?? item.time.created
+    return (
+      <box flexDirection="column" gap={1}>
+        <text fg={theme.text} attributes={TextAttributes.BOLD}>
+          Details
+        </text>
+        <text fg={theme.textMuted}>Folder</text>
+        <text fg={theme.text}>{getFilename(item.directory)}</text>
+        <text fg={theme.textMuted}>Updated</text>
+        <text fg={theme.text}>{Locale.time(updated)}</text>
+        <text fg={theme.textMuted}>Directory</text>
+        <text fg={theme.text} wrapMode="word">
+          {item.directory}
+        </text>
+        <Show when={item.parentID}>
+          <>
+            <text fg={theme.textMuted}>Type</text>
+            <text fg={theme.text}>Child session</text>
+          </>
+        </Show>
+      </box>
+    )
+  }
+
   return (
     <DialogSelect
       title="Sessions"
@@ -70,15 +122,23 @@ export function DialogSessionList() {
       skipFilter={true}
       current={currentSessionID()}
       onFilter={setSearch}
+      toolbar={toolbar()}
+      detail={all() ? detail : undefined}
+      detailWidth={34}
       onMove={() => {
         setToDelete(undefined)
       }}
-      onSelect={(option) => {
+      onSelect={async (option) => {
+        const item = pick(option.value)
+        dialog.clear()
+        if (item?.directory && item.directory !== sdk.directory) {
+          sdk.setDirectory(item.directory)
+          await sync.bootstrap()
+        }
         route.navigate({
           type: "session",
           sessionID: option.value,
         })
-        dialog.clear()
       }}
       keybind={[
         {
