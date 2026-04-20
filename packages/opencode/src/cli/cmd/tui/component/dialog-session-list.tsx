@@ -26,6 +26,7 @@ export function DialogSessionList() {
   const [toDelete, setToDelete] = createSignal<string>()
   const [search, setSearch] = createDebouncedSignal("", 150)
   const [all, setAll] = kv.signal("session_list_all_recent", false)
+  const [hover, setHover] = createSignal<string>()
 
   const [searchResults] = createResource(search, async (query) => {
     if (!query) return undefined
@@ -33,18 +34,42 @@ export function DialogSessionList() {
     return result.data ?? []
   })
 
+  const [recent] = createResource(all, async (value) => {
+    if (!value) return undefined
+    const result = await sdk.client.session.list({ limit: 100 })
+    return result.data ?? []
+  })
+
+  const [extra] = createResource(hover, async (id) => {
+    if (!id) return undefined
+    const result = await sdk.client.session.messages({ sessionID: id })
+    const list = result.data ?? []
+    const msg = [...list].reverse().find((item) => item.info.role === "user" && item.info.model)
+    return {
+      turns: list.length,
+      model: msg ? `${msg.info.model.providerID}/${msg.info.model.modelID}` : undefined,
+    }
+  })
+
   const currentSessionID = createMemo(() => (route.data.type === "session" ? route.data.sessionID : undefined))
 
-  const sessions = createMemo(() => searchResults() ?? sync.data.session)
+  const sessions = createMemo(() => searchResults() ?? (all() ? recent() : sync.data.session) ?? [])
   const pick = (id?: string) => sessions().find((item) => item.id === id)
 
   createEffect(() => {
     dialog.setSize(all() ? "xlarge" : "large")
   })
 
+  createEffect(() => {
+    if (!all()) return
+    if (hover()) return
+    if (currentSessionID()) setHover(currentSessionID())
+  })
+
   const options = createMemo(() => {
     const today = new Date().toDateString()
     return sessions()
+      .filter((x) => !x.time.archived)
       .filter((x) => (all() ? true : x.parentID === undefined))
       .toSorted((a, b) => (b.time.updated ?? b.time.created) - (a.time.updated ?? a.time.created))
       .map((x) => {
@@ -81,6 +106,7 @@ export function DialogSessionList() {
       onMouseUp={() => {
         setAll((x) => !x)
         setToDelete(undefined)
+        setHover(undefined)
       }}
     >
       <text fg={theme.text}>{all() ? "☑" : "☐"}</text>
@@ -94,23 +120,11 @@ export function DialogSessionList() {
     const updated = item.time.updated ?? item.time.created
     return (
       <box flexDirection="column" gap={1}>
-        <text fg={theme.text} attributes={TextAttributes.BOLD}>
-          Details
-        </text>
-        <text fg={theme.textMuted}>Folder</text>
-        <text fg={theme.text}>{getFilename(item.directory)}</text>
-        <text fg={theme.textMuted}>Updated</text>
-        <text fg={theme.text}>{Locale.time(updated)}</text>
-        <text fg={theme.textMuted}>Directory</text>
-        <text fg={theme.text} wrapMode="word">
-          {item.directory}
-        </text>
-        <Show when={item.parentID}>
-          <>
-            <text fg={theme.textMuted}>Type</text>
-            <text fg={theme.text}>Child session</text>
-          </>
-        </Show>
+        <text fg={theme.text} attributes={TextAttributes.BOLD}>Dir: {getFilename(item.directory)}</text>
+        <text fg={theme.text}>UpdatedAt: {Locale.time(updated)}</text>
+        <text fg={theme.text}>Model: {extra()?.model ?? "-"}</text>
+        <text fg={theme.text}>Turns: {extra()?.turns ?? "-"}</text>
+        <text fg={theme.textMuted} wrapMode="word">{item.directory}</text>
       </box>
     )
   }
@@ -125,8 +139,9 @@ export function DialogSessionList() {
       toolbar={toolbar()}
       detail={all() ? detail : undefined}
       detailWidth={34}
-      onMove={() => {
+      onMove={(option) => {
         setToDelete(undefined)
+        setHover(option.value)
       }}
       onSelect={async (option) => {
         const item = pick(option.value)
