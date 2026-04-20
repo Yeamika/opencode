@@ -25,10 +25,7 @@ describe("workspaceMcp", () => {
             mode: "write",
             scope: "local",
             name: "demo-home-entry",
-            value: {
-              type: "remote",
-              url: "http://host.docker.internal:8811/mcp",
-            },
+            value: '{"type":"remote","url":"http://host.docker.internal:8811/mcp"}',
           },
           {
             sessionID: "ses_test_workspace_mcp" as any,

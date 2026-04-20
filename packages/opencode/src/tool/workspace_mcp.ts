@@ -19,16 +19,16 @@ async function writeJson(file: string, data: unknown) {
 
 export const WorkspaceMcpTool = Tool.define("workspaceMcp", {
   description:
-    "Authoritative control surface for workspace MCP entries. Read local/global MCP config, or write/delete one local mcp[name] entry at a time. For write, pass only the JSON object for the single entry value, not the full opencode.json file. After local write/delete, call reload {} before verifying behavior.",
+    "Authoritative control surface for workspace MCP entries. Read local/global MCP config, or write/delete one local mcp[name] entry at a time. For write, pass a JSON object string for the single entry value, not the full opencode.json file. After local write/delete, call reload {} before verifying behavior.",
   parameters: z.object({
     mode: z.enum(["read", "write", "delete"]).describe("Use read to inspect config, write to upsert a single local entry, or delete to remove a single local entry by name."),
     scope: z.enum(["local", "global"]).default("local").describe("Read supports local or global. Write/delete only support local."),
     name: z.string().optional().describe("The MCP entry name under mcp[name]. Required for write and delete."),
     value: z
-      .record(z.string(), z.any())
+      .string()
       .optional()
       .describe(
-        "The JSON object to store at mcp[name] for a single entry. Pass only the entry object, not the full opencode.json file. Example: {\"type\":\"remote\",\"url\":\"http://host.docker.internal:8811/mcp\"}.",
+        "A JSON object string to store at mcp[name] for a single entry. Pass only the entry object as a string, not the full opencode.json file. Example: {\"type\":\"remote\",\"url\":\"http://host.docker.internal:8811/mcp\"}.",
       ),
   }),
   async execute(args, ctx) {
@@ -50,7 +50,11 @@ export const WorkspaceMcpTool = Tool.define("workspaceMcp", {
     if (args.mode === "write") {
       if (!args.name) throw new Error("name is required for write")
       if (!args.value) throw new Error("value is required for write")
-      json.mcp[args.name] = args.value
+      const value = JSON.parse(args.value)
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        throw new Error("value must be a JSON object string")
+      }
+      json.mcp[args.name] = value
     }
     if (args.mode === "delete") {
       if (!args.name) throw new Error("name is required for delete")
