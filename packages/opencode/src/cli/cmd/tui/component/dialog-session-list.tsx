@@ -2,7 +2,7 @@ import { useDialog } from "@tui/ui/dialog"
 import { DialogSelect } from "@tui/ui/dialog-select"
 import { useRoute } from "@tui/context/route"
 import { useSync } from "@tui/context/sync"
-import { createEffect, createMemo, createSignal, createResource, onMount, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, createResource, onMount } from "solid-js"
 import { Locale } from "@/util/locale"
 import { useKeybind } from "../context/keybind"
 import { useTheme } from "../context/theme"
@@ -76,6 +76,12 @@ export function DialogSessionList() {
     if (currentSessionID()) setHover(currentSessionID())
   })
 
+  const toggle = () => {
+    setAll((x) => !x)
+    setToDelete(undefined)
+    setHover(undefined)
+  }
+
   const options = createMemo(() => {
     const today = new Date().toDateString()
     return sessions()
@@ -108,19 +114,14 @@ export function DialogSessionList() {
     dialog.setSize("large")
   })
 
-  const toolbar = createMemo(() => (
+  const head = createMemo(() => (
     <box
       flexDirection="row"
       gap={1}
-      paddingLeft={1}
-      onMouseUp={() => {
-        setAll((x) => !x)
-        setToDelete(undefined)
-        setHover(undefined)
-      }}
+      onMouseUp={toggle}
     >
       <text fg={theme.text}>{all() ? "☑" : "☐"}</text>
-      <text fg={theme.textMuted}>All recent sessions</text>
+      <text fg={theme.textMuted}>All recent</text>
     </box>
   ))
 
@@ -142,11 +143,11 @@ export function DialogSessionList() {
   return (
     <DialogSelect
       title="Sessions"
+      titleRight={head()}
       options={options()}
       skipFilter={true}
       current={currentSessionID()}
       onFilter={setSearch}
-      toolbar={toolbar()}
       detail={all() ? detail : undefined}
       detailWidth={34}
       onMove={(option) => {

@@ -15,6 +15,7 @@ import { useTuiConfig } from "../context/tui-config"
 
 export interface DialogSelectProps<T> {
   title: string
+  titleRight?: JSX.Element
   placeholder?: string
   options: DialogSelectOption<T>[]
   flat?: boolean
@@ -242,9 +243,14 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
     <box gap={1} paddingBottom={1}>
       <box paddingLeft={4} paddingRight={4}>
         <box flexDirection="row" justifyContent="space-between">
-          <text fg={theme.text} attributes={TextAttributes.BOLD}>
-            {props.title}
-          </text>
+          <box flexDirection="row" gap={2} alignItems="center">
+            <text fg={theme.text} attributes={TextAttributes.BOLD}>
+              {props.title}
+            </text>
+            <Show when={props.titleRight}>
+              <box>{props.titleRight}</box>
+            </Show>
+          </box>
           <text fg={theme.textMuted} onMouseUp={() => dialog.clear()}>
             esc
           </text>
