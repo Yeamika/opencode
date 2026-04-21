@@ -23,11 +23,11 @@ function isGlobalContext(directory: string) {
 
 export const WorkspaceSkillTool = Tool.define("workspaceSkill", {
   description:
-    "Authoritative control surface for workspace skill installation. Read local/global skill folder inventory, or copy/delete one local skill directory by absolute source path. The tool copies the source basename into the workspace .opencode/skills directory. After local write/delete, call reload {} before verifying availability.",
+    "Authoritative control surface for workspace skills.",
   parameters: z.object({
-    mode: z.enum(["read", "write", "delete"]).describe("Use read to inspect skill folders, write to copy one local skill directory into the workspace, or delete to remove one copied local skill directory by basename."),
+    mode: z.enum(["read", "write", "delete"]).describe("Read current skill folders, write one local skill directory, or delete one local skill directory."),
     scope: z.enum(["local", "global"]).default("local").describe("Read supports local or global. Write/delete only support local."),
-    directoryPath: z.string().optional().describe("Absolute source directory path. For write, the directory is copied into .opencode/skills using its basename. For delete, the same basename is removed from .opencode/skills."),
+    directoryPath: z.string().optional().describe("Absolute source directory path. Required for write and delete."),
   }),
   async execute(args, ctx) {
     if ((args.mode === "write" || args.mode === "delete") && args.scope === "global") {

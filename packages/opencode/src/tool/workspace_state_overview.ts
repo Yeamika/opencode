@@ -26,9 +26,9 @@ async function listNames(dir: string, kind: "file" | "directory") {
 
 export const WorkspaceOverviewTool = Tool.define("workspaceOverview", {
   description:
-    "Authoritative control surface for workspace resource state. Inspect the exact local/global config paths and current MCP, tool, and skill inventory before or after workspace mutations.",
+    "Authoritative control surface for workspace overview.",
   parameters: z.object({
-    scope: z.enum(["local", "global"]).default("local").describe("Which resource root to inspect: the current workspace .opencode directory or the global config directory."),
+    scope: z.enum(["local", "global"]).default("local").describe("Which workspace scope to inspect."),
   }),
   async execute(args, ctx) {
     const directory = String(ctx.directory ?? "")

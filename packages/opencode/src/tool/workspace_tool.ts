@@ -23,11 +23,11 @@ function isGlobalContext(directory: string) {
 
 export const WorkspaceToolTool = Tool.define("workspaceTool", {
   description:
-    "Authoritative control surface for workspace tool installation. Read local/global tool file inventory, or copy/delete one local tool file by absolute source path. The tool copies the source basename into the workspace .opencode/tools directory. After local write/delete, call reload {} before verifying availability.",
+    "Authoritative control surface for workspace tools.",
   parameters: z.object({
-    mode: z.enum(["read", "write", "delete"]).describe("Use read to inspect tool files, write to copy one local tool file into the workspace, or delete to remove one copied local tool file by basename."),
+    mode: z.enum(["read", "write", "delete"]).describe("Read current tool files, write one local tool file, or delete one local tool file."),
     scope: z.enum(["local", "global"]).default("local").describe("Read supports local or global. Write/delete only support local."),
-    filePath: z.string().optional().describe("Absolute source file path. For write, the file is copied into .opencode/tools using its basename. For delete, the same basename is removed from .opencode/tools."),
+    filePath: z.string().optional().describe("Absolute source file path. Required for write and delete."),
   }),
   async execute(args, ctx) {
     if ((args.mode === "write" || args.mode === "delete") && args.scope === "global") {

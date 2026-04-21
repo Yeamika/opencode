@@ -97,7 +97,7 @@ async function snapshot() {
 
 export const ReloadTool = Tool.define("reload", {
   description:
-    "Reload the current workspace instance so the agent continues with refreshed project state and system context. Call this after workspaceMcp, workspaceTool, or workspaceSkill local write/delete operations before verifying new availability or disappearance.",
+    "Reload the current local workspace context system. Use this only after workspaceMcp, workspaceTool, or workspaceSkill local write/delete operations. It cannot live-restart global context changes.",
   parameters: z.object({}),
   async execute(_params, ctx) {
     await ctx.ask({

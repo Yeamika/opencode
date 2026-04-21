@@ -19,16 +19,16 @@ async function writeJson(file: string, data: unknown) {
 
 export const WorkspaceMcpTool = Tool.define("workspaceMcp", {
   description:
-    "Authoritative control surface for workspace MCP entries. Read local/global MCP config, or write/delete one local mcp[name] entry at a time. For write, pass a JSON object string for the single entry value, not the full opencode.json file. After local write/delete, call reload {} before verifying behavior.",
+    "Authoritative control surface for workspace MCP.",
   parameters: z.object({
-    mode: z.enum(["read", "write", "delete"]).describe("Use read to inspect config, write to upsert a single local entry, or delete to remove a single local entry by name."),
+    mode: z.enum(["read", "write", "delete"]).describe("Read current entries, write one local entry, or delete one local entry."),
     scope: z.enum(["local", "global"]).default("local").describe("Read supports local or global. Write/delete only support local."),
-    name: z.string().optional().describe("The MCP entry name under mcp[name]. Required for write and delete."),
+    name: z.string().optional().describe("Entry name. Required for write and delete."),
     value: z
       .string()
       .optional()
       .describe(
-        "A JSON object string to store at mcp[name] for a single entry. Pass only the entry object as a string, not the full opencode.json file. Example: {\"type\":\"remote\",\"url\":\"http://host.docker.internal:8811/mcp\"}.",
+        "JSON object string for one entry value. Example: {\"type\":\"remote\",\"url\":\"http://host.docker.internal:8811/mcp\"}.",
       ),
   }),
   async execute(args, ctx) {
