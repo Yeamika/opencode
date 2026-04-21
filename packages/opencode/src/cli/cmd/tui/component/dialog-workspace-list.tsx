@@ -155,7 +155,7 @@ export function DialogWorkspaceList() {
   const toast = useToast()
   const keybind = useKeybind()
   const [toDelete, setToDelete] = createSignal<string>()
-  const [counts, setCounts] = createSignal<Record<string, number | null | undefined>>({})
+  const [stats, setStats] = createSignal<Record<string, { count: number; loop: number | null } | null | undefined>>({})
 
   const open = (workspaceID: string, forceCreate?: boolean) =>
     openWorkspace({
@@ -180,13 +180,13 @@ export function DialogWorkspaceList() {
       dialog.clear()
       return
     }
-    const count = counts()[workspaceID]
-    if (count && count > 0) {
+    const stat = stats()[workspaceID]
+    if (stat && stat.count > 0) {
       dialog.replace(() => <DialogSessionList workspaceID={workspaceID} />)
       return
     }
 
-    if (count === 0) {
+    if (stat && stat.count === 0) {
       await open(workspaceID)
       return
     }
@@ -206,28 +206,51 @@ export function DialogWorkspaceList() {
     return "__local__"
   })
 
-  const localCount = createMemo(
-    () => sync.data.session.filter((session) => !session.workspaceID && !session.parentID).length,
-  )
+  const localCount = createMemo(() => {
+    const stat = stats()["__local__"]
+    if (stat) return stat.count
+    return sync.data.session.filter((session) => !session.workspaceID && !session.parentID).length
+  })
+
+  const localLoop = createMemo(() => stats()["__local__"]?.loop)
+
+  const foot = (count: number, loop: number | null | undefined) => {
+    const suffix = count === 1 ? "" : "s"
+    if (loop === undefined) return `${count} session${suffix}`
+    if (loop === null) return `${count} session${suffix}`
+    return `${count} session${suffix}, ${loop} looping`
+  }
+
+  const read = async (workspaceID?: string) => {
+    const client = scoped(sdk, sync, workspaceID)
+    const [listed, status] = await Promise.all([
+      client.session.list({ roots: true }).catch(() => undefined),
+      client.session.status().catch(() => undefined),
+    ])
+    if (!listed?.data) return null
+    const ids = new Set(listed.data.map((session) => session.id))
+    return {
+      count: listed.data.length,
+      loop:
+        status?.data === undefined
+          ? null
+          : Object.entries(status.data).filter(([id, item]) => ids.has(id) && item.type !== "idle").length,
+    }
+  }
 
   let run = 0
   createEffect(() => {
     const workspaces = sync.data.workspaceList
     const next = ++run
-    if (!workspaces.length) {
-      setCounts({})
-      return
-    }
-    setCounts(Object.fromEntries(workspaces.map((workspace) => [workspace.id, undefined])))
+    setStats(Object.fromEntries([["__local__", undefined], ...workspaces.map((workspace) => [workspace.id, undefined])]))
     void Promise.all(
-      workspaces.map(async (workspace) => {
-        const client = scoped(sdk, sync, workspace.id)
-        const result = await client.session.list({ roots: true }).catch(() => undefined)
-        return [workspace.id, result ? (result.data?.length ?? 0) : null] as const
-      }),
+      [
+        read().then((item) => ["__local__", item] as const),
+        ...workspaces.map(async (workspace) => [workspace.id, await read(workspace.id)] as const),
+      ],
     ).then((entries) => {
       if (run !== next) return
-      setCounts(Object.fromEntries(entries))
+      setStats(Object.fromEntries(entries))
     })
   })
 
@@ -237,10 +260,10 @@ export function DialogWorkspaceList() {
       value: "__local__",
       category: "Workspace",
       description: "Use the local machine",
-      footer: `${localCount()} session${localCount() === 1 ? "" : "s"}`,
+      footer: foot(localCount(), localLoop()),
     },
     ...sync.data.workspaceList.map((workspace) => {
-      const count = counts()[workspace.id]
+      const stat = stats()[workspace.id]
       return {
         title:
           toDelete() === workspace.id
@@ -250,11 +273,11 @@ export function DialogWorkspaceList() {
         category: workspace.type,
         description: workspace.branch ? `Branch ${workspace.branch}` : undefined,
         footer:
-          count === undefined
+          stat === undefined
             ? "Loading sessions..."
-            : count === null
+            : stat === null
               ? "Sessions unavailable"
-              : `${count} session${count === 1 ? "" : "s"}`,
+              : foot(stat.count, stat.loop),
       }
     }),
     {
