@@ -548,6 +548,7 @@ function pluginApi(runtime: RuntimeState, plugin: PluginEntry, scope: PluginScop
     },
     scopedClient: api.scopedClient,
     workspace: api.workspace,
+    display: api.display,
     event,
     renderer: api.renderer,
     slots,
