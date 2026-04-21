@@ -497,8 +497,8 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
       value: "directory.change",
       category: "Workspace",
       slash: {
-        name: "changedirectory",
-        aliases: ["cd"],
+        name: "cd",
+        aliases: ["changedirectory"],
       },
       onSelect: () => {
         dialog.replace(() => <DialogChangeDirectory />)

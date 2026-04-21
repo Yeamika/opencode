@@ -72,7 +72,7 @@ export function DialogChangeDirectory() {
           ? "Loading loops..."
           : stats()[item] === null
             ? "Loops unavailable"
-            : `${stats()[item]} looping`,
+            : `${stats()[item]} Looping`,
     }))
     const value = query().trim().replace(/\/+$/g, "")
     if (!value) return result

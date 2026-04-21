@@ -218,7 +218,7 @@ export function DialogWorkspaceList() {
     const suffix = count === 1 ? "" : "s"
     if (loop === undefined) return `${count} session${suffix}`
     if (loop === null) return `${count} session${suffix}`
-    return `${count} session${suffix}, ${loop} looping`
+    return `${count} session${suffix}, ${loop} Looping`
   }
 
   const read = async (workspaceID?: string) => {

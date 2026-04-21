@@ -416,6 +416,45 @@ export const SessionRoutes = lazy(() =>
       },
     )
     .post(
+      "/:sessionID/resume",
+      describeRoute({
+        summary: "Resume session generation",
+        description: "Resume the current session loop for interrupted or incomplete turns without resending the user prompt.",
+        operationId: "session.resume",
+        responses: {
+          200: {
+            description: "Resume requested",
+            content: {
+              "application/json": {
+                schema: resolver(z.boolean()),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+        }),
+      ),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        await Session.get(sessionID)
+        const current = await SessionStatus.get(sessionID)
+        if (current.type !== "idle") return c.json(false)
+        void SessionPrompt.loop({ sessionID }).catch((err) => {
+          log.error("resume failed", { sessionID, error: err })
+          Bus.publish(Session.Event.Error, {
+            sessionID,
+            error: new NamedError.Unknown({ message: err instanceof Error ? err.message : String(err) }).toObject(),
+          })
+        })
+        return c.json(true)
+      },
+    )
+    .post(
       "/:sessionID/share",
       describeRoute({
         summary: "Share session",

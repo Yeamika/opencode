@@ -129,6 +129,27 @@ export function Prompt(props: PromptProps) {
     return parts.join(" · ")
   })
 
+  async function resume() {
+    if (!props.sessionID) return false
+
+    const url = new URL(`/session/${props.sessionID}/resume`, sdk.url)
+    if (sdk.workspaceID) url.searchParams.set("workspace", sdk.workspaceID)
+    else if (sdk.directory) url.searchParams.set("directory", sdk.directory)
+
+    const response = await sdk.fetch(url, {
+      method: "POST",
+      headers: {
+        ...(sdk.headers ?? {}),
+      },
+    })
+
+    if (!response.ok) {
+      throw new Error(`resume failed (${response.status})`)
+    }
+
+    return (await response.json()) as boolean
+  }
+
   async function retryNow() {
     if (!props.sessionID) return false
 
@@ -177,6 +198,60 @@ export function Prompt(props: PromptProps) {
     const messages = sync.data.message[props.sessionID]
     if (!messages) return undefined
     return messages.findLast((m) => m.role === "user")
+  })
+
+  const last = createMemo(() => {
+    if (!props.sessionID) return undefined
+    const messages = sync.data.message[props.sessionID]
+    return messages?.at(-1)
+  })
+
+  const resumable = createMemo(() => {
+    if (!props.sessionID) return false
+    if (status().type !== "idle") return false
+    const msg = last()
+    if (!msg) return false
+    if (msg.role === "user") return true
+    if (msg.role !== "assistant") return false
+    if (msg.error) return true
+    return !msg.finish || ["tool-calls", "unknown"].includes(msg.finish)
+  })
+
+  const halted = createMemo(() => {
+    const msg = last()
+    if (!msg || msg.role !== "assistant" || !msg.error) return "unfinished"
+    if (msg.error.name === "MessageAbortedError") return "interrupted"
+    return "stopped"
+  })
+
+  const hint = createMemo<JSX.Element>(() => {
+    if (!resumable()) return props.hint ?? <text />
+    return (
+      <box flexDirection="row" gap={1}>
+        <text fg={theme.textMuted}>{halted()}</text>
+        <box
+          onMouseUp={() => {
+            void resume()
+              .then((triggered) => {
+                if (!triggered) {
+                  toast.show({
+                    message: "Session is already running",
+                    variant: "info",
+                  })
+                }
+              })
+              .catch((error) => {
+                toast.show({
+                  message: error instanceof Error ? error.message : "Failed to resume session",
+                  variant: "error",
+                })
+              })
+          }}
+        >
+          <text fg={theme.primary}>resume</text>
+        </box>
+      </box>
+    )
   })
 
   const usage = createMemo(() => {
@@ -1178,7 +1253,7 @@ export function Prompt(props: PromptProps) {
           />
         </box>
         <box flexDirection="row" justifyContent="space-between">
-          <Show when={status().type !== "idle"} fallback={props.hint ?? <text />}>
+          <Show when={status().type !== "idle"} fallback={hint()}>
             <box
               flexDirection="row"
               gap={1}
