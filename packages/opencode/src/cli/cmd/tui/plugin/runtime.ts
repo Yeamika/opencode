@@ -517,6 +517,9 @@ function pluginApi(runtime: RuntimeState, plugin: PluginEntry, scope: PluginScop
     on(type, handler) {
       return scope.track(api.event.on(type, handler))
     },
+    publish(type, properties) {
+      return api.event.publish(type, properties)
+    },
   }
 
   let count = 0

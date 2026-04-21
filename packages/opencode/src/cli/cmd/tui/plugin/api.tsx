@@ -450,7 +450,30 @@ export function createTuiApi(input: Input): TuiHostPluginApi {
     scopedClient: scoped,
     workspace,
     display: displayApi(input),
-    event: input.sdk.event,
+    event: {
+      on: input.sdk.event.on,
+      async publish(type, properties) {
+        const next = typeof type === "string" ? type.trim() : ""
+        if (!next.startsWith("plugin.")) {
+          throw new Error(`plugin event type must start with plugin.: ${type}`)
+        }
+        const url = new URL("/tui/publish", input.sdk.url)
+        const response = await input.sdk.fetch(url, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...(input.sdk.headers ?? {}),
+          },
+          body: JSON.stringify({
+            type: next,
+            properties: properties ?? {},
+          }),
+        })
+        if (!response.ok) {
+          throw new Error(`event.publish failed (${response.status})`)
+        }
+      },
+    },
     renderer: input.renderer,
     slots: {
       register() {

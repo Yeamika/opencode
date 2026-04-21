@@ -32,6 +32,7 @@ export namespace Bus {
       def: D,
       properties: z.output<D["properties"]>,
     ) => Effect.Effect<void>
+    readonly publishRaw: (type: string, properties?: Record<string, unknown>) => Effect.Effect<void>
     readonly subscribe: <D extends BusEvent.Definition>(def: D) => Stream.Stream<Payload<D>>
     readonly subscribeAll: () => Stream.Stream<Payload>
     readonly subscribeCallback: <D extends BusEvent.Definition>(
@@ -85,11 +86,19 @@ export namespace Bus {
 
       function publish<D extends BusEvent.Definition>(def: D, properties: z.output<D["properties"]>) {
         return Effect.gen(function* () {
-          const s = yield* InstanceState.get(state)
-          const payload: Payload = { type: def.type, properties }
-          log.info("publishing", { type: def.type })
+          yield* publishRaw(def.type, properties)
+        })
+      }
 
-          const ps = s.typed.get(def.type)
+      function publishRaw(type: string, properties: Record<string, unknown> = {}) {
+        return Effect.gen(function* () {
+          const next = typeof type === "string" ? type.trim() : ""
+          if (!next) return
+          const s = yield* InstanceState.get(state)
+          const payload: Payload = { type: next, properties }
+          log.info("publishing", { type: next })
+
+          const ps = s.typed.get(next)
           if (ps) yield* PubSub.publish(ps, payload)
           yield* PubSub.publish(s.wildcard, payload)
 
@@ -163,7 +172,7 @@ export namespace Bus {
         return yield* on(s.wildcard, "*", callback)
       })
 
-      return Service.of({ publish, subscribe, subscribeAll, subscribeCallback, subscribeAllCallback })
+      return Service.of({ publish, publishRaw, subscribe, subscribeAll, subscribeCallback, subscribeAllCallback })
     }),
   )
 
@@ -173,6 +182,10 @@ export namespace Bus {
   // Scope.make, Effect.forkScoped) is entirely synchronous. If any step becomes async, this will throw.
   export async function publish<D extends BusEvent.Definition>(def: D, properties: z.output<D["properties"]>) {
     return runPromise((svc) => svc.publish(def, properties))
+  }
+
+  export async function publishRaw(type: string, properties?: Record<string, unknown>) {
+    return runPromise((svc) => svc.publishRaw(type, properties))
   }
 
   export function subscribe<D extends BusEvent.Definition>(

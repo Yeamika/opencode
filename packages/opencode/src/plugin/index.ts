@@ -122,6 +122,15 @@ export namespace Plugin {
             get serverUrl(): URL {
               return Server.url ?? new URL("http://localhost:4096")
             },
+            event: {
+              publish(type, properties) {
+                const next = typeof type === "string" ? type.trim() : ""
+                if (!next.startsWith("plugin.")) {
+                  return Promise.reject(new Error(`plugin event type must start with plugin.: ${type}`))
+                }
+                return Bus.publishRaw(next, properties)
+              },
+            },
             $: Bun.$,
           }
 

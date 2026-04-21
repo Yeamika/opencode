@@ -30,6 +30,9 @@ export type PluginInput = {
   directory: string
   worktree: string
   serverUrl: URL
+  event: {
+    publish: (type: string, properties?: Record<string, unknown>) => Promise<void>
+  }
   $: BunShell
 }
 

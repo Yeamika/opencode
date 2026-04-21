@@ -401,10 +401,17 @@ export type TuiDisplayReportEvent = {
 export type TuiPluginEvent = Event | TuiDisplayReportEvent
 
 export type TuiEventBus = {
-  on: <Type extends TuiPluginEvent["type"]>(
-    type: Type,
-    handler: (event: Extract<TuiPluginEvent, { type: Type }>) => void,
-  ) => () => void
+  on: {
+    <Type extends TuiPluginEvent["type"]>(
+      type: Type,
+      handler: (event: Extract<TuiPluginEvent, { type: Type }>) => void,
+    ): () => void
+    <Type extends string>(
+      type: Type,
+      handler: (event: { type: Type; properties: Record<string, unknown> }) => void,
+    ): () => void
+  }
+  publish: (type: string, properties?: Record<string, unknown>) => Promise<void>
 }
 
 export type TuiDispose = () => void | Promise<void>
