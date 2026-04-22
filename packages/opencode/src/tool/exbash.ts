@@ -13,6 +13,8 @@ import { Tool } from "./tool"
 import { BashTool, ask, collect, parse, resolvePath, shellEnv, spawnInput } from "./bash"
 
 const ROOT = path.join(Global.Path.data, "exbash")
+const INPUT_TIMEOUT = 10_000
+const INPUT_WINDOW = 100
 
 type Reason = { type: "exit"; code: number | null } | { type: "timeout" } | { type: "stopped" }
 
@@ -68,6 +70,9 @@ const parameters = z.discriminatedUnion("mode", [
   z.object({
     mode: z.literal("input"),
     asyncID: z.string().describe("Async run id."),
+    wait: z.enum(["return", "attach"]).optional().describe("Return immediately or wait for new task output after writing input."),
+    timeout: z.number().optional().describe("Attach wait timeout in milliseconds. Defaults to 10000."),
+    window: z.number().optional().describe("Attach output window in bytes. Defaults to 100."),
     text: z.string().optional().describe("Text to write to the running task stdin."),
     filePath: z.string().optional().describe("Read this file and write its raw bytes to the running task stdin."),
   }),
@@ -198,6 +203,29 @@ async function write(job: Job, data: string | Buffer) {
   })
 }
 
+async function attach(file: string, offset: number, timeout: number, window: number) {
+  const end = Date.now() + timeout
+  while (Date.now() < end) {
+    const buf = await fs.readFile(file).catch(() => Buffer.alloc(0))
+    if (buf.length > offset) {
+      const next = buf.subarray(offset)
+      return {
+        output: next.subarray(Math.max(0, next.length - window)).toString(),
+        bytes: next.length,
+        overflow: next.length > window,
+        timedOut: false,
+      }
+    }
+    await Bun.sleep(50)
+  }
+  return {
+    output: "",
+    bytes: 0,
+    overflow: false,
+    timedOut: true,
+  }
+}
+
 async function start(input: {
   shell: string
   name: string
@@ -285,6 +313,7 @@ export const ExBashTool = Tool.define("exbash", {
     "- mode=list: show async runs with status, result file path, and current line pointer.",
     "- mode=control: stop a running async run or remove a stopped run from the list.",
     "- mode=input: write text or file bytes into a running async task stdin.",
+    "- input wait=attach waits for new output, default timeout 10000ms, default output window 100 bytes.",
     "Use the same command, workdir, timeout, and description fields as bash for exec mode.",
   ].join("\n"),
   parameters,
@@ -305,6 +334,12 @@ export const ExBashTool = Tool.define("exbash", {
       if ((args.text !== undefined ? 1 : 0) + (args.filePath !== undefined ? 1 : 0) !== 1) {
         throw new Error("Provide exactly one of text or filePath for input mode.")
       }
+      if (args.timeout !== undefined && args.timeout < 0) {
+        throw new Error(`Invalid timeout value: ${args.timeout}. Timeout must be a positive number.`)
+      }
+      if (args.window !== undefined && args.window < 0) {
+        throw new Error(`Invalid window value: ${args.window}. Window must be a positive number.`)
+      }
       await ctx.ask({
         permission: "bash",
         patterns: [`exbash input ${args.asyncID}`],
@@ -316,16 +351,22 @@ export const ExBashTool = Tool.define("exbash", {
       if (!state || !visible(state, ctx)) throw new Error(`Async run not found: ${args.asyncID}`)
       if (state.status !== "running") throw new Error(`Async run ${args.asyncID} is not running`)
       if (!job?.proc) throw new Error(`Async run ${args.asyncID} cannot accept input in this process`)
+      const stat = await fs.stat(state.logPath).catch(() => ({ size: 0 }))
 
       const data = args.filePath !== undefined
         ? Buffer.from(await Bun.file(await inputfile(args.filePath, ctx)).arrayBuffer())
         : args.text!
 
       await write(job, data)
+      const wait = args.wait ?? "return"
+      const next =
+        wait === "attach" ? await attach(state.logPath, stat.size, args.timeout ?? INPUT_TIMEOUT, args.window ?? INPUT_WINDOW) : undefined
       const output = {
         asyncID: args.asyncID,
+        wait,
         wrote: typeof data === "string" ? Buffer.byteLength(data) : data.length,
         source: typeof data === "string" ? "text" : "file",
+        ...(next ? next : {}),
       }
       return { title: "Async input sent", metadata: output, output: JSON.stringify(output, null, 2) }
     }

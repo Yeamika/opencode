@@ -225,6 +225,7 @@ describe("tool.exbash", () => {
               {
                 mode: "input",
                 asyncID: started.asyncID,
+                wait: "attach",
                 text: "ping",
               },
               ctx,
@@ -232,13 +233,23 @@ describe("tool.exbash", () => {
           ).output,
         ) as {
           asyncID: string
+          wait: string
           wrote: number
           source: string
+          output: string
+          bytes: number
+          overflow: boolean
+          timedOut: boolean
         }
 
         expect(wrote.asyncID).toBe(started.asyncID)
+        expect(wrote.wait).toBe("attach")
         expect(wrote.wrote).toBe(4)
         expect(wrote.source).toBe("text")
+        expect(wrote.output).toContain("TEXT:ping")
+        expect(wrote.bytes).toBeGreaterThan(0)
+        expect(wrote.overflow).toBe(false)
+        expect(wrote.timedOut).toBe(false)
 
         await poll(async () => {
           const listed = JSON.parse(
