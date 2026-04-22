@@ -1281,18 +1281,20 @@ export function Prompt(props: PromptProps) {
                       if (!r) return
                       if (r.message.includes("exceeded your current quota") && r.message.includes("gemini"))
                         return "gemini is way too hot right now"
-                      if (r.message.length > 80) return r.message.slice(0, 80) + "..."
+                      if (r.message.startsWith("upstream error:")) return "upstream error"
+                      if (r.message.includes("do request failed")) return "request failed"
+                      if (r.message.length > 48) return r.message.slice(0, 48) + "..."
                       return r.message
                     })
-                    const isTruncated = createMemo(() => {
+                    const expandable = createMemo(() => {
                       const r = retry()
                       if (!r) return false
-                      return r.message.length > 120
+                      return r.message.length > 0
                     })
                     const handleMessageClick = () => {
                       const r = retry()
                       if (!r) return
-                      if (isTruncated()) {
+                      if (expandable()) {
                         DialogAlert.show(dialog, "Retry Error", r.message)
                       }
                     }
@@ -1300,27 +1302,28 @@ export function Prompt(props: PromptProps) {
                     const retryText = () => {
                       const r = retry()
                       if (!r) return ""
-                      const baseMessage = message()
-                      const truncatedHint = isTruncated() ? " (click to expand)" : ""
                       const retryIn = Math.max(0, Math.round((r.next - statusNow()) / 1000))
                       const retryDuration = formatDuration(retryIn)
                       const waitingDuration = formatDuration(Math.max(0, Math.round((statusNow() - r.waitingAt) / 1000)))
-                      const retryInfo = [
+                      return [
                         retryDuration ? `retrying in ${retryDuration}` : "retrying now",
                         waitingDuration ? `waiting ${waitingDuration}` : "",
-                        `attempt #${r.attempt}`,
                       ]
                         .filter(Boolean)
                         .join(" · ")
-                      return `${baseMessage}${truncatedHint} [${retryInfo}]`
                     }
 
                     return (
                       <Show when={retry()}>
                         <box flexDirection="row" gap={1}>
                           <box onMouseUp={handleMessageClick}>
-                            <text fg={theme.error}>{retryText()}</text>
+                            <text fg={theme.error}>{message()}</text>
                           </box>
+                          <text fg={theme.textMuted}>[{retryText()}</text>
+                          <box onMouseUp={handleMessageClick}>
+                            <text fg={theme.primary}>attempt #{retry()!.attempt}</text>
+                          </box>
+                          <text fg={theme.textMuted}>]</text>
                           <box
                             onMouseUp={() => {
                               void retryNow()
