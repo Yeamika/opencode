@@ -5,6 +5,7 @@ import SidebarMcp from "../feature-plugins/sidebar/mcp"
 import SidebarLsp from "../feature-plugins/sidebar/lsp"
 import SidebarTodo from "../feature-plugins/sidebar/todo"
 import SidebarFiles from "../feature-plugins/sidebar/files"
+import SidebarBashlist from "../feature-plugins/sidebar/bashlist"
 import SidebarFooter from "../feature-plugins/sidebar/footer"
 import PluginManager from "../feature-plugins/system/plugins"
 import type { TuiPlugin, TuiPluginModule } from "@opencode-ai/plugin/tui"
@@ -21,6 +22,7 @@ export const INTERNAL_TUI_PLUGINS: InternalTuiPlugin[] = [
   SidebarMcp,
   SidebarLsp,
   SidebarTodo,
+  SidebarBashlist,
   SidebarFiles,
   SidebarFooter,
   PluginManager,

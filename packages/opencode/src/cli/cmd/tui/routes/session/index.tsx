@@ -1829,27 +1829,31 @@ function BlockTool(props: {
 function shellinput(input: Partial<Tool.InferParameters<typeof BashTool>> | Partial<Tool.InferParameters<typeof ExBashTool>>) {
   if (!("mode" in input)) {
     return {
+      mode: undefined,
       command: (input as Partial<Tool.InferParameters<typeof BashTool>>).command,
       description: (input as Partial<Tool.InferParameters<typeof BashTool>>).description,
       workdir: (input as Partial<Tool.InferParameters<typeof BashTool>>).workdir,
     }
   }
 
-  if (input.mode === "exec") return input.exec ?? {}
-  if (input.mode === "exec-async") return input.async ?? {}
+  if (input.mode === "exec") return { mode: input.mode, ...(input.exec ?? {}) }
+  if (input.mode === "exec-async") return { mode: input.mode, ...(input.async ?? {}) }
   if (input.mode === "list") {
     return {
+      mode: input.mode,
       command: `exbash list${input.list?.asyncID ? ` ${input.list.asyncID}` : ""}`,
       description: "List async runs",
     }
   }
   if (input.mode === "control") {
     return {
+      mode: input.mode,
       command: ["exbash", input.control?.action, input.control?.asyncID].filter(Boolean).join(" "),
       description: `Async ${input.control?.action ?? "control"}`,
     }
   }
   return {
+    mode: input.mode,
     command: ["exbash input", input.input?.asyncID].filter(Boolean).join(" "),
     description: "Send async input",
   }
@@ -1888,10 +1892,16 @@ function Bash(props: ToolProps<typeof BashTool | typeof ExBashTool>) {
 
   const title = createMemo(() => {
     const desc = info().description ?? "Shell"
+    const mode = info().mode ? ` [${info().mode}]` : ""
     const wd = workdirDisplay()
-    if (!wd) return `# ${desc}`
-    if (desc.includes(wd)) return `# ${desc}`
-    return `# ${desc} in ${wd}`
+    if (!wd) return `# ${desc}${mode}`
+    if (desc.includes(wd)) return `# ${desc}${mode}`
+    return `# ${desc}${mode} in ${wd}`
+  })
+
+  const inline = createMemo(() => {
+    if (!info().mode) return info().command
+    return `[${info().mode}] ${info().command}`
   })
 
   return (
@@ -1915,8 +1925,8 @@ function Bash(props: ToolProps<typeof BashTool | typeof ExBashTool>) {
         </BlockTool>
       </Match>
       <Match when={true}>
-        <InlineTool icon="$" pending="Writing command..." complete={info().command} part={props.part}>
-          {info().command}
+        <InlineTool icon="$" pending="Writing command..." complete={inline()} part={props.part}>
+          {inline()}
         </InlineTool>
       </Match>
     </Switch>
