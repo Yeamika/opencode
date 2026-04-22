@@ -17,6 +17,7 @@ import { Flag } from "@/flag/flag"
 import { Permission } from "@/permission"
 import { Auth } from "@/auth"
 import { Installation } from "@/installation"
+import { Wildcard } from "@/util/wildcard"
 
 export namespace LLM {
   const log = Log.create({ service: "llm" })
@@ -337,11 +338,16 @@ export namespace LLM {
   }
 
   function resolveTools(input: Pick<StreamInput, "tools" | "agent" | "permission" | "user">) {
-    const disabled = Permission.disabled(
-      Object.keys(input.tools),
-      Permission.merge(input.agent.permission, input.permission ?? []),
-    )
-    return Record.filter(input.tools, (_, k) => input.user.tools?.[k] !== false && !disabled.has(k))
+    const rules = Permission.merge(input.agent.permission, input.permission ?? [])
+    const disabled = Permission.disabled(Object.keys(input.tools), rules)
+    return Record.filter(input.tools, (_, k) => {
+      const enabled = input.user.tools?.[k]
+      if (k === "bash") {
+        const allowed = rules.some((rule) => Wildcard.match("bash", rule.permission) && rule.action === "allow")
+        return (enabled === true || allowed) && !disabled.has(k)
+      }
+      return enabled !== false && !disabled.has(k)
+    })
   }
 
   // Check if messages contain any tool-call content

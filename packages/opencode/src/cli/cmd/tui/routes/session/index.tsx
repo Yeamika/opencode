@@ -36,6 +36,7 @@ import type { Tool } from "@/tool/tool"
 import type { ReadTool } from "@/tool/read"
 import type { WriteTool } from "@/tool/write"
 import { BashTool } from "@/tool/bash"
+import { ExBashTool } from "@/tool/exbash"
 import type { GlobTool } from "@/tool/glob"
 import { TodoWriteTool } from "@/tool/todo"
 import type { GrepTool } from "@/tool/grep"
@@ -1587,6 +1588,9 @@ function ToolPart(props: { last: boolean; part: ToolPart; message: AssistantMess
         <Match when={props.part.tool === "bash"}>
           <Bash {...toolprops} />
         </Match>
+        <Match when={props.part.tool === "exbash"}>
+          <ExBash {...toolprops} />
+        </Match>
         <Match when={props.part.tool === "glob"}>
           <Glob {...toolprops} />
         </Match>
@@ -1822,9 +1826,39 @@ function BlockTool(props: {
   )
 }
 
-function Bash(props: ToolProps<typeof BashTool>) {
+function shellinput(input: Partial<Tool.InferParameters<typeof BashTool>> | Partial<Tool.InferParameters<typeof ExBashTool>>) {
+  if (!("mode" in input)) {
+    return {
+      command: (input as Partial<Tool.InferParameters<typeof BashTool>>).command,
+      description: (input as Partial<Tool.InferParameters<typeof BashTool>>).description,
+      workdir: (input as Partial<Tool.InferParameters<typeof BashTool>>).workdir,
+    }
+  }
+
+  if (input.mode === "exec") return input.exec ?? {}
+  if (input.mode === "exec-async") return input.async ?? {}
+  if (input.mode === "list") {
+    return {
+      command: `exbash list${input.list?.asyncID ? ` ${input.list.asyncID}` : ""}`,
+      description: "List async runs",
+    }
+  }
+  if (input.mode === "control") {
+    return {
+      command: ["exbash", input.control?.action, input.control?.asyncID].filter(Boolean).join(" "),
+      description: `Async ${input.control?.action ?? "control"}`,
+    }
+  }
+  return {
+    command: ["exbash input", input.input?.asyncID].filter(Boolean).join(" "),
+    description: "Send async input",
+  }
+}
+
+function Bash(props: ToolProps<typeof BashTool | typeof ExBashTool>) {
   const { theme } = useTheme()
   const sync = useSync()
+  const info = createMemo(() => shellinput(props.input))
   const isRunning = createMemo(() => props.part.state.status === "running")
   const output = createMemo(() => stripAnsi(props.metadata.output?.trim() ?? ""))
   const [expanded, setExpanded] = createSignal(false)
@@ -1836,7 +1870,7 @@ function Bash(props: ToolProps<typeof BashTool>) {
   })
 
   const workdirDisplay = createMemo(() => {
-    const workdir = props.input.workdir
+    const workdir = info().workdir
     if (!workdir || workdir === ".") return undefined
 
     const base = sync.data.path.directory
@@ -1853,7 +1887,7 @@ function Bash(props: ToolProps<typeof BashTool>) {
   })
 
   const title = createMemo(() => {
-    const desc = props.input.description ?? "Shell"
+    const desc = info().description ?? "Shell"
     const wd = workdirDisplay()
     if (!wd) return `# ${desc}`
     if (desc.includes(wd)) return `# ${desc}`
@@ -1870,7 +1904,7 @@ function Bash(props: ToolProps<typeof BashTool>) {
           onClick={overflow() ? () => setExpanded((prev) => !prev) : undefined}
         >
           <box gap={1}>
-            <text fg={theme.text}>$ {props.input.command}</text>
+            <text fg={theme.text}>$ {info().command}</text>
             <Show when={output()}>
               <text fg={theme.text}>{limited()}</text>
             </Show>
@@ -1881,12 +1915,16 @@ function Bash(props: ToolProps<typeof BashTool>) {
         </BlockTool>
       </Match>
       <Match when={true}>
-        <InlineTool icon="$" pending="Writing command..." complete={props.input.command} part={props.part}>
-          {props.input.command}
+        <InlineTool icon="$" pending="Writing command..." complete={info().command} part={props.part}>
+          {info().command}
         </InlineTool>
       </Match>
     </Switch>
   )
+}
+
+function ExBash(props: ToolProps<typeof ExBashTool>) {
+  return <Bash {...props} />
 }
 
 function Write(props: ToolProps<typeof WriteTool>) {
