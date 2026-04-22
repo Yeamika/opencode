@@ -45,29 +45,34 @@ type Job = {
 
 const jobs = new Map<string, Job>()
 
+const opt = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess((input) => {
+    if (typeof input === "string" && input.trim() === "") return undefined
+    return input
+  }, schema.optional())
+
 const exec = z.object({
   mode: z.literal("exec"),
   command: z.string().describe("The command to execute."),
   timeout: z.number().optional().describe("Optional timeout in milliseconds."),
-  workdir: z.string().optional().describe("Working directory. Use this instead of cd."),
+  workdir: opt(z.string()).describe("Working directory. Use this instead of cd."),
   description: z.string().describe("Clear, concise description of what this command does in 5-10 words."),
 })
 
 const execAsync = z.object({
   mode: z.literal("exec-async"),
   command: z.string().describe("The command to execute."),
-  scope: z
-    .enum(["local", "workspace"])
-    .optional()
-    .describe("Async task visibility. local means current session only. workspace means any session in the same workspace."),
+  scope: opt(z.enum(["local", "workspace"])).describe(
+    "Async task visibility. local means current session only. workspace means any session in the same workspace.",
+  ),
   timeout: z.number().optional().describe("Optional timeout in milliseconds."),
-  workdir: z.string().optional().describe("Working directory. Use this instead of cd."),
+  workdir: opt(z.string()).describe("Working directory. Use this instead of cd."),
   description: z.string().describe("Clear, concise description of what this command does in 5-10 words."),
 })
 
 const listMode = z.object({
   mode: z.literal("list"),
-  asyncID: z.string().optional().describe("Optional async run id to inspect one run."),
+  asyncID: opt(z.string()).describe("Optional async run id to inspect one run."),
 })
 
 const controlMode = z.object({
@@ -79,30 +84,29 @@ const controlMode = z.object({
 const inputMode = z.object({
   mode: z.literal("input"),
   asyncID: z.string().describe("Async run id."),
-  wait: z.enum(["return", "attach"]).optional().describe("Return immediately or wait for new task output after writing input."),
+  wait: opt(z.enum(["return", "attach"])).describe("Return immediately or wait for new task output after writing input."),
   timeout: z.number().optional().describe("Attach wait timeout in milliseconds. Defaults to 10000."),
   window: z.number().optional().describe("Attach output window in bytes. Defaults to 100."),
-  text: z.string().optional().describe("Text to write to the running task stdin."),
-  filePath: z.string().optional().describe("Read this file and write its raw bytes to the running task stdin."),
+  text: opt(z.string()).describe("Text to write to the running task stdin."),
+  filePath: opt(z.string()).describe("Read this file and write its raw bytes to the running task stdin."),
 })
 
 const parameters = z
   .object({
     mode: z.enum(["exec", "exec-async", "list", "control", "input"]),
-    command: z.string().optional().describe("The command to execute."),
-    scope: z
-      .enum(["local", "workspace"])
-      .optional()
-      .describe("Async task visibility. local means current session only. workspace means any session in the same workspace."),
-    timeout: z.number().optional().describe("Optional timeout in milliseconds."),
-    workdir: z.string().optional().describe("Working directory. Use this instead of cd."),
-    description: z.string().optional().describe("Clear, concise description of what this command does in 5-10 words."),
-    asyncID: z.string().optional().describe("Async run id."),
-    action: z.enum(["stop", "remove"]).optional().describe("Force stop a running async run, or remove a stopped run from the list."),
-    wait: z.enum(["return", "attach"]).optional().describe("Return immediately or wait for new task output after writing input."),
-    window: z.number().optional().describe("Attach output window in bytes. Defaults to 100."),
-    text: z.string().optional().describe("Text to write to the running task stdin."),
-    filePath: z.string().optional().describe("Read this file and write its raw bytes to the running task stdin."),
+    command: opt(z.string()).describe("The command to execute. Use only for exec and exec-async."),
+    scope: opt(z.enum(["local", "workspace"])).describe(
+      "Async task visibility. Use only for exec-async. local means current session only. workspace means any session in the same workspace.",
+    ),
+    timeout: z.number().optional().describe("Optional timeout in milliseconds. Use for exec, exec-async, or input wait=attach."),
+    workdir: opt(z.string()).describe("Working directory. Use this instead of cd. Use only for exec and exec-async."),
+    description: opt(z.string()).describe("Clear, concise description of what this command does in 5-10 words. Use only for exec and exec-async."),
+    asyncID: opt(z.string()).describe("Async run id. Use for list, control, and input."),
+    action: opt(z.enum(["stop", "remove"])).describe("Use only for control. Force stop a running async run, or remove a stopped run from the list."),
+    wait: opt(z.enum(["return", "attach"])).describe("Use only for input. Return immediately or wait for new task output after writing input."),
+    window: z.number().optional().describe("Use only for input wait=attach. Attach output window in bytes. Defaults to 100."),
+    text: opt(z.string()).describe("Use only for input. Text to write to the running task stdin."),
+    filePath: opt(z.string()).describe("Use only for input. Read this file and write its raw bytes to the running task stdin."),
   })
 
 function file(id: string) {
@@ -334,6 +338,8 @@ async function start(input: {
 export const ExBashTool = Tool.define("exbash", {
   description: [
     "Extended bash control surface with explicit sync and async execution modes.",
+    "Only include fields that belong to the selected mode.",
+    "Omit unrelated fields entirely. Do not send empty string placeholders.",
     "- mode=exec: run a shell command and wait for completion.",
     "- mode=exec-async: run a shell command in the background and return immediately.",
     "- exec-async scope=local keeps the task visible only in the current session.",
@@ -343,6 +349,12 @@ export const ExBashTool = Tool.define("exbash", {
     "- mode=input: write text or file bytes into a running async task stdin.",
     "- input wait=attach waits for new output, default timeout 10000ms, default output window 100 bytes.",
     "Use the same command, workdir, timeout, and description fields as bash for exec and exec-async modes.",
+    "Examples:",
+    '- exec: {"mode":"exec","command":"echo hello","description":"Print hello"}',
+    '- exec-async: {"mode":"exec-async","command":"sh -lc \'sleep 1; echo hello\'","description":"Run async echo","scope":"local"}',
+    '- list: {"mode":"list","asyncID":"<asyncID>"}',
+    '- control: {"mode":"control","asyncID":"<asyncID>","action":"stop"}',
+    '- input: {"mode":"input","asyncID":"<asyncID>","text":"hello","wait":"attach"}',
   ].join("\n"),
   parameters,
   async execute(args, ctx) {
