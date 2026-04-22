@@ -3,56 +3,19 @@ import { useTheme } from "../context/theme"
 import { useDialog } from "@tui/ui/dialog"
 import { useSync } from "@tui/context/sync"
 import { useSDK } from "@tui/context/sdk"
-import { useToast } from "@tui/ui/toast"
-import { For, Match, Switch, Show, createMemo, createSignal, onMount } from "solid-js"
+import { For, Match, Switch, Show, createMemo, createSignal } from "solid-js"
 
 export type DialogStatusProps = {}
-
-type Checks = {
-  global: Record<string, boolean>
-  local: Record<string, "yes" | "no" | "follow">
-}
-
-function Check(props: { value?: "yes" | "no" | "follow" | boolean; wait?: boolean }) {
-  const { theme } = useTheme()
-  if (props.wait) {
-    return <text fg={theme.textMuted}>…</text>
-  }
-  if (props.value === true || props.value === "yes") {
-    return <text fg={theme.success} attributes={TextAttributes.BOLD}>✓ yes</text>
-  }
-  if (props.value === false || props.value === "no") {
-    return <text fg={theme.error}>× no</text>
-  }
-  if (props.value === "follow") {
-    return <text fg={theme.textMuted}>↳ follow</text>
-  }
-  return <text fg={theme.textMuted}>…</text>
-}
 
 export function DialogStatus() {
   const sync = useSync()
   const sdk = useSDK()
   const { theme } = useTheme()
   const dialog = useDialog()
-  const toast = useToast()
   const [busy, setBusy] = createSignal(false)
-  const [wait, setWait] = createSignal<string>()
-  const [checks, setChecks] = createSignal<Checks>({ global: {}, local: {} })
 
   const enabledFormatters = createMemo(() => sync.data.formatter.filter((f) => f.enabled))
   const plugins = createMemo(() => sync.data.plugin)
-
-  async function loadChecks() {
-    const url = new URL("/config/mcp/checks", sdk.url)
-    if (sdk.directory) url.searchParams.set("directory", sdk.directory)
-    if (sdk.workspaceID) url.searchParams.set("workspace", sdk.workspaceID)
-    const response = await sdk.fetch(url, {
-      headers: sdk.headers,
-    })
-    if (!response.ok) throw new Error(`mcp checks failed (${response.status})`)
-    setChecks(await response.json())
-  }
 
   async function reload() {
     if (busy()) return
@@ -63,7 +26,6 @@ export function DialogStatus() {
         sdk.client.lsp.status(),
         sdk.client.formatter.status(),
         sdk.client.config.plugins(),
-        loadChecks(),
       ])
       if (mcp.data) sync.set("mcp", mcp.data)
       if (lsp.data) sync.set("lsp", lsp.data)
@@ -73,61 +35,6 @@ export function DialogStatus() {
       setBusy(false)
     }
   }
-
-  function value(name: string) {
-    const item = checks()
-    const local = item.local[name] ?? "follow"
-    if (local === "yes") return true
-    if (local === "no") return false
-    return item.global[name] ?? false
-  }
-
-  function next(scope: "global" | "local", name: string) {
-    const item = checks()
-    if (scope === "global") return item.global[name] ? "no" : "yes"
-    const current = item.local[name] ?? "follow"
-    if (current === "follow") return "yes"
-    if (current === "yes") return "no"
-    return "follow"
-  }
-
-  async function set(scope: "global" | "local", name: string) {
-    if (busy() || wait()) return
-    const step = next(scope, name)
-    setWait(`${scope}:${name}`)
-    try {
-      const url = new URL("/config/mcp/checks", sdk.url)
-      if (sdk.directory) url.searchParams.set("directory", sdk.directory)
-      if (sdk.workspaceID) url.searchParams.set("workspace", sdk.workspaceID)
-      const response = await sdk.fetch(url, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(sdk.headers ?? {}),
-        },
-        body: JSON.stringify({ scope, name, value: step }),
-      })
-      if (!response.ok) throw new Error(`mcp check update failed (${response.status})`)
-      const data = await response.json() as Checks
-      setChecks(data)
-      if (data.local[name] === "yes" || (data.local[name] === "follow" && data.global[name])) {
-        await sdk.client.mcp.connect({ name })
-      } else {
-        await sdk.client.mcp.disconnect({ name })
-      }
-      const mcp = await sdk.client.mcp.status()
-      if (mcp.data) sync.set("mcp", mcp.data)
-    } catch (error) {
-      toast.error(error)
-    } finally {
-      setWait(undefined)
-    }
-  }
-
-  onMount(() => {
-    void loadChecks().catch(() => {})
-  })
-
   return (
     <box paddingLeft={2} paddingRight={2} gap={1} paddingBottom={1}>
       <box flexDirection="row" justifyContent="space-between">
@@ -182,17 +89,6 @@ export function DialogStatus() {
                       </Switch>
                     </span>
                   </text>
-                </box>
-                <box flexDirection="row" gap={2} paddingLeft={2}>
-                  <box flexDirection="row" gap={1} onMouseUp={() => void set("global", key)}>
-                    <text fg={theme.textMuted}>global</text>
-                    <Check value={checks().global[key]} wait={wait() === `global:${key}`} />
-                  </box>
-                  <box flexDirection="row" gap={1} onMouseUp={() => void set("local", key)}>
-                    <text fg={theme.textMuted}>local</text>
-                    <Check value={checks().local[key]} wait={wait() === `local:${key}`} />
-                  </box>
-                  <text fg={value(key) ? theme.success : theme.textMuted}>{value(key) ? "effective on" : "effective off"}</text>
                 </box>
               </box>
             )}
