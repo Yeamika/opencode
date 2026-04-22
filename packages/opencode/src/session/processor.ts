@@ -177,6 +177,7 @@ export namespace SessionProcessor {
               if (ctx.assistantMessage.summary) {
                 throw new Error(`Tool call not allowed while generating summary: ${value.toolName}`)
               }
+              yield* status.set(ctx.sessionID, SessionStatus.busy({ action: `Running ${value.toolName}` }))
               const match = ctx.toolcalls[value.toolCallId]
               if (!match) return
               ctx.toolcalls[value.toolCallId] = yield* session.updatePart({
@@ -256,6 +257,7 @@ export namespace SessionProcessor {
               throw value.error
 
             case "start-step":
+              yield* status.set(ctx.sessionID, SessionStatus.busy({ action: "Calling model" }))
               if (!ctx.snapshot) ctx.snapshot = yield* snapshot.track()
               yield* session.updatePart({
                 id: PartID.ascending(),
