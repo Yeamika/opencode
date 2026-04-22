@@ -1252,7 +1252,7 @@ export function Prompt(props: PromptProps) {
             }
           />
         </box>
-        <box flexDirection="row" justifyContent="space-between">
+        <box flexDirection="row">
           <Show when={status().type !== "idle"} fallback={hint()}>
             <box
               flexDirection="row"
@@ -1360,7 +1360,7 @@ export function Prompt(props: PromptProps) {
             </box>
           </Show>
           <Show when={status().type !== "retry"}>
-            <box gap={2} flexDirection="row">
+            <box gap={2} flexDirection="row" marginLeft="auto" flexShrink={0}>
               <Switch>
                 <Match when={store.mode === "normal"}>
                   <Switch>
