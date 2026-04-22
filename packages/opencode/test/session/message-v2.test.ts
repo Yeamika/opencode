@@ -906,6 +906,29 @@ describe("session.message-v2.fromError", () => {
     expect(MessageV2.APIError.isInstance(result)).toBe(true)
   })
 
+  test("prefers detailed response body over generic openai_error", () => {
+    const result = MessageV2.fromError(
+      new APICallError({
+        message: "openai_error",
+        url: "https://api.openai.com/v1/responses",
+        requestBodyValues: {},
+        statusCode: 400,
+        responseHeaders: { "content-type": "application/json" },
+        responseBody: JSON.stringify({
+          error: {
+            message: "Invalid schema for function 'exbash': schema must be a JSON Schema of 'type: \"object\"', got 'type: \"None\"'.",
+          },
+        }),
+        isRetryable: false,
+      }),
+      { providerID: ProviderID.make("openai") },
+    )
+
+    expect(MessageV2.APIError.isInstance(result)).toBe(true)
+    expect((result as MessageV2.APIError).data.message).toContain("Invalid schema for function 'exbash'")
+    expect((result as MessageV2.APIError).data.message).not.toBe("openai_error")
+  })
+
   test("serializes unknown inputs", () => {
     const result = MessageV2.fromError(123, { providerID })
 

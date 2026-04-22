@@ -65,28 +65,63 @@ const execAsync = z.object({
   description: z.string().describe("Clear, concise description of what this command does in 5-10 words."),
 })
 
-const parameters = z.discriminatedUnion("mode", [
-  exec,
-  execAsync,
-  z.object({
-    mode: z.literal("list"),
-    asyncID: z.string().optional().describe("Optional async run id to inspect one run."),
-  }),
-  z.object({
-    mode: z.literal("control"),
-    asyncID: z.string().describe("Async run id."),
-    action: z.enum(["stop", "remove"]).describe("Force stop a running async run, or remove a stopped run from the list."),
-  }),
-  z.object({
-    mode: z.literal("input"),
-    asyncID: z.string().describe("Async run id."),
+const listMode = z.object({
+  mode: z.literal("list"),
+  asyncID: z.string().optional().describe("Optional async run id to inspect one run."),
+})
+
+const controlMode = z.object({
+  mode: z.literal("control"),
+  asyncID: z.string().describe("Async run id."),
+  action: z.enum(["stop", "remove"]).describe("Force stop a running async run, or remove a stopped run from the list."),
+})
+
+const inputMode = z.object({
+  mode: z.literal("input"),
+  asyncID: z.string().describe("Async run id."),
+  wait: z.enum(["return", "attach"]).optional().describe("Return immediately or wait for new task output after writing input."),
+  timeout: z.number().optional().describe("Attach wait timeout in milliseconds. Defaults to 10000."),
+  window: z.number().optional().describe("Attach output window in bytes. Defaults to 100."),
+  text: z.string().optional().describe("Text to write to the running task stdin."),
+  filePath: z.string().optional().describe("Read this file and write its raw bytes to the running task stdin."),
+})
+
+const parameters = z
+  .object({
+    mode: z.enum(["exec", "exec-async", "list", "control", "input"]),
+    command: z.string().optional().describe("The command to execute."),
+    scope: z
+      .enum(["local", "workspace"])
+      .optional()
+      .describe("Async task visibility. local means current session only. workspace means any session in the same workspace."),
+    timeout: z.number().optional().describe("Optional timeout in milliseconds."),
+    workdir: z.string().optional().describe("Working directory. Use this instead of cd."),
+    description: z.string().optional().describe("Clear, concise description of what this command does in 5-10 words."),
+    asyncID: z.string().optional().describe("Async run id."),
+    action: z.enum(["stop", "remove"]).optional().describe("Force stop a running async run, or remove a stopped run from the list."),
     wait: z.enum(["return", "attach"]).optional().describe("Return immediately or wait for new task output after writing input."),
-    timeout: z.number().optional().describe("Attach wait timeout in milliseconds. Defaults to 10000."),
     window: z.number().optional().describe("Attach output window in bytes. Defaults to 100."),
     text: z.string().optional().describe("Text to write to the running task stdin."),
     filePath: z.string().optional().describe("Read this file and write its raw bytes to the running task stdin."),
-  }),
-])
+  })
+  .superRefine((val, ctx) => {
+    const result = (() => {
+      switch (val.mode) {
+        case "exec":
+          return exec.safeParse(val)
+        case "exec-async":
+          return execAsync.safeParse(val)
+        case "list":
+          return listMode.safeParse(val)
+        case "control":
+          return controlMode.safeParse(val)
+        case "input":
+          return inputMode.safeParse(val)
+      }
+    })()
+    if (result.success) return
+    for (const issue of result.error.issues) ctx.addIssue(issue)
+  })
 
 function file(id: string) {
   return path.join(ROOT, `${id}.json`)
@@ -330,50 +365,54 @@ export const ExBashTool = Tool.define("exbash", {
   parameters,
   async execute(args, ctx) {
     if (args.mode === "list") {
+      const input = listMode.parse(args)
       await ctx.ask({
         permission: "bash",
-        patterns: [args.asyncID ? `exbash list ${args.asyncID}` : "exbash list"],
+        patterns: [input.asyncID ? `exbash list ${input.asyncID}` : "exbash list"],
         always: ["exbash list *"],
         metadata: {},
       })
-      const runs = await Promise.all((await list(args.asyncID)).filter((item) => visible(item, ctx)).map(detail))
+      const runs = await Promise.all((await list(input.asyncID)).filter((item) => visible(item, ctx)).map(detail))
       const output = JSON.stringify({ runs }, null, 2)
       return { title: "Async runs listed", metadata: { runs }, output }
     }
 
     if (args.mode === "input") {
-      if ((args.text !== undefined ? 1 : 0) + (args.filePath !== undefined ? 1 : 0) !== 1) {
+      const input = inputMode.parse(args)
+      if ((input.text !== undefined ? 1 : 0) + (input.filePath !== undefined ? 1 : 0) !== 1) {
         throw new Error("Provide exactly one of text or filePath for input mode.")
       }
-      if (args.timeout !== undefined && args.timeout < 0) {
-        throw new Error(`Invalid timeout value: ${args.timeout}. Timeout must be a positive number.`)
+      if (input.timeout !== undefined && input.timeout < 0) {
+        throw new Error(`Invalid timeout value: ${input.timeout}. Timeout must be a positive number.`)
       }
-      if (args.window !== undefined && args.window < 0) {
-        throw new Error(`Invalid window value: ${args.window}. Window must be a positive number.`)
+      if (input.window !== undefined && input.window < 0) {
+        throw new Error(`Invalid window value: ${input.window}. Window must be a positive number.`)
       }
       await ctx.ask({
         permission: "bash",
-        patterns: [`exbash input ${args.asyncID}`],
+        patterns: [`exbash input ${input.asyncID}`],
         always: ["exbash input *"],
         metadata: {},
       })
-      const job = jobs.get(args.asyncID)
-      const state = job?.state ?? (await load(args.asyncID))
-      if (!state || !visible(state, ctx)) throw new Error(`Async run not found: ${args.asyncID}`)
-      if (state.status !== "running") throw new Error(`Async run ${args.asyncID} is not running`)
-      if (!job?.proc) throw new Error(`Async run ${args.asyncID} cannot accept input in this process`)
+      const job = jobs.get(input.asyncID)
+      const state = job?.state ?? (await load(input.asyncID))
+      if (!state || !visible(state, ctx)) throw new Error(`Async run not found: ${input.asyncID}`)
+      if (state.status !== "running") throw new Error(`Async run ${input.asyncID} is not running`)
+      if (!job?.proc) throw new Error(`Async run ${input.asyncID} cannot accept input in this process`)
       const stat = await fs.stat(state.logPath).catch(() => ({ size: 0 }))
 
-      const data = args.filePath !== undefined
-        ? Buffer.from(await Bun.file(await inputfile(args.filePath, ctx)).arrayBuffer())
-        : args.text!
+      const data = input.filePath !== undefined
+        ? Buffer.from(await Bun.file(await inputfile(input.filePath, ctx)).arrayBuffer())
+        : input.text!
 
       await write(job, data)
-      const wait = args.wait ?? "return"
+      const wait = input.wait ?? "return"
       const next =
-        wait === "attach" ? await attach(state.logPath, stat.size, args.timeout ?? INPUT_TIMEOUT, args.window ?? INPUT_WINDOW) : undefined
+        wait === "attach"
+          ? await attach(state.logPath, stat.size, input.timeout ?? INPUT_TIMEOUT, input.window ?? INPUT_WINDOW)
+          : undefined
       const output = {
-        asyncID: args.asyncID,
+        asyncID: input.asyncID,
         wait,
         wrote: typeof data === "string" ? Buffer.byteLength(data) : data.length,
         source: typeof data === "string" ? "text" : "file",
@@ -383,22 +422,23 @@ export const ExBashTool = Tool.define("exbash", {
     }
 
     if (args.mode === "control") {
+      const input = controlMode.parse(args)
       await ctx.ask({
         permission: "bash",
-        patterns: [`exbash ${args.action} ${args.asyncID}`],
-        always: [`exbash ${args.action} *`],
+        patterns: [`exbash ${input.action} ${input.asyncID}`],
+        always: [`exbash ${input.action} *`],
         metadata: {},
       })
-      const job = jobs.get(args.asyncID)
-      const state = job?.state ?? (await load(args.asyncID))
-      if (!state || !visible(state, ctx)) throw new Error(`Async run not found: ${args.asyncID}`)
+      const job = jobs.get(input.asyncID)
+      const state = job?.state ?? (await load(input.asyncID))
+      if (!state || !visible(state, ctx)) throw new Error(`Async run not found: ${input.asyncID}`)
 
-      if (args.action === "stop") {
+      if (input.action === "stop") {
         if (state.status === "stopped") {
           const item = await detail(state)
           return { title: "Async run already stopped", metadata: item, output: JSON.stringify(item, null, 2) }
         }
-        if (!job?.proc) throw new Error(`Async run ${args.asyncID} cannot be stopped in this process`)
+        if (!job?.proc) throw new Error(`Async run ${input.asyncID} cannot be stopped in this process`)
         job.next = { type: "stopped" }
         await Shell.killTree(job.proc, { exited: () => job.state.status === "stopped" })
         const next = await finish(job, { type: "stopped" })
@@ -407,38 +447,41 @@ export const ExBashTool = Tool.define("exbash", {
       }
 
       if (state.status !== "stopped") {
-        throw new Error(`Async run ${args.asyncID} must be stopped before removal`)
+        throw new Error(`Async run ${input.asyncID} must be stopped before removal`)
       }
 
-      jobs.delete(args.asyncID)
-      await fs.rm(file(args.asyncID), { force: true })
-      const output = { asyncID: args.asyncID, removed: true, resultPath: state.logPath }
+      jobs.delete(input.asyncID)
+      await fs.rm(file(input.asyncID), { force: true })
+      const output = { asyncID: input.asyncID, removed: true, resultPath: state.logPath }
       return { title: "Async run removed", metadata: output, output: JSON.stringify(output, null, 2) }
     }
 
     if (args.mode === "exec") {
+      const input = exec.parse(args)
       const bash = await BashTool.init()
       return bash.execute(
         {
-          command: args.command,
-          timeout: args.timeout,
-          workdir: args.workdir,
-          description: args.description,
+          command: input.command,
+          timeout: input.timeout,
+          workdir: input.workdir,
+          description: input.description,
         },
         ctx,
       )
     }
 
+    const input = execAsync.parse(args)
+
     const shell = Shell.acceptable()
     const name = Shell.name(shell)
-    const cwd = args.workdir ? await resolvePath(args.workdir, Instance.directory, shell) : Instance.directory
-    const scope = args.scope ?? "local"
-    if (args.timeout !== undefined && args.timeout < 0) {
-      throw new Error(`Invalid timeout value: ${args.timeout}. Timeout must be a positive number.`)
+    const cwd = input.workdir ? await resolvePath(input.workdir, Instance.directory, shell) : Instance.directory
+    const scope = input.scope ?? "local"
+    if (input.timeout !== undefined && input.timeout < 0) {
+      throw new Error(`Invalid timeout value: ${input.timeout}. Timeout must be a positive number.`)
     }
 
     const ps = ["powershell", "pwsh"].includes(name)
-    const root = await parse(args.command, ps)
+    const root = await parse(input.command, ps)
     const scan = await collect(root, cwd, ps, shell)
     if (!Instance.containsPath(cwd)) scan.dirs.add(cwd)
     await ask(ctx, scan)
@@ -446,19 +489,19 @@ export const ExBashTool = Tool.define("exbash", {
     const state = await start({
       shell,
       name,
-      command: args.command,
+      command: input.command,
       cwd,
       scope,
       session: ctx.sessionID,
       workspace: workspace(ctx),
       env: await shellEnv(ctx, cwd),
-      timeout: args.timeout,
-      description: args.description,
+      timeout: input.timeout,
+      description: input.description,
     })
     const item = await detail(state)
     ctx.metadata({ metadata: item })
     return {
-      title: args.description,
+      title: input.description,
       metadata: item,
       output: JSON.stringify(item, null, 2),
     }

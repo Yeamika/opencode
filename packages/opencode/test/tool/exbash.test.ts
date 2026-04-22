@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import path from "path"
+import z from "zod"
 import { Shell } from "../../src/shell/shell"
 import { ExBashTool } from "../../src/tool/exbash"
 import { Instance } from "../../src/project/instance"
@@ -42,6 +43,11 @@ const mkctx = (session: string, directory?: string) => ({
 })
 
 describe("tool.exbash", () => {
+  test("exports an object json schema", async () => {
+    const exbash = await ExBashTool.init()
+    expect(z.toJSONSchema(exbash.parameters).type).toBe("object")
+  })
+
   test("runs sync exec mode like bash", async () => {
     await Instance.provide({
       directory: projectRoot,

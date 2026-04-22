@@ -35,6 +35,13 @@ export namespace ProviderError {
     return status === 404 || e.isRetryable
   }
 
+  function generic(providerID: ProviderID, msg: string, status?: number) {
+    if (msg === "") return true
+    if (providerID.startsWith("openai") && msg === "openai_error") return true
+    if (status && msg === STATUS_CODES[status]) return true
+    return false
+  }
+
   // Providers not reliably handled in this function:
   // - z.ai: can accept overflow silently (needs token-count/context-window checks)
   function isOverflow(message: string) {
@@ -58,7 +65,7 @@ export namespace ProviderError {
         return "Unknown error"
       }
 
-      if (!e.responseBody || (e.statusCode && msg !== STATUS_CODES[e.statusCode])) {
+      if (!e.responseBody) {
         return msg
       }
 
@@ -67,6 +74,8 @@ export namespace ProviderError {
         // try to extract common error message fields
         const errMsg = body.message || body.error || body.error?.message
         if (errMsg && typeof errMsg === "string") {
+          if (generic(providerID, msg, e.statusCode)) return errMsg
+          if (errMsg === msg) return errMsg
           return `${msg}: ${errMsg}`
         }
       } catch {}
@@ -83,6 +92,7 @@ export namespace ProviderError {
         return msg
       }
 
+      if (generic(providerID, msg, e.statusCode)) return e.responseBody
       return `${msg}: ${e.responseBody}`
     }).trim()
   }
