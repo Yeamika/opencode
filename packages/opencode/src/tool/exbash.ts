@@ -104,24 +104,6 @@ const parameters = z
     text: z.string().optional().describe("Text to write to the running task stdin."),
     filePath: z.string().optional().describe("Read this file and write its raw bytes to the running task stdin."),
   })
-  .superRefine((val, ctx) => {
-    const result = (() => {
-      switch (val.mode) {
-        case "exec":
-          return exec.safeParse(val)
-        case "exec-async":
-          return execAsync.safeParse(val)
-        case "list":
-          return listMode.safeParse(val)
-        case "control":
-          return controlMode.safeParse(val)
-        case "input":
-          return inputMode.safeParse(val)
-      }
-    })()
-    if (result.success) return
-    for (const issue of result.error.issues) ctx.addIssue(issue)
-  })
 
 function file(id: string) {
   return path.join(ROOT, `${id}.json`)
