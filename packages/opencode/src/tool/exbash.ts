@@ -65,6 +65,12 @@ const parameters = z.discriminatedUnion("mode", [
     asyncID: z.string().describe("Async run id."),
     action: z.enum(["stop", "remove"]).describe("Force stop a running async run, or remove a stopped run from the list."),
   }),
+  z.object({
+    mode: z.literal("input"),
+    asyncID: z.string().describe("Async run id."),
+    text: z.string().optional().describe("Text to write to the running task stdin."),
+    filePath: z.string().optional().describe("Read this file and write its raw bytes to the running task stdin."),
+  }),
 ])
 
 function file(id: string) {
@@ -74,6 +80,20 @@ function file(id: string) {
 async function save(state: State) {
   await fs.mkdir(ROOT, { recursive: true })
   await fs.writeFile(file(state.id), JSON.stringify(state, null, 2))
+}
+
+async function inputfile(file: string, ctx: Tool.Context) {
+  const next = await resolvePath(file, ctx.directory ?? Instance.directory, Shell.acceptable())
+  if (Instance.containsPath(next)) return next
+  const dir = path.dirname(next)
+  const glob = process.platform === "win32" ? Filesystem.normalizePathPattern(path.join(dir, "*")) : path.join(dir, "*")
+  await ctx.ask({
+    permission: "external_directory",
+    patterns: [glob],
+    always: [glob],
+    metadata: {},
+  })
+  return next
 }
 
 async function load(id: string) {
@@ -166,6 +186,18 @@ async function finish(job: Job, reason: Reason, extra?: { error?: string }) {
   return job.state
 }
 
+async function write(job: Job, data: string | Buffer) {
+  if (!job.proc?.stdin || job.proc.stdin.destroyed || !job.proc.stdin.writable) {
+    throw new Error(`Async run ${job.state.id} is not accepting stdin`)
+  }
+  await new Promise<void>((resolve, reject) => {
+    job.proc!.stdin!.write(data, (err) => {
+      if (err) return reject(err)
+      resolve()
+    })
+  })
+}
+
 async function start(input: {
   shell: string
   name: string
@@ -208,7 +240,7 @@ async function start(input: {
       shell: next.options.shell,
       detached: true,
       windowsHide: process.platform === "win32",
-      stdio: ["ignore", out, out],
+      stdio: ["pipe", out, out],
     })
     job.proc = proc
 
@@ -252,6 +284,7 @@ export const ExBashTool = Tool.define("exbash", {
     "- async scope=workspace keeps the task visible in the same workspace.",
     "- mode=list: show async runs with status, result file path, and current line pointer.",
     "- mode=control: stop a running async run or remove a stopped run from the list.",
+    "- mode=input: write text or file bytes into a running async task stdin.",
     "Use the same command, workdir, timeout, and description fields as bash for exec mode.",
   ].join("\n"),
   parameters,
@@ -266,6 +299,35 @@ export const ExBashTool = Tool.define("exbash", {
       const runs = await Promise.all((await list(args.asyncID)).filter((item) => visible(item, ctx)).map(detail))
       const output = JSON.stringify({ runs }, null, 2)
       return { title: "Async runs listed", metadata: { runs }, output }
+    }
+
+    if (args.mode === "input") {
+      if ((args.text !== undefined ? 1 : 0) + (args.filePath !== undefined ? 1 : 0) !== 1) {
+        throw new Error("Provide exactly one of text or filePath for input mode.")
+      }
+      await ctx.ask({
+        permission: "bash",
+        patterns: [`exbash input ${args.asyncID}`],
+        always: ["exbash input *"],
+        metadata: {},
+      })
+      const job = jobs.get(args.asyncID)
+      const state = job?.state ?? (await load(args.asyncID))
+      if (!state || !visible(state, ctx)) throw new Error(`Async run not found: ${args.asyncID}`)
+      if (state.status !== "running") throw new Error(`Async run ${args.asyncID} is not running`)
+      if (!job?.proc) throw new Error(`Async run ${args.asyncID} cannot accept input in this process`)
+
+      const data = args.filePath !== undefined
+        ? Buffer.from(await Bun.file(await inputfile(args.filePath, ctx)).arrayBuffer())
+        : args.text!
+
+      await write(job, data)
+      const output = {
+        asyncID: args.asyncID,
+        wrote: typeof data === "string" ? Buffer.byteLength(data) : data.length,
+        source: typeof data === "string" ? "text" : "file",
+      }
+      return { title: "Async input sent", metadata: output, output: JSON.stringify(output, null, 2) }
     }
 
     if (args.mode === "control") {

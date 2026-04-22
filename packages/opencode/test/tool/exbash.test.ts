@@ -197,6 +197,147 @@ describe("tool.exbash", () => {
     })
   })
 
+  test("writes text into async task stdin", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const exbash = await ExBashTool.init()
+        const started = JSON.parse(
+          (
+            await exbash.execute(
+              {
+                mode: "exec",
+                command: `${bin} -e ${evalarg('process.stdin.on("data", (chunk) => { process.stdout.write("TEXT:" + chunk.toString()); process.exit(0) })')}`,
+                description: "Text input run",
+                async: true,
+              },
+              ctx,
+            )
+          ).output,
+        ) as {
+          asyncID: string
+          resultPath: string
+        }
+
+        const wrote = JSON.parse(
+          (
+            await exbash.execute(
+              {
+                mode: "input",
+                asyncID: started.asyncID,
+                text: "ping",
+              },
+              ctx,
+            )
+          ).output,
+        ) as {
+          asyncID: string
+          wrote: number
+          source: string
+        }
+
+        expect(wrote.asyncID).toBe(started.asyncID)
+        expect(wrote.wrote).toBe(4)
+        expect(wrote.source).toBe("text")
+
+        await poll(async () => {
+          const listed = JSON.parse(
+            (
+              await exbash.execute(
+                {
+                  mode: "list",
+                  asyncID: started.asyncID,
+                },
+                ctx,
+              )
+            ).output,
+          ) as {
+            runs: Array<{ status: string }>
+          }
+          if (!listed.runs[0]?.status.includes("exit 0")) return
+          return listed.runs[0]
+        })
+
+        expect(await Filesystem.readText(started.resultPath)).toContain("TEXT:ping")
+        await exbash.execute({ mode: "control", asyncID: started.asyncID, action: "remove" }, ctx)
+      },
+    })
+  })
+
+  test("writes file bytes into async task stdin", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "stdin.bin"), Buffer.from([0x00, 0x01, 0xff]))
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const exbash = await ExBashTool.init()
+        const local = mkctx("ses_input_file", tmp.path)
+        const file = path.join(tmp.path, "stdin.bin")
+        const started = JSON.parse(
+          (
+            await exbash.execute(
+              {
+                mode: "exec",
+                command: `${bin} -e ${evalarg('process.stdin.on("data", (chunk) => { process.stdout.write(chunk.toString("hex")); process.exit(0) })')}`,
+                description: "File input run",
+                async: true,
+              },
+              local,
+            )
+          ).output,
+        ) as {
+          asyncID: string
+          resultPath: string
+        }
+
+        const wrote = JSON.parse(
+          (
+            await exbash.execute(
+              {
+                mode: "input",
+                asyncID: started.asyncID,
+                filePath: file,
+              },
+              local,
+            )
+          ).output,
+        ) as {
+          asyncID: string
+          wrote: number
+          source: string
+        }
+
+        expect(wrote.asyncID).toBe(started.asyncID)
+        expect(wrote.wrote).toBe(3)
+        expect(wrote.source).toBe("file")
+
+        await poll(async () => {
+          const listed = JSON.parse(
+            (
+              await exbash.execute(
+                {
+                  mode: "list",
+                  asyncID: started.asyncID,
+                },
+                local,
+              )
+            ).output,
+          ) as {
+            runs: Array<{ status: string }>
+          }
+          if (!listed.runs[0]?.status.includes("exit 0")) return
+          return listed.runs[0]
+        })
+
+        expect(await Filesystem.readText(started.resultPath)).toContain("0001ff")
+        await exbash.execute({ mode: "control", asyncID: started.asyncID, action: "remove" }, local)
+      },
+    })
+  })
+
   test("limits local tasks to one session and workspace tasks to one workspace", async () => {
     await using a = await tmpdir()
     await using b = await tmpdir()
