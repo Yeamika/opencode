@@ -175,7 +175,7 @@ async function cygpath(shell: string, text: string) {
   return Filesystem.normalizePath(file)
 }
 
-async function resolvePath(text: string, root: string, shell: string) {
+export async function resolvePath(text: string, root: string, shell: string) {
   if (process.platform === "win32") {
     if (Shell.posix(shell) && text.startsWith("/") && Filesystem.windowsPath(text) === text) {
       const file = await cygpath(shell, text)
@@ -222,7 +222,7 @@ function pathArgs(list: Part[], ps: boolean) {
   return out
 }
 
-async function collect(root: Node, cwd: string, ps: boolean, shell: string): Promise<Scan> {
+export async function collect(root: Node, cwd: string, ps: boolean, shell: string): Promise<Scan> {
   const scan: Scan = {
     dirs: new Set<string>(),
     patterns: new Set<string>(),
@@ -258,13 +258,13 @@ function preview(text: string) {
   return text.slice(0, MAX_METADATA_LENGTH) + "\n\n..."
 }
 
-async function parse(command: string, ps: boolean) {
+export async function parse(command: string, ps: boolean) {
   const tree = await parser().then((p) => (ps ? p.ps : p.bash).parse(command))
   if (!tree) throw new Error("Failed to parse command")
   return tree.rootNode
 }
 
-async function ask(ctx: Tool.Context, scan: Scan) {
+export async function ask(ctx: Tool.Context, scan: Scan) {
   if (scan.dirs.size > 0) {
     const globs = Array.from(scan.dirs).map((dir) => {
       if (process.platform === "win32") return Filesystem.normalizePathPattern(path.join(dir, "*"))
@@ -287,7 +287,7 @@ async function ask(ctx: Tool.Context, scan: Scan) {
   })
 }
 
-async function shellEnv(ctx: Tool.Context, cwd: string) {
+export async function shellEnv(ctx: Tool.Context, cwd: string) {
   const extra = await Plugin.trigger("shell.env", { cwd, sessionID: ctx.sessionID, callID: ctx.callID }, { env: {} })
   return {
     ...process.env,
@@ -296,22 +296,35 @@ async function shellEnv(ctx: Tool.Context, cwd: string) {
 }
 
 function cmd(shell: string, name: string, command: string, cwd: string, env: NodeJS.ProcessEnv) {
+  const next = spawnInput(shell, name, command, cwd, env)
+  return ChildProcess.make(next.command, next.args, next.options)
+}
+
+export function spawnInput(shell: string, name: string, command: string, cwd: string, env: NodeJS.ProcessEnv) {
   if (process.platform === "win32" && PS.has(name)) {
-    return ChildProcess.make(shell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command], {
-      cwd,
-      env,
-      stdin: "ignore",
-      detached: false,
-    })
+    return {
+      command: shell,
+      args: ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command],
+      options: {
+        cwd,
+        env,
+        stdin: "ignore" as const,
+        detached: false,
+      },
+    }
   }
 
-  return ChildProcess.make(command, [], {
-    shell,
-    cwd,
-    env,
-    stdin: "ignore",
-    detached: process.platform !== "win32",
-  })
+  return {
+    command,
+    args: [] as string[],
+    options: {
+      shell,
+      cwd,
+      env,
+      stdin: "ignore" as const,
+      detached: process.platform !== "win32",
+    },
+  }
 }
 
 async function run(

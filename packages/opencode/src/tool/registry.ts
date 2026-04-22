@@ -1,6 +1,7 @@
 import { PlanExitTool } from "./plan"
 import { QuestionTool } from "./question"
 import { BashTool } from "./bash"
+import { ExBashTool } from "./exbash"
 import { EditTool } from "./edit"
 import { GlobTool } from "./glob"
 import { GrepTool } from "./grep"
@@ -127,6 +128,7 @@ export namespace ToolRegistry {
       const invalid = yield* build(InvalidTool)
       const ask = yield* build(QuestionTool)
       const bash = yield* build(BashTool)
+      const exbash = yield* build(ExBashTool)
       const reload = yield* build(ReloadTool)
       const workspaceMcp = yield* build(WorkspaceMcpTool)
       const workspaceTool = yield* build(WorkspaceToolTool)
@@ -156,6 +158,7 @@ export namespace ToolRegistry {
           invalid,
           ...(question ? [ask] : []),
           bash,
+          exbash,
           reload,
           workspaceOverview,
           workspaceMcp,
