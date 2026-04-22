@@ -45,19 +45,29 @@ type Job = {
 
 const jobs = new Map<string, Job>()
 
+const exec = z.object({
+  mode: z.literal("exec"),
+  command: z.string().describe("The command to execute."),
+  timeout: z.number().optional().describe("Optional timeout in milliseconds."),
+  workdir: z.string().optional().describe("Working directory. Use this instead of cd."),
+  description: z.string().describe("Clear, concise description of what this command does in 5-10 words."),
+})
+
+const execAsync = z.object({
+  mode: z.literal("exec-async"),
+  command: z.string().describe("The command to execute."),
+  scope: z
+    .enum(["local", "workspace"])
+    .optional()
+    .describe("Async task visibility. local means current session only. workspace means any session in the same workspace."),
+  timeout: z.number().optional().describe("Optional timeout in milliseconds."),
+  workdir: z.string().optional().describe("Working directory. Use this instead of cd."),
+  description: z.string().describe("Clear, concise description of what this command does in 5-10 words."),
+})
+
 const parameters = z.discriminatedUnion("mode", [
-  z.object({
-    mode: z.literal("exec"),
-    command: z.string().describe("The command to execute."),
-    async: z.boolean().optional().describe("Set true to run in the background and return immediately."),
-    scope: z
-      .enum(["local", "workspace"])
-      .optional()
-      .describe("Async task visibility. local means current session only. workspace means any session in the same workspace."),
-    timeout: z.number().optional().describe("Optional timeout in milliseconds. Works for both sync and async runs."),
-    workdir: z.string().optional().describe("Working directory. Use this instead of cd."),
-    description: z.string().describe("Clear, concise description of what this command does in 5-10 words."),
-  }),
+  exec,
+  execAsync,
   z.object({
     mode: z.literal("list"),
     asyncID: z.string().optional().describe("Optional async run id to inspect one run."),
@@ -306,15 +316,16 @@ async function start(input: {
 
 export const ExBashTool = Tool.define("exbash", {
   description: [
-    "Extended bash control surface with three modes.",
-    "- mode=exec: run a shell command; set async=true to run in the background.",
-    "- async scope=local keeps the task visible only in the current session.",
-    "- async scope=workspace keeps the task visible in the same workspace.",
+    "Extended bash control surface with explicit sync and async execution modes.",
+    "- mode=exec: run a shell command and wait for completion.",
+    "- mode=exec-async: run a shell command in the background and return immediately.",
+    "- exec-async scope=local keeps the task visible only in the current session.",
+    "- exec-async scope=workspace keeps the task visible in the same workspace.",
     "- mode=list: show async runs with status, result file path, and current line pointer.",
     "- mode=control: stop a running async run or remove a stopped run from the list.",
     "- mode=input: write text or file bytes into a running async task stdin.",
     "- input wait=attach waits for new output, default timeout 10000ms, default output window 100 bytes.",
-    "Use the same command, workdir, timeout, and description fields as bash for exec mode.",
+    "Use the same command, workdir, timeout, and description fields as bash for exec and exec-async modes.",
   ].join("\n"),
   parameters,
   async execute(args, ctx) {
@@ -405,7 +416,7 @@ export const ExBashTool = Tool.define("exbash", {
       return { title: "Async run removed", metadata: output, output: JSON.stringify(output, null, 2) }
     }
 
-    if (!args.async) {
+    if (args.mode === "exec") {
       const bash = await BashTool.init()
       return bash.execute(
         {

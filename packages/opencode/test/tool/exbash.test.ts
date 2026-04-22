@@ -70,10 +70,9 @@ describe("tool.exbash", () => {
           (
             await exbash.execute(
               {
-                mode: "exec",
+                mode: "exec-async",
                 command: `${bin} -e ${evalarg('setInterval(() => console.log("tick"), 25)')}`,
                 description: "Timed async run",
-                async: true,
                 timeout: 120,
               },
               ctx,
@@ -128,10 +127,9 @@ describe("tool.exbash", () => {
           (
             await exbash.execute(
               {
-                mode: "exec",
+                mode: "exec-async",
                 command: `${bin} -e ${evalarg('setInterval(() => console.log("alive"), 25)')}`,
                 description: "Manual async run",
-                async: true,
               },
               ctx,
             )
@@ -206,10 +204,9 @@ describe("tool.exbash", () => {
           (
             await exbash.execute(
               {
-                mode: "exec",
+                mode: "exec-async",
                 command: `${bin} -e ${evalarg('process.stdin.on("data", (chunk) => { process.stdout.write("TEXT:" + chunk.toString()); process.exit(0) })')}`,
                 description: "Text input run",
-                async: true,
               },
               ctx,
             )
@@ -291,10 +288,9 @@ describe("tool.exbash", () => {
           (
             await exbash.execute(
               {
-                mode: "exec",
+                mode: "exec-async",
                 command: `${bin} -e ${evalarg('process.stdin.on("data", (chunk) => { process.stdout.write(chunk.toString("hex")); process.exit(0) })')}`,
                 description: "File input run",
-                async: true,
               },
               local,
             )
@@ -364,10 +360,9 @@ describe("tool.exbash", () => {
           (
             await exbash.execute(
               {
-                mode: "exec",
+                mode: "exec-async",
                 command: `${bin} -e ${evalarg('setInterval(() => console.log("local"), 25)')}`,
                 description: "Local scoped run",
-                async: true,
                 scope: "local",
               },
               one,
@@ -415,10 +410,9 @@ describe("tool.exbash", () => {
           (
             await exbash.execute(
               {
-                mode: "exec",
+                mode: "exec-async",
                 command: `${bin} -e ${evalarg('setInterval(() => console.log("workspace"), 25)')}`,
                 description: "Workspace scoped run",
-                async: true,
                 scope: "workspace",
               },
               one,
