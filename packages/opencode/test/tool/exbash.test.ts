@@ -56,8 +56,10 @@ describe("tool.exbash", () => {
         const result = await exbash.execute(
           {
             mode: "exec",
-            command: "echo test",
-            description: "Echo test message",
+            exec: {
+              command: "echo test",
+              description: "Echo test message",
+            },
           },
           ctx,
         )
@@ -77,9 +79,11 @@ describe("tool.exbash", () => {
             await exbash.execute(
               {
                 mode: "exec-async",
-                command: `${bin} -e ${evalarg('setInterval(() => console.log("tick"), 25)')}`,
-                description: "Timed async run",
-                timeout: 120,
+                async: {
+                  command: `${bin} -e ${evalarg('setInterval(() => console.log("tick"), 25)')}`,
+                  description: "Timed async run",
+                  timeout: 120,
+                },
               },
               ctx,
             )
@@ -98,7 +102,7 @@ describe("tool.exbash", () => {
               await exbash.execute(
                 {
                   mode: "list",
-                  asyncID: started.asyncID,
+                  list: { asyncID: started.asyncID },
                 },
                 ctx,
               )
@@ -134,8 +138,10 @@ describe("tool.exbash", () => {
             await exbash.execute(
               {
                 mode: "exec-async",
-                command: `${bin} -e ${evalarg('setInterval(() => console.log("alive"), 25)')}`,
-                description: "Manual async run",
+                async: {
+                  command: `${bin} -e ${evalarg('setInterval(() => console.log("alive"), 25)')}`,
+                  description: "Manual async run",
+                },
               },
               ctx,
             )
@@ -149,8 +155,7 @@ describe("tool.exbash", () => {
             await exbash.execute(
               {
                 mode: "control",
-                asyncID: started.asyncID,
-                action: "stop",
+                control: { asyncID: started.asyncID, action: "stop" },
               },
               ctx,
             )
@@ -168,8 +173,7 @@ describe("tool.exbash", () => {
             await exbash.execute(
               {
                 mode: "control",
-                asyncID: started.asyncID,
-                action: "remove",
+                control: { asyncID: started.asyncID, action: "remove" },
               },
               ctx,
             )
@@ -211,8 +215,10 @@ describe("tool.exbash", () => {
             await exbash.execute(
               {
                 mode: "exec-async",
-                command: `${bin} -e ${evalarg('process.stdin.on("data", (chunk) => { process.stdout.write("TEXT:" + chunk.toString()); process.exit(0) })')}`,
-                description: "Text input run",
+                async: {
+                  command: `${bin} -e ${evalarg('process.stdin.on("data", (chunk) => { process.stdout.write("TEXT:" + chunk.toString()); process.exit(0) })')}`,
+                  description: "Text input run",
+                },
               },
               ctx,
             )
@@ -227,9 +233,11 @@ describe("tool.exbash", () => {
             await exbash.execute(
               {
                 mode: "input",
-                asyncID: started.asyncID,
-                wait: "attach",
-                text: "ping",
+                input: {
+                  asyncID: started.asyncID,
+                  wait: "attach",
+                  text: "ping",
+                },
               },
               ctx,
             )
@@ -260,7 +268,7 @@ describe("tool.exbash", () => {
               await exbash.execute(
                 {
                   mode: "list",
-                  asyncID: started.asyncID,
+                  list: { asyncID: started.asyncID },
                 },
                 ctx,
               )
@@ -273,7 +281,7 @@ describe("tool.exbash", () => {
         })
 
         expect(await Filesystem.readText(started.resultPath)).toContain("TEXT:ping")
-        await exbash.execute({ mode: "control", asyncID: started.asyncID, action: "remove" }, ctx)
+        await exbash.execute({ mode: "control", control: { asyncID: started.asyncID, action: "remove" } }, ctx)
       },
     })
   })
@@ -295,8 +303,10 @@ describe("tool.exbash", () => {
             await exbash.execute(
               {
                 mode: "exec-async",
-                command: `${bin} -e ${evalarg('process.stdin.on("data", (chunk) => { process.stdout.write(chunk.toString("hex")); process.exit(0) })')}`,
-                description: "File input run",
+                async: {
+                  command: `${bin} -e ${evalarg('process.stdin.on("data", (chunk) => { process.stdout.write(chunk.toString("hex")); process.exit(0) })')}`,
+                  description: "File input run",
+                },
               },
               local,
             )
@@ -311,8 +321,10 @@ describe("tool.exbash", () => {
             await exbash.execute(
               {
                 mode: "input",
-                asyncID: started.asyncID,
-                filePath: file,
+                input: {
+                  asyncID: started.asyncID,
+                  filePath: file,
+                },
               },
               local,
             )
@@ -333,7 +345,7 @@ describe("tool.exbash", () => {
               await exbash.execute(
                 {
                   mode: "list",
-                  asyncID: started.asyncID,
+                  list: { asyncID: started.asyncID },
                 },
                 local,
               )
@@ -346,7 +358,7 @@ describe("tool.exbash", () => {
         })
 
         expect(await Filesystem.readText(started.resultPath)).toContain("0001ff")
-        await exbash.execute({ mode: "control", asyncID: started.asyncID, action: "remove" }, local)
+        await exbash.execute({ mode: "control", control: { asyncID: started.asyncID, action: "remove" } }, local)
       },
     })
   })
@@ -367,9 +379,11 @@ describe("tool.exbash", () => {
             await exbash.execute(
               {
                 mode: "exec-async",
-                command: `${bin} -e ${evalarg('setInterval(() => console.log("local"), 25)')}`,
-                description: "Local scoped run",
-                scope: "local",
+                async: {
+                  command: `${bin} -e ${evalarg('setInterval(() => console.log("local"), 25)')}`,
+                  description: "Local scoped run",
+                  scope: "local",
+                },
               },
               one,
             )
@@ -386,7 +400,7 @@ describe("tool.exbash", () => {
             await exbash.execute(
               {
                 mode: "list",
-                asyncID: local.asyncID,
+                list: { asyncID: local.asyncID },
               },
               one,
             )
@@ -400,7 +414,7 @@ describe("tool.exbash", () => {
             await exbash.execute(
               {
                 mode: "list",
-                asyncID: local.asyncID,
+                list: { asyncID: local.asyncID },
               },
               two,
             )
@@ -417,9 +431,11 @@ describe("tool.exbash", () => {
             await exbash.execute(
               {
                 mode: "exec-async",
-                command: `${bin} -e ${evalarg('setInterval(() => console.log("workspace"), 25)')}`,
-                description: "Workspace scoped run",
-                scope: "workspace",
+                async: {
+                  command: `${bin} -e ${evalarg('setInterval(() => console.log("workspace"), 25)')}`,
+                  description: "Workspace scoped run",
+                  scope: "workspace",
+                },
               },
               one,
             )
@@ -436,7 +452,7 @@ describe("tool.exbash", () => {
             await exbash.execute(
               {
                 mode: "list",
-                asyncID: shared.asyncID,
+                list: { asyncID: shared.asyncID },
               },
               two,
             )
@@ -460,7 +476,7 @@ describe("tool.exbash", () => {
             await exbash.execute(
               {
                 mode: "list",
-                asyncID: ids.shared,
+                list: { asyncID: ids.shared },
               },
               three,
             )
@@ -478,10 +494,10 @@ describe("tool.exbash", () => {
       fn: async () => {
         const exbash = await ExBashTool.init()
         const one = mkctx("ses_scope_1", a.path)
-        await exbash.execute({ mode: "control", asyncID: ids.local, action: "stop" }, one)
-        await exbash.execute({ mode: "control", asyncID: ids.local, action: "remove" }, one)
-        await exbash.execute({ mode: "control", asyncID: ids.shared, action: "stop" }, one)
-        await exbash.execute({ mode: "control", asyncID: ids.shared, action: "remove" }, one)
+        await exbash.execute({ mode: "control", control: { asyncID: ids.local, action: "stop" } }, one)
+        await exbash.execute({ mode: "control", control: { asyncID: ids.local, action: "remove" } }, one)
+        await exbash.execute({ mode: "control", control: { asyncID: ids.shared, action: "stop" } }, one)
+        await exbash.execute({ mode: "control", control: { asyncID: ids.shared, action: "remove" } }, one)
       },
     })
   })

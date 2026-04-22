@@ -51,16 +51,14 @@ const opt = <T extends z.ZodTypeAny>(schema: T) =>
     return input
   }, schema.optional())
 
-const exec = z.object({
-  mode: z.literal("exec"),
+const sync = z.object({
   command: z.string().describe("The command to execute."),
   timeout: z.number().optional().describe("Optional timeout in milliseconds."),
   workdir: opt(z.string()).describe("Working directory. Use this instead of cd."),
   description: z.string().describe("Clear, concise description of what this command does in 5-10 words."),
 })
 
-const execAsync = z.object({
-  mode: z.literal("exec-async"),
+const back = z.object({
   command: z.string().describe("The command to execute."),
   scope: opt(z.enum(["local", "workspace"])).describe(
     "Async task visibility. local means current session only. workspace means any session in the same workspace.",
@@ -70,19 +68,16 @@ const execAsync = z.object({
   description: z.string().describe("Clear, concise description of what this command does in 5-10 words."),
 })
 
-const listMode = z.object({
-  mode: z.literal("list"),
+const seen = z.object({
   asyncID: opt(z.string()).describe("Optional async run id to inspect one run."),
 })
 
-const controlMode = z.object({
-  mode: z.literal("control"),
+const ctrl = z.object({
   asyncID: z.string().describe("Async run id."),
   action: z.enum(["stop", "remove"]).describe("Force stop a running async run, or remove a stopped run from the list."),
 })
 
-const inputMode = z.object({
-  mode: z.literal("input"),
+const feed = z.object({
   asyncID: z.string().describe("Async run id."),
   wait: opt(z.enum(["return", "attach"])).describe("Return immediately or wait for new task output after writing input."),
   timeout: z.number().optional().describe("Attach wait timeout in milliseconds. Defaults to 10000."),
@@ -94,19 +89,11 @@ const inputMode = z.object({
 const parameters = z
   .object({
     mode: z.enum(["exec", "exec-async", "list", "control", "input"]),
-    command: opt(z.string()).describe("The command to execute. Use only for exec and exec-async."),
-    scope: opt(z.enum(["local", "workspace"])).describe(
-      "Async task visibility. Use only for exec-async. local means current session only. workspace means any session in the same workspace.",
-    ),
-    timeout: z.number().optional().describe("Optional timeout in milliseconds. Use for exec, exec-async, or input wait=attach."),
-    workdir: opt(z.string()).describe("Working directory. Use this instead of cd. Use only for exec and exec-async."),
-    description: opt(z.string()).describe("Clear, concise description of what this command does in 5-10 words. Use only for exec and exec-async."),
-    asyncID: opt(z.string()).describe("Async run id. Use for list, control, and input."),
-    action: opt(z.enum(["stop", "remove"])).describe("Use only for control. Force stop a running async run, or remove a stopped run from the list."),
-    wait: opt(z.enum(["return", "attach"])).describe("Use only for input. Return immediately or wait for new task output after writing input."),
-    window: z.number().optional().describe("Use only for input wait=attach. Attach output window in bytes. Defaults to 100."),
-    text: opt(z.string()).describe("Use only for input. Text to write to the running task stdin."),
-    filePath: opt(z.string()).describe("Use only for input. Read this file and write its raw bytes to the running task stdin."),
+    exec: opt(sync).describe("Use only when mode=exec."),
+    async: opt(back).describe("Use only when mode=exec-async."),
+    list: opt(seen).describe("Use only when mode=list."),
+    control: opt(ctrl).describe("Use only when mode=control."),
+    input: opt(feed).describe("Use only when mode=input."),
   })
 
 function file(id: string) {
@@ -338,8 +325,8 @@ async function start(input: {
 export const ExBashTool = Tool.define("exbash", {
   description: [
     "Extended bash control surface with explicit sync and async execution modes.",
-    "Only include fields that belong to the selected mode.",
-    "Omit unrelated fields entirely. Do not send empty string placeholders.",
+    "Only include the nested block that belongs to the selected mode.",
+    "Omit unrelated blocks entirely. Do not send empty string placeholders.",
     "- mode=exec: run a shell command and wait for completion.",
     "- mode=exec-async: run a shell command in the background and return immediately.",
     "- exec-async scope=local keeps the task visible only in the current session.",
@@ -348,18 +335,19 @@ export const ExBashTool = Tool.define("exbash", {
     "- mode=control: stop a running async run or remove a stopped run from the list.",
     "- mode=input: write text or file bytes into a running async task stdin.",
     "- input wait=attach waits for new output, default timeout 10000ms, default output window 100 bytes.",
-    "Use the same command, workdir, timeout, and description fields as bash for exec and exec-async modes.",
+    "Use exec.command/exec.description for mode=exec.",
+    "Use async.command/async.description for mode=exec-async.",
     "Examples:",
-    '- exec: {"mode":"exec","command":"echo hello","description":"Print hello"}',
-    '- exec-async: {"mode":"exec-async","command":"sh -lc \'sleep 1; echo hello\'","description":"Run async echo","scope":"local"}',
-    '- list: {"mode":"list","asyncID":"<asyncID>"}',
-    '- control: {"mode":"control","asyncID":"<asyncID>","action":"stop"}',
-    '- input: {"mode":"input","asyncID":"<asyncID>","text":"hello","wait":"attach"}',
+    '- exec: {"mode":"exec","exec":{"command":"echo hello","description":"Print hello"}}',
+    '- exec-async: {"mode":"exec-async","async":{"command":"sh -lc \'sleep 1; echo hello\'","description":"Run async echo","scope":"local"}}',
+    '- list: {"mode":"list","list":{"asyncID":"<asyncID>"}}',
+    '- control: {"mode":"control","control":{"asyncID":"<asyncID>","action":"stop"}}',
+    '- input: {"mode":"input","input":{"asyncID":"<asyncID>","text":"hello","wait":"attach"}}',
   ].join("\n"),
   parameters,
   async execute(args, ctx) {
     if (args.mode === "list") {
-      const input = listMode.parse(args)
+      const input = seen.parse(args.list ?? {})
       await ctx.ask({
         permission: "bash",
         patterns: [input.asyncID ? `exbash list ${input.asyncID}` : "exbash list"],
@@ -372,7 +360,8 @@ export const ExBashTool = Tool.define("exbash", {
     }
 
     if (args.mode === "input") {
-      const input = inputMode.parse(args)
+      if (!args.input) throw new Error("mode input requires the input block")
+      const input = feed.parse(args.input)
       if ((input.text !== undefined ? 1 : 0) + (input.filePath !== undefined ? 1 : 0) !== 1) {
         throw new Error("Provide exactly one of text or filePath for input mode.")
       }
@@ -416,7 +405,8 @@ export const ExBashTool = Tool.define("exbash", {
     }
 
     if (args.mode === "control") {
-      const input = controlMode.parse(args)
+      if (!args.control) throw new Error("mode control requires the control block")
+      const input = ctrl.parse(args.control)
       await ctx.ask({
         permission: "bash",
         patterns: [`exbash ${input.action} ${input.asyncID}`],
@@ -451,7 +441,8 @@ export const ExBashTool = Tool.define("exbash", {
     }
 
     if (args.mode === "exec") {
-      const input = exec.parse(args)
+      if (!args.exec) throw new Error("mode exec requires the exec block")
+      const input = sync.parse(args.exec)
       const bash = await BashTool.init()
       return bash.execute(
         {
@@ -464,7 +455,8 @@ export const ExBashTool = Tool.define("exbash", {
       )
     }
 
-    const input = execAsync.parse(args)
+    if (!args.async) throw new Error("mode exec-async requires the async block")
+    const input = back.parse(args.async)
 
     const shell = Shell.acceptable()
     const name = Shell.name(shell)
