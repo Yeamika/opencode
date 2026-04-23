@@ -1,8 +1,9 @@
 import type { TuiPlugin, TuiPluginApi, TuiPluginModule } from "@opencode-ai/plugin/tui"
 import { createMemo, createSignal, For, Show } from "solid-js"
-import { useKeyboard } from "@opentui/solid"
+import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { TextAttributes } from "@opentui/core"
 import { Spinner } from "@tui/component/spinner"
+import { getScrollAcceleration } from "../../util/scroll"
 
 const id = "internal:sidebar-bashlist"
 
@@ -10,17 +11,17 @@ type Job = ReturnType<TuiPluginApi["state"]["session"]["exbash"]>[number]
 
 function status(job: Job) {
   if (job.status === "running") return "running"
-  return `exitcode:${job.exitCode ?? -1}`
+  return `exitcode: ${job.exitCode ?? -1}`
 }
 
 function subtitle(job: Job) {
-  return `${job.asyncID} AT ${job.cwd}[${job.scope}]`
+  return `${job.asyncID} · ${job.cwd} [${job.scope}]`
 }
 
 function time(job: Job) {
   const start = new Date(job.startedAt).toLocaleString()
   const end = job.endedAt ? new Date(job.endedAt).toLocaleString() : "-"
-  return `${start} - ${end}`
+  return `${start} · ${end}`
 }
 
 function short(job: Job) {
@@ -31,20 +32,11 @@ function short(job: Job) {
 
 function Detail(props: { api: TuiPluginApi; job: Job }) {
   const theme = () => props.api.theme.current
+  const term = useTerminalDimensions()
   const close = () => props.api.ui.dialog.clear()
   useKeyboard((evt) => {
     if (evt.name === "return" || evt.name === "escape") close()
   })
-
-  const row = (label: string, value?: string | number) => {
-    if (value === undefined || value === "") return undefined
-    return (
-      <box flexDirection="column">
-        <text fg={theme().textMuted}>{label}</text>
-        <text fg={theme().text}>{String(value)}</text>
-      </box>
-    )
-  }
 
   return (
     <box paddingLeft={2} paddingRight={2} gap={1} flexDirection="column">
@@ -55,14 +47,45 @@ function Detail(props: { api: TuiPluginApi; job: Job }) {
         </text>
       </box>
       <text fg={theme().textMuted}>{subtitle(props.job)}</text>
-      <box flexDirection="column" gap={1} paddingBottom={1}>
-        {row("Command", props.job.command)}
-        {row("timeout", props.job.timeout)}
-        {row("Line Pointer", props.job.linePointer)}
-        {row("Result Path", props.job.resultPath)}
-        {row("time", time(props.job))}
-        <Show when={props.job.error}>{row("error", props.job.error)}</Show>
-      </box>
+      <scrollbox
+        maxHeight={Math.floor(term().height * 0.45)}
+        scrollAcceleration={getScrollAcceleration()}
+        verticalScrollbarOptions={{
+          trackOptions: {
+            backgroundColor: theme().background,
+            foregroundColor: theme().borderActive,
+          },
+        }}
+      >
+        <box flexDirection="column" gap={1} paddingRight={1} paddingBottom={1}>
+          <box flexDirection="column">
+            <text fg={theme().textMuted}>Command</text>
+            <text fg={theme().text}>{props.job.command}</text>
+          </box>
+          <box flexDirection="column">
+            <text fg={theme().textMuted}>timeout</text>
+            <text fg={theme().text}>{props.job.timeout ?? "-"}</text>
+          </box>
+          <box flexDirection="column">
+            <text fg={theme().textMuted}>Line Pointer</text>
+            <text fg={theme().text}>{props.job.linePointer}</text>
+          </box>
+          <box flexDirection="column">
+            <text fg={theme().textMuted}>Result Path</text>
+            <text fg={theme().text}>{props.job.resultPath}</text>
+          </box>
+          <box flexDirection="column">
+            <text fg={theme().textMuted}>time</text>
+            <text fg={theme().text}>{time(props.job)}</text>
+          </box>
+          <Show when={props.job.error}>
+            <box flexDirection="column">
+              <text fg={theme().textMuted}>error</text>
+              <text fg={theme().error}>{props.job.error}</text>
+            </box>
+          </Show>
+        </box>
+      </scrollbox>
       <box flexDirection="row" justifyContent="flex-end" paddingBottom={1}>
         <box paddingLeft={3} paddingRight={3} backgroundColor={theme().primary} onMouseUp={close}>
           <text fg={theme().selectedListItemText}>ok</text>
@@ -88,9 +111,9 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
     <Show when={list().length > 0}>
       <box>
         <box flexDirection="row" gap={1} onMouseDown={() => list().length > 2 && setOpen((x) => !x)}>
-          <Show when={list().length > 2}>
-            <text fg={theme().text}>{open() ? "▼" : "▶"}</text>
-          </Show>
+        <Show when={list().length > 2}>
+            <text fg={theme().text}>{open() ? "▾" : "▸"}</text>
+        </Show>
           <text fg={theme().text}>
             <b>Bash</b>
           </text>
