@@ -41,7 +41,7 @@ function Detail(props: { api: TuiPluginApi; job: Job }) {
   return (
     <box paddingLeft={2} paddingRight={2} gap={1} flexDirection="column">
       <box flexDirection="row" justifyContent="space-between">
-        <text attributes={TextAttributes.BOLD} fg={theme().text}>{`${props.job.description}【${status(props.job)}】`}</text>
+        <text attributes={TextAttributes.BOLD} fg={theme().text}>{`${props.job.description}[${status(props.job)}]`}</text>
         <text fg={theme().textMuted} onMouseUp={close}>
           esc/enter
         </text>
