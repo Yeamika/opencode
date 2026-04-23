@@ -41,6 +41,7 @@ type Job = {
   next?: Reason
   state: State
   timer?: ReturnType<typeof setTimeout>
+  close?: () => void
 }
 
 const jobs = new Map<string, Job>()
@@ -196,6 +197,8 @@ async function finish(job: Job, reason: Reason, extra?: { error?: string }) {
   if (job.state.status === "stopped") return job.state
   if (job.timer) clearTimeout(job.timer)
   job.timer = undefined
+  job.close?.()
+  job.close = undefined
   job.proc = undefined
   job.next = undefined
   job.state = {
@@ -274,52 +277,53 @@ async function start(input: {
     timeout: input.timeout,
     startedAt: Date.now(),
   }
-  const job: Job = { state }
+  const job: Job = {
+    state,
+    close() {
+      closeSync(out)
+    },
+  }
   jobs.set(id, job)
   await save(state)
 
-  try {
-    const next = spawnInput(input.shell, input.name, input.command, input.cwd, input.env)
-    const proc = launch(next.command, next.args, {
-      cwd: input.cwd,
-      env: input.env,
-      shell: next.options.shell,
-      detached: true,
-      windowsHide: process.platform === "win32",
-      stdio: ["pipe", out, out],
-    })
-    job.proc = proc
+  const next = spawnInput(input.shell, input.name, input.command, input.cwd, input.env)
+  const proc = launch(next.command, next.args, {
+    cwd: input.cwd,
+    env: input.env,
+    shell: next.options.shell,
+    detached: next.options.detached,
+    windowsHide: process.platform === "win32",
+    stdio: ["pipe", out, out],
+  })
+  job.proc = proc
 
-    proc.once("exit", (code) => {
-      void finish(job, job.next ?? { type: "exit", code })
-    })
-    proc.once("error", (err) => {
-      void finish(job, job.next ?? { type: "stopped" }, { error: err.message })
-    })
+  proc.once("exit", (code) => {
+    void finish(job, job.next ?? { type: "exit", code })
+  })
+  proc.once("error", (err) => {
+    void finish(job, job.next ?? { type: "stopped" }, { error: err.message })
+  })
 
-    await new Promise<void>((resolve, reject) => {
-      proc.once("spawn", () => resolve())
-      proc.once("error", reject)
-    })
+  await new Promise<void>((resolve, reject) => {
+    proc.once("spawn", () => resolve())
+    proc.once("error", reject)
+  })
 
-    job.state = { ...job.state, pid: proc.pid ?? null }
-    await save(job.state)
+  job.state = { ...job.state, pid: proc.pid ?? null }
+  await save(job.state)
 
-    if (input.timeout !== undefined) {
-      job.timer = setTimeout(() => {
-        if (!job.proc || job.state.status === "stopped") return
-        job.next = { type: "timeout" }
-        void Shell.killTree(job.proc, { exited: () => job.state.status === "stopped" }).then(async () => {
-          if (job.state.status === "running") await finish(job, { type: "timeout" })
-        })
-      }, input.timeout)
-    }
-
-    proc.unref()
-    return job.state
-  } finally {
-    closeSync(out)
+  if (input.timeout !== undefined) {
+    job.timer = setTimeout(() => {
+      if (!job.proc || job.state.status === "stopped") return
+      job.next = { type: "timeout" }
+      void Shell.killTree(job.proc, { exited: () => job.state.status === "stopped" }).then(async () => {
+        if (job.state.status === "running") await finish(job, { type: "timeout" })
+      })
+    }, input.timeout)
   }
+
+  proc.unref()
+  return job.state
 }
 
 export const ExBashTool = Tool.define("exbash", {

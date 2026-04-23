@@ -88,48 +88,46 @@ function Detail(props: { api: TuiPluginApi; job: Job }) {
   }
 
   return (
-    <props.api.ui.Dialog size="large" onClose={close}>
-      <box paddingLeft={2} paddingRight={2} gap={1} flexDirection="column">
-        <box flexDirection="row" justifyContent="space-between">
-          <text attributes={TextAttributes.BOLD} fg={theme().text}>
-            Bash Task
-          </text>
-          <text fg={theme().textMuted} onMouseUp={close}>
-            esc/enter
-          </text>
-        </box>
-        <box flexDirection="column" gap={1} paddingBottom={1}>
-          {row("Status", props.job.status ?? props.job.state)}
-          {row("AsyncID", props.job.asyncID)}
-          {row("Description", props.job.description)}
-          {row("Command", props.job.command)}
-          {row("Workdir", props.job.workdir)}
-          {row("Scope", props.job.scope)}
-          {row("Result Path", props.job.resultPath)}
-          {row("Status Path", props.job.statusPath)}
-          {row("Line Pointer", props.job.linePointer)}
-          {row("Started", stamp(props.job.startedAt))}
-          {row("Ended", stamp(props.job.endedAt))}
-          <Show when={props.job.error}>
-            <box flexDirection="column">
-              <text fg={theme().textMuted}>Error</text>
-              <text fg={theme().error}>{props.job.error}</text>
-            </box>
-          </Show>
-          <Show when={props.job.raw}>
-            <box flexDirection="column">
-              <text fg={theme().textMuted}>Latest Record</text>
-              <text fg={theme().text}>{props.job.raw}</text>
-            </box>
-          </Show>
-        </box>
-        <box flexDirection="row" justifyContent="flex-end" paddingBottom={1}>
-          <box paddingLeft={3} paddingRight={3} backgroundColor={theme().primary} onMouseUp={close}>
-            <text fg={theme().selectedListItemText}>ok</text>
+    <box paddingLeft={2} paddingRight={2} gap={1} flexDirection="column">
+      <box flexDirection="row" justifyContent="space-between">
+        <text attributes={TextAttributes.BOLD} fg={theme().text}>
+          Bash Task
+        </text>
+        <text fg={theme().textMuted} onMouseUp={close}>
+          esc/enter
+        </text>
+      </box>
+      <box flexDirection="column" gap={1} paddingBottom={1}>
+        {row("Status", props.job.status ?? props.job.state)}
+        {row("AsyncID", props.job.asyncID)}
+        {row("Description", props.job.description)}
+        {row("Command", props.job.command)}
+        {row("Workdir", props.job.workdir)}
+        {row("Scope", props.job.scope)}
+        {row("Result Path", props.job.resultPath)}
+        {row("Status Path", props.job.statusPath)}
+        {row("Line Pointer", props.job.linePointer)}
+        {row("Started", stamp(props.job.startedAt))}
+        {row("Ended", stamp(props.job.endedAt))}
+        <Show when={props.job.error}>
+          <box flexDirection="column">
+            <text fg={theme().textMuted}>Error</text>
+            <text fg={theme().error}>{props.job.error}</text>
           </box>
+        </Show>
+        <Show when={props.job.raw}>
+          <box flexDirection="column">
+            <text fg={theme().textMuted}>Latest Record</text>
+            <text fg={theme().text}>{props.job.raw}</text>
+          </box>
+        </Show>
+      </box>
+      <box flexDirection="row" justifyContent="flex-end" paddingBottom={1}>
+        <box paddingLeft={3} paddingRight={3} backgroundColor={theme().primary} onMouseUp={close}>
+          <text fg={theme().selectedListItemText}>ok</text>
         </box>
       </box>
-    </props.api.ui.Dialog>
+    </box>
   )
 }
 
