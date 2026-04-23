@@ -1836,25 +1836,39 @@ function shellinput(input: Partial<Tool.InferParameters<typeof BashTool>> | Part
     }
   }
 
-  if (input.mode === "exec") return { mode: input.mode, ...(input.exec ?? {}) }
-  if (input.mode === "exec-async") return { mode: input.mode, ...(input.async ?? {}) }
+  if (input.mode === "exec") {
+    return {
+      mode: input.mode,
+      command: input.command,
+      description: input.description,
+      workdir: input.workdir,
+    }
+  }
+  if (input.mode === "exec_async") {
+    return {
+      mode: input.mode,
+      command: input.command,
+      description: input.description,
+      workdir: input.workdir,
+    }
+  }
   if (input.mode === "list") {
     return {
       mode: input.mode,
-      command: `exbash list${input.list?.asyncID ? ` ${input.list.asyncID}` : ""}`,
+      command: ["exbash list", input.scope, input.asyncID].filter(Boolean).join(" "),
       description: "List async runs",
     }
   }
   if (input.mode === "control") {
     return {
       mode: input.mode,
-      command: ["exbash", input.control?.action, input.control?.asyncID].filter(Boolean).join(" "),
-      description: `Async ${input.control?.action ?? "control"}`,
+      command: ["exbash", input.action, input.asyncID].filter(Boolean).join(" "),
+      description: `Async ${input.action ?? "control"}`,
     }
   }
   return {
     mode: input.mode,
-    command: ["exbash input", input.input?.asyncID].filter(Boolean).join(" "),
+    command: ["exbash input", input.asyncID].filter(Boolean).join(" "),
     description: "Send async input",
   }
 }
