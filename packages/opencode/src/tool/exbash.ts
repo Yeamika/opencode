@@ -48,6 +48,7 @@ const back = z.object({
 
 const seen = z.object({
   asyncID: z.string().optional().describe("Optional async run id to inspect one run."),
+  scope: z.enum(["local", "workspace"]).optional().describe("Optional scope filter for list."),
 })
 
 const ctrl = z.object({
@@ -66,12 +67,12 @@ const feed = z.object({
 
 const parameters = z
   .object({
-    mode: z.enum(["exec", "exec-async", "list", "control", "input"]),
-    command: z.string().optional().describe("Use for exec and exec-async."),
-    description: z.string().optional().describe("Use for exec and exec-async."),
-    workdir: z.string().optional().describe("Use for exec and exec-async."),
-    scope: z.enum(["local", "workspace"]).optional().describe("Use for exec-async."),
-    timeout: z.number().optional().describe("Use for exec, exec-async, or input wait=attach."),
+    mode: z.enum(["exec", "exec_async", "list", "control", "input"]),
+    command: z.string().optional().describe("Use for exec and exec_async."),
+    description: z.string().optional().describe("Use for exec and exec_async."),
+    workdir: z.string().optional().describe("Use for exec and exec_async."),
+    scope: z.enum(["local", "workspace"]).optional().describe("Use for exec_async, or as an optional filter for list."),
+    timeout: z.number().optional().describe("Use for exec, exec_async, or input wait=attach."),
     asyncID: z.string().optional().describe("Use for list, control, and input."),
     action: z.enum(["stop", "remove"]).optional().describe("Use for control."),
     wait: z.enum(["return", "attach"]).optional().describe("Use for input."),
@@ -158,7 +159,7 @@ async function finish(job: Job, reason: { type: "exit"; code: number | null } | 
 
 async function write(job: Job, data: string | Buffer) {
   if (!job.proc?.stdin || job.proc.stdin.destroyed || !job.proc.stdin.writable) {
-    throw new Error(`Async run ${job.state.id} is not accepting stdin`)
+    throw new Error(`Async run ${job.state.asyncID} is not accepting stdin`)
   }
   await new Promise<void>((resolve, reject) => {
     job.proc!.stdin!.write(data, (err) => {
@@ -292,17 +293,18 @@ export const ExBashTool = Tool.define("exbash", {
     "Only include fields that belong to the selected mode.",
     "Omit unrelated fields entirely. Do not send empty string placeholders.",
     "- mode=exec: run a shell command and wait for completion.",
-    "- mode=exec-async: run a shell command in the background and return immediately.",
-    "- exec-async scope=local keeps the task visible only in the current session.",
-    "- exec-async scope=workspace keeps the task visible in the same workspace.",
+    "- mode=exec_async: run a shell command in the background and return immediately.",
+    "- exec_async scope=local keeps the task visible only in the current session.",
+    "- exec_async scope=workspace keeps the task visible in the same workspace.",
     "- mode=list: show async runs with status, result file path, and current line pointer.",
     "- mode=control: stop a running async run or remove a stopped run from the list.",
     "- mode=input: write text or file bytes into a running async task stdin.",
     "- input wait=attach waits for new output, default timeout 10000ms, default output window 100 bytes.",
     "Examples:",
     '- exec: {"mode":"exec","command":"echo hello","description":"Print hello"}',
-    '- exec-async: {"mode":"exec-async","command":"sh -lc \'sleep 1; echo hello\'","description":"Run async echo","scope":"local"}',
-    '- list: {"mode":"list","asyncID":"<asyncID>"}',
+    '- exec_async: {"mode":"exec_async","command":"sh -lc \'sleep 1; echo hello\'","description":"Run async echo","scope":"local"}',
+    '- list: {"mode":"list"}',
+    '- list filtered: {"mode":"list","scope":"workspace","asyncID":"<asyncID>"}',
     '- control: {"mode":"control","asyncID":"<asyncID>","action":"stop"}',
     '- input: {"mode":"input","asyncID":"<asyncID>","text":"hello","wait":"attach"}',
   ].join("\n"),
@@ -319,7 +321,7 @@ export const ExBashTool = Tool.define("exbash", {
         metadata: {},
       })
       const runs = (await ExBashTask.get({ sessionID: ctx.sessionID, workspace: workspace(ctx) }))
-        .filter((item) => !input.asyncID || item.asyncID === input.asyncID)
+        .filter((item) => (!input.asyncID || item.asyncID === input.asyncID) && (!input.scope || item.scope === input.scope))
         .map(detail)
       const output = JSON.stringify({ runs }, null, 2)
       return { title: "Async runs listed", metadata: { runs }, output }

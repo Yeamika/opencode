@@ -186,7 +186,7 @@ export namespace ExBashTask {
                 .run(),
             ),
           )
-          yield* Effect.promise(() => note(task.sessionID, task.workspace))
+          yield* note(task.sessionID, task.workspace)
           return task
         },
       )
@@ -199,7 +199,7 @@ export namespace ExBashTask {
         if (!prev) return undefined
         const task = { ...prev, linePointer: input.linePointer, ...(input.error ? { error: input.error } : {}) }
         mark(task)
-        yield* Effect.promise(() => note(task.sessionID, task.workspace))
+        yield* note(task.sessionID, task.workspace)
         return task
       })
 
@@ -227,7 +227,7 @@ export namespace ExBashTask {
                 .run(),
             ),
           )
-          yield* Effect.promise(() => note(task.sessionID, task.workspace))
+          yield* note(task.sessionID, task.workspace)
           return task
         },
       )
@@ -239,7 +239,7 @@ export namespace ExBashTask {
         yield* Effect.sync(() =>
           Database.use((db) => db.delete(ExBashTaskTable).where(eq(ExBashTaskTable.async_id, asyncID)).run()),
         )
-        yield* Effect.promise(() => note(ref.sessionID, ref.workspace))
+        yield* note(ref.sessionID, ref.workspace)
       })
 
       return Service.of({ ensure, get, one, start, line, finish, remove })
