@@ -63,6 +63,25 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       todo: {
         [sessionID: string]: Todo[]
       }
+      exbash: {
+        [sessionID: string]: {
+          asyncID: string
+          sessionID: string
+          workspace: string
+          scope: "local" | "workspace"
+          description: string
+          command: string
+          cwd: string
+          timeout?: number
+          linePointer: number
+          resultPath: string
+          startedAt: number
+          endedAt?: number
+          exitCode?: number
+          status: "running" | "stopped"
+          error?: string
+        }[]
+      }
       message: {
         [sessionID: string]: Message[]
       }
@@ -100,6 +119,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       session_status: {},
       session_diff: {},
       todo: {},
+      exbash: {},
       message: {},
       part: {},
       lsp: [],
@@ -120,14 +140,24 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       setStore("workspaceList", reconcile(result.data))
     }
 
+    async function syncExbash(sessionID: string) {
+      const url = new URL(`/session/${sessionID}/exbash`, sdk.url)
+      const response = await sdk.fetch(url, { headers: sdk.headers })
+      if (!response.ok) return []
+      const data = await response.json()
+      setStore("exbash", sessionID, reconcile(data ?? []))
+      return data
+    }
+
     async function syncSession(sessionID: string, options?: { force?: boolean }) {
       if (!options?.force && fullSyncedSessions.has(sessionID)) return
 
-      const [session, messages, todo, diff] = await Promise.all([
+      const [session, messages, todo, diff, exbash] = await Promise.all([
         sdk.client.session.get({ sessionID }, { throwOnError: true }),
         sdk.client.session.messages({ sessionID, limit: 100 }),
         sdk.client.session.todo({ sessionID }),
         sdk.client.session.diff({ sessionID }),
+        syncExbash(),
       ])
 
       setStore(
@@ -136,6 +166,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           if (match.found) draft.session[match.index] = session.data!
           if (!match.found) draft.session.splice(match.index, 0, session.data!)
           draft.todo[sessionID] = todo.data ?? []
+          draft.exbash[sessionID] = exbash ?? []
           draft.message[sessionID] = messages.data!.map((x) => x.info)
           for (const message of messages.data!) {
             draft.part[message.info.id] = message.parts
@@ -257,6 +288,15 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         case "todo.updated":
           setStore("todo", event.properties.sessionID, event.properties.todos)
           break
+
+        case "exbash.updated": {
+          const next = event as { properties: { sessionID: string; workspace: string } }
+          const list = store.session.filter(
+            (item) => item.id === next.properties.sessionID || item.directory === next.properties.workspace,
+          )
+          void Promise.all(list.map((item) => syncExbash(item.id).catch(() => undefined)))
+          break
+        }
 
         case "session.diff":
           setStore("session_diff", event.properties.sessionID, event.properties.diff)

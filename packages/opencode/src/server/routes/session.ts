@@ -12,6 +12,7 @@ import { SessionRetry } from "@/session/retry"
 import { SessionStatus } from "@/session/status"
 import { SessionSummary } from "@/session/summary"
 import { Todo } from "../../session/todo"
+import { ExBashTask } from "@/session/exbash"
 import { Agent } from "../../agent/agent"
 import { Snapshot } from "@/snapshot"
 import { Log } from "../../util/log"
@@ -188,6 +189,37 @@ export const SessionRoutes = lazy(() =>
         return c.json(todos)
       },
     )
+    .get(
+      "/:sessionID/exbash",
+      describeRoute({
+        summary: "Get session bash tasks",
+        description: "Retrieve merged exbash task state for the session and its workspace from server memory.",
+        operationId: "session.exbash",
+        responses: {
+          200: {
+            description: "Exbash tasks",
+            content: {
+              "application/json": {
+                schema: resolver(ExBashTask.Info.array()),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+        }),
+      ),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        const session = await Session.get(sessionID)
+        const tasks = await ExBashTask.get({ sessionID, workspace: session.directory })
+        return c.json(tasks)
+      },
+    )
     .post(
       "/",
       describeRoute({
@@ -210,6 +242,7 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const body = c.req.valid("json") ?? {}
         const session = await Session.create(body)
+        await ExBashTask.ensure({ sessionID: session.id, workspace: session.directory })
         return c.json(session)
       },
     )

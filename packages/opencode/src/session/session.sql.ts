@@ -94,6 +94,28 @@ export const TodoTable = sqliteTable(
   ],
 )
 
+export const ExBashTaskTable = sqliteTable(
+  "exbash_task",
+  {
+    async_id: text().primaryKey(),
+    session_id: text()
+      .$type<SessionID>()
+      .notNull()
+      .references(() => SessionTable.id, { onDelete: "cascade" }),
+    workspace: text().notNull(),
+    scope: text().notNull(),
+    description: text().notNull(),
+    command: text().notNull(),
+    cwd: text().notNull(),
+    timeout: integer(),
+    time_start: integer().notNull(),
+    time_end: integer(),
+    exit_code: integer(),
+    ...Timestamps,
+  },
+  (table) => [index("exbash_task_session_idx").on(table.session_id), index("exbash_task_workspace_idx").on(table.workspace)],
+)
+
 export const PermissionTable = sqliteTable("permission", {
   project_id: text()
     .primaryKey()

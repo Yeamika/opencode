@@ -280,6 +280,7 @@ export type TuiState = {
     count: () => number
     diff: (sessionID: string) => ReadonlyArray<TuiSidebarFileItem>
     todo: (sessionID: string) => ReadonlyArray<TuiSidebarTodoItem>
+    exbash: (sessionID: string) => ReadonlyArray<TuiSidebarBashTaskItem>
     messages: (sessionID: string) => ReadonlyArray<Message>
     status: (sessionID: string) => SessionStatus | undefined
     permission: (sessionID: string) => ReadonlyArray<PermissionRequest>
@@ -316,6 +317,24 @@ export type TuiSidebarMcpItem = {
 export type TuiSidebarLspItem = Pick<LspStatus, "id" | "root" | "status">
 
 export type TuiSidebarTodoItem = Pick<Todo, "content" | "status">
+
+export type TuiSidebarBashTaskItem = {
+  asyncID: string
+  sessionID: string
+  workspace: string
+  scope: "local" | "workspace"
+  description: string
+  command: string
+  cwd: string
+  timeout?: number
+  linePointer: number
+  resultPath: string
+  startedAt: number
+  endedAt?: number
+  exitCode?: number
+  status: "running" | "stopped"
+  error?: string
+}
 
 export type TuiSidebarFileItem = {
   file: string

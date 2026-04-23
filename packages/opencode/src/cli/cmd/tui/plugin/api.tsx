@@ -167,6 +167,9 @@ function stateApi(sync: ReturnType<typeof useSync>): TuiPluginApi["state"] {
       todo(sessionID) {
         return sync.data.todo[sessionID] ?? []
       },
+      exbash(sessionID) {
+        return sync.data.exbash[sessionID] ?? []
+      },
       messages(sessionID) {
         return sync.data.message[sessionID] ?? []
       },

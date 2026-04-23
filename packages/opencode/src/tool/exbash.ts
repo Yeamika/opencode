@@ -1,7 +1,7 @@
 import z from "zod"
 import path from "path"
 import fs from "fs/promises"
-import { closeSync, openSync } from "fs"
+import { createWriteStream } from "fs"
 import { randomUUID } from "crypto"
 import type { ChildProcess } from "child_process"
 import launch from "cross-spawn"
@@ -11,37 +11,20 @@ import { Shell } from "@/shell/shell"
 import { Filesystem } from "@/util/filesystem"
 import { Tool } from "./tool"
 import { BashTool, ask, collect, parse, resolvePath, shellEnv, spawnInput } from "./bash"
+import { ExBashTask } from "@/session/exbash"
 
 const ROOT = path.join(Global.Path.data, "exbash")
 const INPUT_TIMEOUT = 10_000
 const INPUT_WINDOW = 100
 
-type Reason = { type: "exit"; code: number | null } | { type: "timeout" } | { type: "stopped" }
-
-type State = {
-  id: string
-  scope: "local" | "workspace"
-  session: string
-  workspace: string
-  pid: number | null
-  status: "running" | "stopped"
-  reason?: Reason
-  command: string
-  description: string
-  cwd: string
-  logPath: string
-  timeout?: number
-  startedAt: number
-  endedAt?: number
-  error?: string
-}
-
 type Job = {
   proc?: ChildProcess
-  next?: Reason
-  state: State
+  next?: { type: "exit"; code: number | null } | { type: "timeout" } | { type: "stopped" }
+  state: Awaited<ReturnType<typeof ExBashTask.start>>
   timer?: ReturnType<typeof setTimeout>
-  close?: () => void
+  out?: ReturnType<typeof createWriteStream>
+  lines: number
+  open: boolean
 }
 
 const jobs = new Map<string, Job>()
@@ -98,12 +81,7 @@ const parameters = z
   })
 
 function file(id: string) {
-  return path.join(ROOT, `${id}.json`)
-}
-
-async function save(state: State) {
-  await fs.mkdir(ROOT, { recursive: true })
-  await fs.writeFile(file(state.id), JSON.stringify(state, null, 2))
+  return path.join(ROOT, `${id}.log`)
 }
 
 async function inputfile(file: string, ctx: Tool.Context) {
@@ -120,51 +98,26 @@ async function inputfile(file: string, ctx: Tool.Context) {
   return next
 }
 
-async function load(id: string) {
-  try {
-    return JSON.parse(await fs.readFile(file(id), "utf-8")) as State
-  } catch {
-    return
-  }
-}
-
 function workspace(ctx: Tool.Context) {
   const dir = ctx.worktree && ctx.worktree !== "/" ? ctx.worktree : ctx.directory ?? Instance.directory
   return Filesystem.resolve(dir)
 }
 
-function visible(state: State, ctx: Tool.Context) {
-  if (state.scope === "local") return state.session === ctx.sessionID
-  return state.workspace === workspace(ctx)
+function label(input: { status: "running" | "stopped"; exitCode?: number }) {
+  if (input.status === "running") return "running"
+  return `stopped (exit ${input.exitCode ?? -1})`
 }
 
-async function lines(file: string) {
-  const text = await Filesystem.readText(file).catch(() => "")
-  if (!text) return 0
-  const body = text.replace(/(?:\r?\n)+$/, "")
-  if (!body) return 0
-  return body.split(/\r?\n/).length
-}
-
-function label(state: State) {
-  if (state.status === "running") return "running"
-  if (!state.reason) return "stopped"
-  if (state.reason.type === "exit") return `stopped (exit ${state.reason.code ?? "signal"})`
-  if (state.reason.type === "timeout") return "stopped (timeout)"
-  return "stopped (killed)"
-}
-
-async function detail(state: State) {
+function detail(state: Awaited<ReturnType<typeof ExBashTask.start>> | Awaited<ReturnType<typeof ExBashTask.get>>[number]) {
   return {
-    asyncID: state.id,
+    asyncID: state.asyncID,
     scope: state.scope,
-    pid: state.pid,
+    pid: jobs.get(state.asyncID)?.proc?.pid ?? undefined,
     status: label(state),
     state: state.status,
-    reason: state.reason,
-    resultPath: state.logPath,
-    statusPath: file(state.id),
-    linePointer: await lines(state.logPath),
+    exitCode: state.exitCode,
+    resultPath: state.resultPath,
+    linePointer: state.linePointer,
     command: state.command,
     description: state.description,
     cwd: state.cwd,
@@ -175,40 +128,22 @@ async function detail(state: State) {
   }
 }
 
-async function list(id?: string) {
-  if (id) {
-    const item = await load(id)
-    return item ? [item] : []
-  }
-
-  await fs.mkdir(ROOT, { recursive: true })
-  const entries = await fs.readdir(ROOT, { withFileTypes: true }).catch(() => [])
-  const out: State[] = []
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(".json")) continue
-    try {
-      out.push(JSON.parse(await fs.readFile(path.join(ROOT, entry.name), "utf-8")) as State)
-    } catch {}
-  }
-  return out.toSorted((a, b) => b.startedAt - a.startedAt)
-}
-
-async function finish(job: Job, reason: Reason, extra?: { error?: string }) {
+async function finish(job: Job, reason: { type: "exit"; code: number | null } | { type: "timeout" } | { type: "stopped" }, extra?: { error?: string }) {
   if (job.state.status === "stopped") return job.state
   if (job.timer) clearTimeout(job.timer)
   job.timer = undefined
-  job.close?.()
-  job.close = undefined
+  job.out?.end()
+  job.out = undefined
   job.proc = undefined
   job.next = undefined
-  job.state = {
-    ...job.state,
-    status: "stopped",
-    reason,
+  const exitCode = reason.type === "exit" ? (reason.code ?? 1) : reason.type === "timeout" ? 124 : 130
+  const next = await ExBashTask.finish({
+    asyncID: job.state.asyncID,
+    exitCode,
     endedAt: Date.now(),
-    ...(extra?.error ? { error: extra.error } : {}),
-  }
-  await save(job.state)
+    error: extra?.error,
+  })
+  if (next) job.state = next
   return job.state
 }
 
@@ -222,6 +157,18 @@ async function write(job: Job, data: string | Buffer) {
       resolve()
     })
   })
+}
+
+function count(job: Job, data: Buffer | string) {
+  const text = typeof data === "string" ? data : data.toString()
+  for (const ch of text) {
+    if (!job.open) {
+      job.lines += 1
+      job.open = true
+    }
+    if (ch === "\n") job.open = false
+  }
+  return job.lines
 }
 
 async function attach(file: string, offset: number, timeout: number, window: number) {
@@ -253,7 +200,7 @@ async function start(input: {
   command: string
   cwd: string
   scope: "local" | "workspace"
-  session: string
+  session: Tool.Context["sessionID"]
   workspace: string
   env: NodeJS.ProcessEnv
   timeout?: number
@@ -261,30 +208,25 @@ async function start(input: {
 }) {
   await fs.mkdir(ROOT, { recursive: true })
   const id = randomUUID()
-  const logPath = path.join(ROOT, `${id}.log`)
-  const out = openSync(logPath, "a")
-  const state: State = {
-    id,
-    scope: input.scope,
-    session: input.session,
+  const logPath = file(id)
+  const state = await ExBashTask.start({
+    asyncID: id,
+    sessionID: input.session,
     workspace: input.workspace,
-    pid: null,
-    status: "running",
-    command: input.command,
+    scope: input.scope,
     description: input.description,
+    command: input.command,
     cwd: input.cwd,
-    logPath,
     timeout: input.timeout,
     startedAt: Date.now(),
-  }
+  })
   const job: Job = {
     state,
-    close() {
-      closeSync(out)
-    },
+    out: createWriteStream(logPath, { flags: "a" }),
+    lines: 0,
+    open: false,
   }
   jobs.set(id, job)
-  await save(state)
 
   const next = spawnInput(input.shell, input.name, input.command, input.cwd, input.env)
   const proc = launch(next.command, next.args, {
@@ -293,9 +235,21 @@ async function start(input: {
     shell: next.options.shell,
     detached: next.options.detached,
     windowsHide: process.platform === "win32",
-    stdio: ["pipe", out, out],
+    stdio: ["pipe", "pipe", "pipe"],
   })
   job.proc = proc
+
+  const push = async (data: Buffer | string) => {
+    job.out?.write(data)
+    await ExBashTask.line({ asyncID: id, linePointer: count(job, data) })
+  }
+
+  proc.stdout?.on("data", (data) => {
+    void push(data)
+  })
+  proc.stderr?.on("data", (data) => {
+    void push(data)
+  })
 
   proc.once("exit", (code) => {
     void finish(job, job.next ?? { type: "exit", code })
@@ -308,9 +262,6 @@ async function start(input: {
     proc.once("spawn", () => resolve())
     proc.once("error", reject)
   })
-
-  job.state = { ...job.state, pid: proc.pid ?? null }
-  await save(job.state)
 
   if (input.timeout !== undefined) {
     job.timer = setTimeout(() => {
@@ -358,7 +309,9 @@ export const ExBashTool = Tool.define("exbash", {
         always: ["exbash list *"],
         metadata: {},
       })
-      const runs = await Promise.all((await list(input.asyncID)).filter((item) => visible(item, ctx)).map(detail))
+      const runs = (await ExBashTask.get({ sessionID: ctx.sessionID, workspace: workspace(ctx) }))
+        .filter((item) => !input.asyncID || item.asyncID === input.asyncID)
+        .map(detail)
       const output = JSON.stringify({ runs }, null, 2)
       return { title: "Async runs listed", metadata: { runs }, output }
     }
@@ -382,11 +335,11 @@ export const ExBashTool = Tool.define("exbash", {
         metadata: {},
       })
       const job = jobs.get(input.asyncID)
-      const state = job?.state ?? (await load(input.asyncID))
-      if (!state || !visible(state, ctx)) throw new Error(`Async run not found: ${input.asyncID}`)
+      const state = await ExBashTask.one({ sessionID: ctx.sessionID, workspace: workspace(ctx), asyncID: input.asyncID })
+      if (!state) throw new Error(`Async run not found: ${input.asyncID}`)
       if (state.status !== "running") throw new Error(`Async run ${input.asyncID} is not running`)
       if (!job?.proc) throw new Error(`Async run ${input.asyncID} cannot accept input in this process`)
-      const stat = await fs.stat(state.logPath).catch(() => ({ size: 0 }))
+      const stat = await fs.stat(state.resultPath).catch(() => ({ size: 0 }))
 
       const data = input.filePath !== undefined
         ? Buffer.from(await Bun.file(await inputfile(input.filePath, ctx)).arrayBuffer())
@@ -395,9 +348,7 @@ export const ExBashTool = Tool.define("exbash", {
       await write(job, data)
       const wait = input.wait ?? "return"
       const next =
-        wait === "attach"
-          ? await attach(state.logPath, stat.size, input.timeout ?? INPUT_TIMEOUT, input.window ?? INPUT_WINDOW)
-          : undefined
+        wait === "attach" ? await attach(state.resultPath, stat.size, input.timeout ?? INPUT_TIMEOUT, input.window ?? INPUT_WINDOW) : undefined
       const output = {
         asyncID: input.asyncID,
         wait,
@@ -418,8 +369,8 @@ export const ExBashTool = Tool.define("exbash", {
         metadata: {},
       })
       const job = jobs.get(input.asyncID)
-      const state = job?.state ?? (await load(input.asyncID))
-      if (!state || !visible(state, ctx)) throw new Error(`Async run not found: ${input.asyncID}`)
+      const state = await ExBashTask.one({ sessionID: ctx.sessionID, workspace: workspace(ctx), asyncID: input.asyncID })
+      if (!state) throw new Error(`Async run not found: ${input.asyncID}`)
 
       if (input.action === "stop") {
         if (state.status === "stopped") {
@@ -439,8 +390,9 @@ export const ExBashTool = Tool.define("exbash", {
       }
 
       jobs.delete(input.asyncID)
+      await ExBashTask.remove(input.asyncID)
       await fs.rm(file(input.asyncID), { force: true })
-      const output = { asyncID: input.asyncID, removed: true, resultPath: state.logPath }
+      const output = { asyncID: input.asyncID, removed: true, resultPath: state.resultPath }
       return { title: "Async run removed", metadata: output, output: JSON.stringify(output, null, 2) }
     }
 
