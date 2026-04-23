@@ -29,31 +29,25 @@ type Job = {
 
 const jobs = new Map<string, Job>()
 
-const opt = <T extends z.ZodTypeAny>(schema: T) =>
-  z.preprocess((input) => {
-    if (typeof input === "string" && input.trim() === "") return undefined
-    return input
-  }, schema.optional())
-
 const sync = z.object({
   command: z.string().describe("The command to execute."),
   timeout: z.number().optional().describe("Optional timeout in milliseconds."),
-  workdir: opt(z.string()).describe("Working directory. Use this instead of cd."),
+  workdir: z.string().optional().describe("Working directory. Use this instead of cd."),
   description: z.string().describe("Clear, concise description of what this command does in 5-10 words."),
 })
 
 const back = z.object({
   command: z.string().describe("The command to execute."),
-  scope: opt(z.enum(["local", "workspace"])).describe(
+  scope: z.enum(["local", "workspace"]).optional().describe(
     "Async task visibility. local means current session only. workspace means any session in the same workspace.",
   ),
   timeout: z.number().optional().describe("Optional timeout in milliseconds."),
-  workdir: opt(z.string()).describe("Working directory. Use this instead of cd."),
+  workdir: z.string().optional().describe("Working directory. Use this instead of cd."),
   description: z.string().describe("Clear, concise description of what this command does in 5-10 words."),
 })
 
 const seen = z.object({
-  asyncID: opt(z.string()).describe("Optional async run id to inspect one run."),
+  asyncID: z.string().optional().describe("Optional async run id to inspect one run."),
 })
 
 const ctrl = z.object({
@@ -63,22 +57,31 @@ const ctrl = z.object({
 
 const feed = z.object({
   asyncID: z.string().describe("Async run id."),
-  wait: opt(z.enum(["return", "attach"])).describe("Return immediately or wait for new task output after writing input."),
+  wait: z.enum(["return", "attach"]).optional().describe("Return immediately or wait for new task output after writing input."),
   timeout: z.number().optional().describe("Attach wait timeout in milliseconds. Defaults to 10000."),
   window: z.number().optional().describe("Attach output window in bytes. Defaults to 100."),
-  text: opt(z.string()).describe("Text to write to the running task stdin."),
-  filePath: opt(z.string()).describe("Read this file and write its raw bytes to the running task stdin."),
+  text: z.string().optional().describe("Text to write to the running task stdin."),
+  filePath: z.string().optional().describe("Read this file and write its raw bytes to the running task stdin."),
 })
 
 const parameters = z
   .object({
     mode: z.enum(["exec", "exec-async", "list", "control", "input"]),
-    exec: opt(sync).describe("Use only when mode=exec."),
-    async: opt(back).describe("Use only when mode=exec-async."),
-    list: opt(seen).describe("Use only when mode=list."),
-    control: opt(ctrl).describe("Use only when mode=control."),
-    input: opt(feed).describe("Use only when mode=input."),
+    exec: sync.optional().describe("Use only when mode=exec."),
+    async: back.optional().describe("Use only when mode=exec-async."),
+    list: seen.optional().describe("Use only when mode=list."),
+    control: ctrl.optional().describe("Use only when mode=control."),
+    input: feed.optional().describe("Use only when mode=input."),
   })
+
+function clean(input: unknown): unknown {
+  if (typeof input === "string" && input.trim() === "") return undefined
+  if (Array.isArray(input)) return input.map(clean)
+  if (input && typeof input === "object") {
+    return Object.fromEntries(Object.entries(input).map(([key, value]) => [key, clean(value)]).filter(([, value]) => value !== undefined))
+  }
+  return input
+}
 
 function file(id: string) {
   return path.join(ROOT, `${id}.log`)
@@ -301,8 +304,10 @@ export const ExBashTool = Tool.define("exbash", {
   ].join("\n"),
   parameters,
   async execute(args, ctx) {
-    if (args.mode === "list") {
-      const input = seen.parse(args.list ?? {})
+    const next = clean(args) as z.infer<typeof parameters>
+
+    if (next.mode === "list") {
+      const input = seen.parse(next.list ?? {})
       await ctx.ask({
         permission: "bash",
         patterns: [input.asyncID ? `exbash list ${input.asyncID}` : "exbash list"],
@@ -316,9 +321,9 @@ export const ExBashTool = Tool.define("exbash", {
       return { title: "Async runs listed", metadata: { runs }, output }
     }
 
-    if (args.mode === "input") {
-      if (!args.input) throw new Error("mode input requires the input block")
-      const input = feed.parse(args.input)
+    if (next.mode === "input") {
+      if (!next.input) throw new Error("mode input requires the input block")
+      const input = feed.parse(next.input)
       if ((input.text !== undefined ? 1 : 0) + (input.filePath !== undefined ? 1 : 0) !== 1) {
         throw new Error("Provide exactly one of text or filePath for input mode.")
       }
@@ -359,9 +364,9 @@ export const ExBashTool = Tool.define("exbash", {
       return { title: "Async input sent", metadata: output, output: JSON.stringify(output, null, 2) }
     }
 
-    if (args.mode === "control") {
-      if (!args.control) throw new Error("mode control requires the control block")
-      const input = ctrl.parse(args.control)
+    if (next.mode === "control") {
+      if (!next.control) throw new Error("mode control requires the control block")
+      const input = ctrl.parse(next.control)
       await ctx.ask({
         permission: "bash",
         patterns: [`exbash ${input.action} ${input.asyncID}`],
@@ -396,9 +401,9 @@ export const ExBashTool = Tool.define("exbash", {
       return { title: "Async run removed", metadata: output, output: JSON.stringify(output, null, 2) }
     }
 
-    if (args.mode === "exec") {
-      if (!args.exec) throw new Error("mode exec requires the exec block")
-      const input = sync.parse(args.exec)
+    if (next.mode === "exec") {
+      if (!next.exec) throw new Error("mode exec requires the exec block")
+      const input = sync.parse(next.exec)
       const bash = await BashTool.init()
       return bash.execute(
         {
@@ -411,8 +416,8 @@ export const ExBashTool = Tool.define("exbash", {
       )
     }
 
-    if (!args.async) throw new Error("mode exec-async requires the async block")
-    const input = back.parse(args.async)
+    if (!next.async) throw new Error("mode exec-async requires the async block")
+    const input = back.parse(next.async)
 
     const shell = Shell.acceptable()
     const name = Shell.name(shell)
