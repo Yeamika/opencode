@@ -171,6 +171,27 @@ export function Prompt(props: PromptProps) {
     return (await response.json()) as boolean
   }
 
+  async function markErrorAction() {
+    if (!props.sessionID) return false
+
+    const url = new URL(`/session/${props.sessionID}/mark_error`, sdk.url)
+    if (sdk.workspaceID) url.searchParams.set("workspace", sdk.workspaceID)
+    else if (sdk.directory) url.searchParams.set("directory", sdk.directory)
+
+    const response = await sdk.fetch(url, {
+      method: "POST",
+      headers: {
+        ...(sdk.headers ?? {}),
+      },
+    })
+
+    if (!response.ok) {
+      throw new Error(`mark error failed (${response.status})`)
+    }
+
+    return (await response.json()) as boolean
+  }
+
   const fileStyleId = syntax().getStyleId("extmark.file")!
   const agentStyleId = syntax().getStyleId("extmark.agent")!
   const pasteStyleId = syntax().getStyleId("extmark.paste")!
@@ -250,6 +271,29 @@ export function Prompt(props: PromptProps) {
         >
           <text fg={theme.primary}>resume</text>
         </box>
+        <Show when={halted() === "interrupted"}>
+          <box
+            onMouseUp={() => {
+              void markErrorAction()
+                .then((triggered) => {
+                  if (!triggered) {
+                    toast.show({
+                      message: "Nothing to mark",
+                      variant: "info",
+                    })
+                  }
+                })
+                .catch((error) => {
+                  toast.show({
+                    message: error instanceof Error ? error.message : "Failed to mark error",
+                    variant: "error",
+                  })
+                })
+            }}
+          >
+            <text fg={theme.primary}>MarkErrorAction</text>
+          </box>
+        </Show>
       </box>
     )
   })
@@ -1331,6 +1375,27 @@ export function Prompt(props: PromptProps) {
                             }}
                           >
                             <text fg={theme.primary}>retry now</text>
+                          </box>
+                          <box
+                            onMouseUp={() => {
+                              void markErrorAction()
+                                .then((triggered) => {
+                                  if (!triggered) {
+                                    toast.show({
+                                      message: "Nothing to mark",
+                                      variant: "info",
+                                    })
+                                  }
+                                })
+                                .catch((error) => {
+                                  toast.show({
+                                    message: error instanceof Error ? error.message : "Failed to mark error",
+                                    variant: "error",
+                                  })
+                                })
+                            }}
+                          >
+                            <text fg={theme.primary}>MarkErrorAction</text>
                           </box>
                         </box>
                       </Show>
