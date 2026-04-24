@@ -1206,6 +1206,10 @@ export function Session() {
                     </Match>
                     <Match when={message.role === "assistant"}>
                       <AssistantMessage
+                        onMouseUp={() => {
+                          if (renderer.getSelection()?.getSelectedText()) return
+                          dialog.replace(() => <DialogMessage messageID={message.id} sessionID={route.sessionID} />)
+                        }}
                         last={lastAssistant()?.id === message.id}
                         message={message as AssistantMessage}
                         parts={sync.data.part[message.id] ?? []}
@@ -1382,7 +1386,7 @@ function UserMessage(props: {
   )
 }
 
-function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; last: boolean }) {
+function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; last: boolean; onMouseUp: () => void }) {
   const ctx = use()
   const local = useLocal()
   const { theme } = useTheme()
@@ -1405,7 +1409,7 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
   const keybind = useKeybind()
 
   return (
-    <>
+    <box flexDirection="column" onMouseUp={props.onMouseUp}>
       <For each={props.parts}>
         {(part, index) => {
           const component = createMemo(() => PART_MAPPING[part.type as keyof typeof PART_MAPPING])
@@ -1469,7 +1473,7 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
           </box>
         </Match>
       </Switch>
-    </>
+    </box>
   )
 }
 

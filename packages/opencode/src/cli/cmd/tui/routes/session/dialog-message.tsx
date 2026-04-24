@@ -6,6 +6,7 @@ import { useRoute } from "@tui/context/route"
 import { Clipboard } from "@tui/util/clipboard"
 import type { PromptInfo } from "@tui/component/prompt/history"
 import { strip } from "@tui/component/prompt/part"
+import { toast } from "@tui/ui/toast"
 
 export function DialogMessage(props: {
   messageID: string
@@ -16,42 +17,93 @@ export function DialogMessage(props: {
   const sdk = useSDK()
   const message = createMemo(() => sync.data.message[props.sessionID]?.find((x) => x.id === props.messageID))
   const route = useRoute()
+  const active = createMemo(() => {
+    const msg = message()
+    if (!msg || msg.role !== "assistant") return false
+    if (msg.error) return true
+    return !msg.finish || ["tool-calls", "unknown"].includes(msg.finish)
+  })
+  const user = createMemo(() => message()?.role === "user")
+
+  async function mark() {
+    const url = new URL(`/session/${props.sessionID}/message/${props.messageID}/mark_error`, sdk.url)
+    if (sdk.workspaceID) url.searchParams.set("workspace", sdk.workspaceID)
+    else if (sdk.directory) url.searchParams.set("directory", sdk.directory)
+
+    const response = await sdk.fetch(url, {
+      method: "POST",
+      headers: {
+        ...(sdk.headers ?? {}),
+      },
+    })
+    if (!response.ok) throw new Error(`mark error failed (${response.status})`)
+    return (await response.json()) as boolean
+  }
 
   return (
     <DialogSelect
       title="Message Actions"
       options={[
-        {
-          title: "Revert",
-          value: "session.revert",
-          description: "undo messages and file changes",
-          onSelect: (dialog) => {
-            const msg = message()
-            if (!msg) return
-
-            sdk.client.session.revert({
-              sessionID: props.sessionID,
-              messageID: msg.id,
-            })
-
-            if (props.setPrompt) {
-              const parts = sync.data.part[msg.id]
-              const promptInfo = parts.reduce(
-                (agg, part) => {
-                  if (part.type === "text") {
-                    if (!part.synthetic) agg.input += part.text
-                  }
-                  if (part.type === "file") agg.parts.push(strip(part))
-                  return agg
+        ...(active()
+          ? [
+              {
+                title: "MarkErrorAction",
+                value: "message.mark_error",
+                description: "finish this assistant turn as error_execute",
+                onSelect: (dialog) => {
+                  void mark()
+                    .then((ok) => {
+                      if (!ok) {
+                        toast.show({ message: "Nothing to mark", variant: "info" })
+                        return
+                      }
+                      dialog.clear()
+                    })
+                    .catch((error) => {
+                      toast.show({
+                        message: error instanceof Error ? error.message : "Failed to mark error",
+                        variant: "error",
+                      })
+                    })
                 },
-                { input: "", parts: [] as PromptInfo["parts"] },
-              )
-              props.setPrompt(promptInfo)
-            }
+              },
+            ]
+          : []),
+        ...(user()
+          ? [
+              {
+                title: "Revert",
+                value: "session.revert",
+                description: "undo messages and file changes",
+                onSelect: (dialog) => {
+                  const msg = message()
+                  if (!msg) return
 
-            dialog.clear()
-          },
-        },
+                  sdk.client.session.revert({
+                    sessionID: props.sessionID,
+                    messageID: msg.id,
+                  })
+
+                  if (props.setPrompt) {
+                    const parts = sync.data.part[msg.id]
+                    const promptInfo = parts.reduce(
+                      (agg, part) => {
+                        if (part.type === "text") {
+                          if (!part.synthetic) agg.input += part.text
+                        }
+                        if (part.type === "file") agg.parts.push(strip(part))
+                        return agg
+                      },
+                      { input: "", parts: [] as PromptInfo["parts"] },
+                    )
+                    props.setPrompt(promptInfo)
+                  }
+
+                  dialog.clear()
+                },
+              },
+            ]
+          : []),
         {
           title: "Copy",
           value: "message.copy",
@@ -72,38 +124,42 @@ export function DialogMessage(props: {
             dialog.clear()
           },
         },
-        {
-          title: "Fork",
-          value: "session.fork",
-          description: "create a new session",
-          onSelect: async (dialog) => {
-            const result = await sdk.client.session.fork({
-              sessionID: props.sessionID,
-              messageID: props.messageID,
-            })
-            const initialPrompt = (() => {
-              const msg = message()
-              if (!msg) return undefined
-              const parts = sync.data.part[msg.id]
-              return parts.reduce(
-                (agg, part) => {
-                  if (part.type === "text") {
-                    if (!part.synthetic) agg.input += part.text
-                  }
-                  if (part.type === "file") agg.parts.push(part)
-                  return agg
+        ...(user()
+          ? [
+              {
+                title: "Fork",
+                value: "session.fork",
+                description: "create a new session",
+                onSelect: async (dialog) => {
+                  const result = await sdk.client.session.fork({
+                    sessionID: props.sessionID,
+                    messageID: props.messageID,
+                  })
+                  const initialPrompt = (() => {
+                    const msg = message()
+                    if (!msg) return undefined
+                    const parts = sync.data.part[msg.id]
+                    return parts.reduce(
+                      (agg, part) => {
+                        if (part.type === "text") {
+                          if (!part.synthetic) agg.input += part.text
+                        }
+                        if (part.type === "file") agg.parts.push(part)
+                        return agg
+                      },
+                      { input: "", parts: [] as PromptInfo["parts"] },
+                    )
+                  })()
+                  route.navigate({
+                    sessionID: result.data!.id,
+                    type: "session",
+                    initialPrompt,
+                  })
+                  dialog.clear()
                 },
-                { input: "", parts: [] as PromptInfo["parts"] },
-              )
-            })()
-            route.navigate({
-              sessionID: result.data!.id,
-              type: "session",
-              initialPrompt,
-            })
-            dialog.clear()
-          },
-        },
+              },
+            ]
+          : []),
       ]}
     />
   )
