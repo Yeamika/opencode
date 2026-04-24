@@ -25,6 +25,7 @@ export namespace SessionRetry {
   export interface Interface {
     readonly wait: (sessionID: SessionID, delayMs: number) => Effect.Effect<void>
     readonly triggerNow: (sessionID: SessionID) => Effect.Effect<boolean>
+    readonly cancel: (sessionID: SessionID) => Effect.Effect<boolean>
   }
 
   export class Service extends ServiceMap.Service<Service, Interface>()("@opencode/SessionRetry") {}
@@ -162,7 +163,20 @@ export namespace SessionRetry {
         return true
       })
 
-      return Service.of({ wait, triggerNow })
+      const cancel = Effect.fn("SessionRetry.cancel")(function* (sessionID: SessionID) {
+        const waits = yield* InstanceState.get(state)
+        const current = waits.get(sessionID)
+        if (!current) return false
+        waits.delete(sessionID)
+        log.info("cancelled", {
+          sessionID,
+          waitingMs: Date.now() - current.startedAt,
+          next: current.next,
+        })
+        return true
+      })
+
+      return Service.of({ wait, triggerNow, cancel })
     }),
   )
 
@@ -174,5 +188,9 @@ export namespace SessionRetry {
 
   export async function triggerNow(sessionID: SessionID) {
     return runPromise((svc) => svc.triggerNow(SessionID.zod.parse(sessionID)))
+  }
+
+  export async function cancel(sessionID: SessionID) {
+    return runPromise((svc) => svc.cancel(SessionID.zod.parse(sessionID)))
   }
 }

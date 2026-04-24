@@ -449,6 +449,73 @@ export const SessionRoutes = lazy(() =>
       },
     )
     .post(
+      "/:sessionID/mark_error",
+      describeRoute({
+        summary: "Mark current execution as error",
+        description: "Force-finish the latest unfinished assistant turn as error_execute so the session can continue.",
+        operationId: "session.markErrorAction",
+        responses: {
+          200: {
+            description: "Marked current execution as error",
+            content: {
+              "application/json": {
+                schema: resolver(z.boolean()),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+        }),
+      ),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        await Session.get(sessionID)
+        const msgs = await Session.messages({ sessionID })
+        const msg = msgs.at(-1)
+        if (!msg || msg.info.role !== "assistant") return c.json(false)
+
+        const active = msg.info.error || !msg.info.finish || ["tool-calls", "unknown"].includes(msg.info.finish)
+        if (!active) return c.json(false)
+
+        const now = Date.now()
+        for (const part of msg.parts) {
+          if (part.type !== "tool") continue
+          if (part.state.status === "error") continue
+          await Session.updatePart({
+            ...part,
+            state: {
+              status: "error",
+              input: part.state.input,
+              error: "[Marked as error by user]",
+              ...(part.state.status === "completed" && part.state.metadata ? { metadata: part.state.metadata } : {}),
+              time: {
+                start: part.state.time.start,
+                end: part.state.status === "completed" || part.state.status === "error" ? part.state.time.end : now,
+              },
+            },
+          })
+        }
+
+        await Session.updateMessage({
+          ...msg.info,
+          finish: "error_execute",
+          error: undefined,
+          time: {
+            ...msg.info.time,
+            completed: now,
+          },
+        })
+        await SessionRetry.cancel(sessionID)
+        await SessionStatus.set(sessionID, SessionStatus.idle({ updatedAt: now, action: "Marked error" }))
+        return c.json(true)
+      },
+    )
+    .post(
       "/:sessionID/resume",
       describeRoute({
         summary: "Resume session generation",
