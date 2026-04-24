@@ -292,6 +292,53 @@ export namespace SessionPrompt {
           )
       })
 
+      const markPdfError = Effect.fn("SessionPrompt.markPdfError")(
+        function* (input: {
+          messages: MessageV2.WithParts[]
+          current: MessageV2.Assistant
+          model: Provider.Model
+          error: unknown
+        }) {
+          const parsed = MessageV2.fromError(input.error, { providerID: input.model.providerID, aborted: false })
+          const message = (() => {
+            if (MessageV2.APIError.isInstance(parsed)) return parsed.message
+            if (MessageV2.ContextOverflowError.isInstance(parsed)) return parsed.message
+            if (parsed && typeof parsed === "object" && "message" in parsed && typeof parsed.message === "string") return parsed.message
+            if (input.error instanceof Error) return input.error.message
+            return String(input.error)
+          })()
+
+          if (!/pdf/i.test(message)) return false
+
+          const tool = input.messages
+            .toReversed()
+            .flatMap((msg) => msg.parts.toReversed())
+            .find(
+              (part): part is MessageV2.ToolPart =>
+                part.type === "tool" &&
+                part.state.status === "completed" &&
+                Boolean(part.state.attachments?.some((item) => item.mime === "application/pdf")),
+            )
+          if (!tool) return false
+
+          yield* sessions.updatePart({
+            ...tool,
+            state: {
+              status: "error",
+              input: tool.state.input,
+              error: `[system: ${message}]`,
+              metadata: tool.state.metadata,
+              time: {
+                start: tool.state.time.start,
+                end: tool.state.time.end,
+              },
+            },
+          })
+          yield* sessions.removeMessage({ sessionID, messageID: input.current.id })
+          return true
+        },
+      )
+
       const insertReminders = Effect.fn("SessionPrompt.insertReminders")(function* (input: {
         messages: MessageV2.WithParts[]
         agent: Agent.Info
@@ -1587,8 +1634,17 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   Effect.promise(() => SystemPrompt.skills(agent)),
                   Effect.promise(() => SystemPrompt.environment(model)),
                   instruction.system().pipe(Effect.orDie),
-                  Effect.promise(() => MessageV2.toModelMessages(msgs, model)),
+                  Effect.promise(() => MessageV2.toModelMessages(msgs, model)).pipe(
+                    Effect.catchAll((error) =>
+                      Effect.gen(function* () {
+                        const marked = yield* markPdfError({ messages: msgs, current: msg, model, error })
+                        if (marked) return undefined as Awaited<ReturnType<typeof MessageV2.toModelMessages>> | undefined
+                        return yield* Effect.fail(error)
+                      }),
+                    ),
+                  ),
                 ])
+                if (!modelMsgs) return "continue" as const
                 const system = [...env, ...(skills ? [skills] : []), ...instructions]
                 const format = lastUser.format ?? { type: "text" as const }
                 if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
@@ -1624,7 +1680,13 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   }
                 }
 
-                if (result === "stop") return "break" as const
+                if (result === "stop") {
+                  if (handle.message.error) {
+                    const marked = yield* markPdfError({ messages: msgs, current: msg, model, error: handle.message.error })
+                    if (marked) return "continue" as const
+                  }
+                  return "break" as const
+                }
                 if (result === "compact") {
                   yield* compaction.create({
                     sessionID,
