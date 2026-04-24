@@ -6,7 +6,7 @@ import { useRoute } from "@tui/context/route"
 import { Clipboard } from "@tui/util/clipboard"
 import type { PromptInfo } from "@tui/component/prompt/history"
 import { strip } from "@tui/component/prompt/part"
-import { useToast } from "@tui/ui/toast"
+import { toast } from "@tui/ui/toast"
 
 export function DialogMessage(props: {
   messageID: string
@@ -15,7 +15,6 @@ export function DialogMessage(props: {
 }) {
   const sync = useSync()
   const sdk = useSDK()
-  const toast = useToast()
   const message = createMemo(() => sync.data.message[props.sessionID]?.find((x) => x.id === props.messageID))
   const route = useRoute()
   const active = createMemo(() => {
