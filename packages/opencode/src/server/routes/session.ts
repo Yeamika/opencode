@@ -491,7 +491,7 @@ export const SessionRoutes = lazy(() =>
             state: {
               status: "error",
               input: part.state.input,
-              error: "[Marked as error by user]",
+              error: "[Marked as error by system]",
               ...(part.state.status === "completed" && part.state.metadata ? { metadata: part.state.metadata } : {}),
               time: {
                 start: part.state.time.start,
