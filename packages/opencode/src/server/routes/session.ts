@@ -546,6 +546,9 @@ export const SessionRoutes = lazy(() =>
         const msg = await MessageV2.get({ sessionID, messageID })
         if (msg.info.role !== "assistant") return c.json(false)
 
+        const active = msg.info.error || !msg.info.finish || ["tool-calls", "unknown"].includes(msg.info.finish)
+        if (!active) return c.json(false)
+
         const now = Date.now()
         for (const part of msg.parts) {
           if (part.type !== "tool") continue

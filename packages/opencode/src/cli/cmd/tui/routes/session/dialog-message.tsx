@@ -18,7 +18,12 @@ export function DialogMessage(props: {
   const toast = useToast()
   const message = createMemo(() => sync.data.message[props.sessionID]?.find((x) => x.id === props.messageID))
   const route = useRoute()
-  const active = createMemo(() => message()?.role === "assistant")
+  const active = createMemo(() => {
+    const msg = message()
+    if (!msg || msg.role !== "assistant") return false
+    if (msg.error) return true
+    return !msg.finish || ["tool-calls", "unknown"].includes(msg.finish)
+  })
   const user = createMemo(() => message()?.role === "user")
 
   async function mark() {
