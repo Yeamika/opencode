@@ -1630,21 +1630,21 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
                 yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
 
-                const [skills, env, instructions, modelMsgs] = yield* Effect.all([
+                const modelMsgs = yield* Effect.gen(function* () {
+                  const result = yield* Effect.exit(Effect.promise(() => MessageV2.toModelMessages(msgs, model)))
+                  if (Exit.isSuccess(result)) return result.value
+                  const error = Cause.squash(result.cause)
+                  const marked = yield* markPdfError({ messages: msgs, current: msg, model, error })
+                  if (marked) return undefined
+                  return yield* Effect.fail(error)
+                })
+                if (!modelMsgs) return "continue" as const
+
+                const [skills, env, instructions] = yield* Effect.all([
                   Effect.promise(() => SystemPrompt.skills(agent)),
                   Effect.promise(() => SystemPrompt.environment(model)),
                   instruction.system().pipe(Effect.orDie),
-                  Effect.promise(() => MessageV2.toModelMessages(msgs, model)).pipe(
-                    Effect.catchAll((error) =>
-                      Effect.gen(function* () {
-                        const marked = yield* markPdfError({ messages: msgs, current: msg, model, error })
-                        if (marked) return undefined as Awaited<ReturnType<typeof MessageV2.toModelMessages>> | undefined
-                        return yield* Effect.fail(error)
-                      }),
-                    ),
-                  ),
                 ])
-                if (!modelMsgs) return "continue" as const
                 const system = [...env, ...(skills ? [skills] : []), ...instructions]
                 const format = lastUser.format ?? { type: "text" as const }
                 if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
