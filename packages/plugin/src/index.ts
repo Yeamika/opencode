@@ -4,14 +4,13 @@ import type {
   Project,
   Model,
   Provider,
-  Permission,
+  PermissionRequest,
   UserMessage,
   Message,
   Part,
   Auth,
   Config as SDKConfig,
-} from "@opencode-ai/sdk"
-import type { Provider as ProviderV2, Model as ModelV2 } from "@opencode-ai/sdk/v2"
+} from "@opencode-ai/sdk/v2"
 
 import type { BunShell } from "./shell.js"
 import { type ToolDefinition } from "./tool.js"
@@ -183,7 +182,7 @@ export type ProviderHookContext = {
 
 export type ProviderHook = {
   id: string
-  models?: (provider: ProviderV2, ctx: ProviderHookContext) => Promise<Record<string, ModelV2>>
+  models?: (provider: Provider, ctx: ProviderHookContext) => Promise<Record<string, Model>>
 }
 
 /** @deprecated Use AuthOAuthResult instead. */
@@ -221,7 +220,7 @@ export interface Hooks {
     input: { sessionID: string; agent: string; model: Model; provider: ProviderContext; message: UserMessage },
     output: { headers: Record<string, string> },
   ) => Promise<void>
-  "permission.ask"?: (input: Permission, output: { status: "ask" | "deny" | "allow" }) => Promise<void>
+  "permission.ask"?: (input: PermissionRequest, output: { status: "ask" | "deny" | "allow" }) => Promise<void>
   "command.execute.before"?: (
     input: { command: string; sessionID: string; arguments: string },
     output: { parts: Part[] },

@@ -2,7 +2,7 @@ import type { Hooks, PluginInput, Plugin as PluginInstance, PluginModule } from 
 import { Config } from "../config/config"
 import { Bus } from "../bus"
 import { Log } from "../util/log"
-import { createOpencodeClient } from "@opencode-ai/sdk"
+import { createOpencodeClient } from "@opencode-ai/sdk/v2"
 import { Flag } from "../flag/flag"
 import { CodexAuthPlugin } from "./codex"
 import { Session } from "../session"
@@ -102,6 +102,12 @@ export namespace Plugin {
           const hooks: Hooks[] = []
 
           const { Server } = yield* Effect.promise(() => import("../server/server"))
+          const fetch = Object.assign(
+            async (input: URL | RequestInfo, init?: RequestInit) => Server.Default().fetch(new Request(input, init)),
+            {
+              preconnect: globalThis.fetch.preconnect,
+            },
+          ) as typeof globalThis.fetch
 
           const client = createOpencodeClient({
             baseUrl: "http://localhost:4096",
@@ -111,7 +117,7 @@ export namespace Plugin {
                   Authorization: `Basic ${Buffer.from(`${Flag.OPENCODE_SERVER_USERNAME ?? "opencode"}:${Flag.OPENCODE_SERVER_PASSWORD}`).toString("base64")}`,
                 }
               : undefined,
-            fetch: async (...args) => Server.Default().fetch(...args),
+            fetch,
           })
           const cfg = yield* config.get()
           const input: PluginInput = {
