@@ -44,6 +44,12 @@ const permissionRequest = (id: string, sessionID: string, title = id) =>
     always: [],
   }) as PermissionRequest
 
+const busy = () => ({
+  type: "busy" as const,
+  startedAt: 1,
+  updatedAt: 1,
+})
+
 const questionRequest = (id: string, sessionID: string, title = id) =>
   ({
     id,
@@ -177,7 +183,7 @@ describe("applyDirectoryEvent", () => {
         todo: { ses_1: [] },
         permission: { ses_1: [] },
         question: { ses_1: [] },
-        session_status: { ses_1: { type: "busy" } },
+        session_status: { ses_1: busy() },
       }),
     )
 
@@ -223,7 +229,7 @@ describe("applyDirectoryEvent", () => {
           todo: { [item.info.id]: [] },
           permission: { [item.info.id]: [] },
           question: { [item.info.id]: [] },
-          session_status: { [item.info.id]: { type: "busy" } },
+          session_status: { [item.info.id]: busy() },
         }),
       )
 
@@ -263,7 +269,7 @@ describe("applyDirectoryEvent", () => {
         todo: { [dropped.id]: [] },
         permission: { [dropped.id]: [] },
         question: { [dropped.id]: [] },
-        session_status: { [dropped.id]: { type: "busy" } },
+        session_status: { [dropped.id]: busy() },
       }),
     )
 
