@@ -17,5 +17,12 @@ jobs:
       - name: Setup Bun
         uses: ./.github/actions/setup-bun
 
+      - name: Verify SDK generated files are committed
+        run: |
+          cd ./packages/sdk/js
+          bun run build
+          cd ../../..
+          git diff --exit-code -- packages/sdk/js/src/gen packages/sdk/js/src/v2/gen
+
       - name: Run typecheck
         run: bun typecheck

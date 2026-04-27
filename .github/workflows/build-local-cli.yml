@@ -42,6 +42,9 @@ jobs:
           cd ./packages/sdk/js
           bun run build
 
+      - name: Verify SDK generated files are committed
+        run: git diff --exit-code -- packages/sdk/js/src/gen packages/sdk/js/src/v2/gen
+
       - name: Build plugin package
         run: |
           cd ./packages/plugin

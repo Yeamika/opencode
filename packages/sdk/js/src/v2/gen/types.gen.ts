@@ -238,6 +238,14 @@ export type EventSessionCompacted = {
   }
 }
 
+export type EventExbashUpdated = {
+  type: "exbash.updated"
+  properties: {
+    sessionID: string
+    workspace: string
+  }
+}
+
 export type EventFileEdited = {
   type: "file.edited"
   properties: {
@@ -273,6 +281,14 @@ export type EventTodoUpdated = {
   properties: {
     sessionID: string
     todos: Array<Todo>
+  }
+}
+
+export type EventProjectReloadUpdated = {
+  type: "project.reload.updated"
+  properties: {
+    directory: string
+    status: "idle" | "pending" | "running"
   }
 }
 
@@ -327,6 +343,62 @@ export type EventTuiSessionSelect = {
      * Session ID to navigate to
      */
     sessionID: string
+    /**
+     * TUI display ID to target
+     */
+    displayID: string
+    /**
+     * Directory to switch the targeted TUI into before opening the session
+     */
+    directory?: string
+    /**
+     * Request identifier used to acknowledge delivery of the control event
+     */
+    requestID?: string
+  }
+}
+
+export type EventTuiAttachToRunningSession = {
+  type: "tui.attach-to-running-session"
+  properties: {
+    /**
+     * Session ID to attach the targeted display to
+     */
+    sessionID: string
+    /**
+     * TUI display ID to target
+     */
+    displayID: string
+    /**
+     * Directory of the target running session
+     */
+    directory?: string
+    /**
+     * Workspace ID of the target running session, when present
+     */
+    workspaceID?: string
+    /**
+     * Request identifier used to acknowledge delivery of the control event
+     */
+    requestID?: string
+  }
+}
+
+export type EventTuiDisplayReport = {
+  type: "tui.display.report"
+  properties: {
+    /**
+     * TUI display ID that is reporting status
+     */
+    displayID: string
+    /**
+     * Current directory visible to this display
+     */
+    directory?: string
+    /**
+     * Current session shown in this display, if any
+     */
+    sessionID?: string
   }
 }
 
@@ -989,13 +1061,17 @@ export type Event =
   | EventQuestionReplied
   | EventQuestionRejected
   | EventSessionCompacted
+  | EventExbashUpdated
   | EventFileEdited
   | EventFileWatcherUpdated
   | EventTodoUpdated
+  | EventProjectReloadUpdated
   | EventTuiPromptAppend
   | EventTuiCommandExecute
   | EventTuiToastShow
   | EventTuiSessionSelect
+  | EventTuiAttachToRunningSession
+  | EventTuiDisplayReport
   | EventMcpToolsChanged
   | EventMcpBrowserOpenFailed
   | EventCommandExecuted
@@ -1456,7 +1532,7 @@ export type Config = {
     ignore?: Array<string>
   }
   /**
-   * Enable or disable snapshot tracking. When false, filesystem snapshots are not recorded and undoing or reverting will not undo/redo file changes. Defaults to true.
+   * Enable or disable snapshot tracking. When false, filesystem snapshots are not recorded and undoing or reverting will not undo/redo file changes. Defaults to false.
    */
   snapshot?: boolean
   plugin?: Array<
@@ -1627,12 +1703,6 @@ export type Config = {
   }
 }
 
-export type ConfigPluginInfo = {
-  name: string
-  version?: string
-  specifier: string
-}
-
 export type BadRequestError = {
   data: unknown
   errors: Array<{
@@ -1755,6 +1825,12 @@ export type Provider = {
   }
 }
 
+export type ConfigPluginInfo = {
+  name: string
+  version?: string
+  specifier: string
+}
+
 export type ToolIds = Array<string>
 
 export type ToolListItem = {
@@ -1843,6 +1919,24 @@ export type McpResource = {
   description?: string
   mimeType?: string
   client: string
+}
+
+export type ExBashTask = {
+  asyncID: string
+  sessionID: string
+  workspace: string
+  scope: "local" | "workspace"
+  description: string
+  command: string
+  cwd: string
+  timeout?: number
+  linePointer: number
+  resultPath: string
+  startedAt: number
+  endedAt?: number
+  exitCode?: number
+  status: "running" | "stopped"
+  error?: string
 }
 
 export type TextPartInput = {
@@ -2349,6 +2443,28 @@ export type ProjectCurrentResponses = {
 
 export type ProjectCurrentResponse = ProjectCurrentResponses[keyof ProjectCurrentResponses]
 
+export type ProjectReloadData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/project/reload"
+}
+
+export type ProjectReloadResponses = {
+  /**
+   * Reload request accepted
+   */
+  200: {
+    directory: string
+    status: "pending"
+  }
+}
+
+export type ProjectReloadResponse = ProjectReloadResponses[keyof ProjectReloadResponses]
+
 export type ProjectInitGitData = {
   body?: never
   path?: never
@@ -2685,6 +2801,26 @@ export type ConfigPluginsResponses = {
 }
 
 export type ConfigPluginsResponse = ConfigPluginsResponses[keyof ConfigPluginsResponses]
+
+export type ExperimentalInstanceListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/experimental/instance"
+}
+
+export type ExperimentalInstanceListResponses = {
+  /**
+   * Loaded instance directories
+   */
+  200: Array<string>
+}
+
+export type ExperimentalInstanceListResponse =
+  ExperimentalInstanceListResponses[keyof ExperimentalInstanceListResponses]
 
 export type ToolIdsData = {
   body?: never
@@ -3278,6 +3414,40 @@ export type SessionTodoResponses = {
 
 export type SessionTodoResponse = SessionTodoResponses[keyof SessionTodoResponses]
 
+export type SessionExbashData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/exbash"
+}
+
+export type SessionExbashErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionExbashError = SessionExbashErrors[keyof SessionExbashErrors]
+
+export type SessionExbashResponses = {
+  /**
+   * Exbash tasks
+   */
+  200: Array<ExBashTask>
+}
+
+export type SessionExbashResponse = SessionExbashResponses[keyof SessionExbashResponses]
+
 export type SessionInitData = {
   body?: {
     modelID: string
@@ -3372,6 +3542,74 @@ export type SessionAbortResponses = {
 }
 
 export type SessionAbortResponse = SessionAbortResponses[keyof SessionAbortResponses]
+
+export type SessionRetryNowData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/retry"
+}
+
+export type SessionRetryNowErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionRetryNowError = SessionRetryNowErrors[keyof SessionRetryNowErrors]
+
+export type SessionRetryNowResponses = {
+  /**
+   * Retry wait skipped
+   */
+  200: boolean
+}
+
+export type SessionRetryNowResponse = SessionRetryNowResponses[keyof SessionRetryNowResponses]
+
+export type SessionResumeData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/resume"
+}
+
+export type SessionResumeErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionResumeError = SessionResumeErrors[keyof SessionResumeErrors]
+
+export type SessionResumeResponses = {
+  /**
+   * Resume requested
+   */
+  200: boolean
+}
+
+export type SessionResumeResponse = SessionResumeResponses[keyof SessionResumeResponses]
 
 export type SessionUnshareData = {
   body?: never
@@ -4937,7 +5175,19 @@ export type TuiShowToastResponses = {
 export type TuiShowToastResponse = TuiShowToastResponses[keyof TuiShowToastResponses]
 
 export type TuiPublishData = {
-  body?: EventTuiPromptAppend | EventTuiCommandExecute | EventTuiToastShow | EventTuiSessionSelect
+  body?:
+    | EventTuiPromptAppend
+    | EventTuiCommandExecute
+    | EventTuiToastShow
+    | EventTuiSessionSelect
+    | EventTuiAttachToRunningSession
+    | EventTuiDisplayReport
+    | {
+        type: string
+        properties: {
+          [key: string]: unknown
+        }
+      }
   path?: never
   query?: {
     directory?: string
@@ -4964,12 +5214,55 @@ export type TuiPublishResponses = {
 
 export type TuiPublishResponse = TuiPublishResponses[keyof TuiPublishResponses]
 
+export type TuiAckData = {
+  body?: {
+    requestID: string
+    displayID?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/tui/ack"
+}
+
+export type TuiAckErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type TuiAckError = TuiAckErrors[keyof TuiAckErrors]
+
+export type TuiAckResponses = {
+  /**
+   * Ack accepted
+   */
+  200: boolean
+}
+
+export type TuiAckResponse = TuiAckResponses[keyof TuiAckResponses]
+
 export type TuiSelectSessionData = {
   body?: {
     /**
      * Session ID to navigate to
      */
     sessionID: string
+    /**
+     * TUI display ID to target
+     */
+    displayID: string
+    /**
+     * Directory to switch the targeted TUI into before opening the session
+     */
+    directory?: string
+    /**
+     * Request identifier used to acknowledge delivery of the control event
+     */
+    requestID?: string
   }
   path?: never
   query?: {
@@ -5000,6 +5293,48 @@ export type TuiSelectSessionResponses = {
 }
 
 export type TuiSelectSessionResponse = TuiSelectSessionResponses[keyof TuiSelectSessionResponses]
+
+export type TuiAttachToRunningSessionData = {
+  body?: {
+    /**
+     * Session ID to attach the targeted display to
+     */
+    sessionID: string
+    /**
+     * TUI display ID to target
+     */
+    displayID: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/tui/attach-to-running-session"
+}
+
+export type TuiAttachToRunningSessionErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type TuiAttachToRunningSessionError = TuiAttachToRunningSessionErrors[keyof TuiAttachToRunningSessionErrors]
+
+export type TuiAttachToRunningSessionResponses = {
+  /**
+   * Attach request published successfully
+   */
+  200: boolean
+}
+
+export type TuiAttachToRunningSessionResponse =
+  TuiAttachToRunningSessionResponses[keyof TuiAttachToRunningSessionResponses]
 
 export type TuiControlNextData = {
   body?: never

@@ -21,10 +21,13 @@ import type {
   ConfigUpdateErrors,
   ConfigUpdateResponses,
   EventSubscribeResponses,
+  EventTuiAttachToRunningSession,
   EventTuiCommandExecute,
+  EventTuiDisplayReport,
   EventTuiPromptAppend,
   EventTuiSessionSelect,
   EventTuiToastShow,
+  ExperimentalInstanceListResponses,
   ExperimentalResourceListResponses,
   ExperimentalSessionListResponses,
   ExperimentalWorkspaceCreateErrors,
@@ -83,6 +86,7 @@ import type {
   ProjectCurrentResponses,
   ProjectInitGitResponses,
   ProjectListResponses,
+  ProjectReloadResponses,
   ProjectUpdateErrors,
   ProjectUpdateResponses,
   ProviderAuthResponses,
@@ -121,6 +125,8 @@ import type {
   SessionDeleteMessageResponses,
   SessionDeleteResponses,
   SessionDiffResponses,
+  SessionExbashErrors,
+  SessionExbashResponses,
   SessionForkResponses,
   SessionGetErrors,
   SessionGetResponses,
@@ -135,6 +141,10 @@ import type {
   SessionPromptAsyncResponses,
   SessionPromptErrors,
   SessionPromptResponses,
+  SessionResumeErrors,
+  SessionResumeResponses,
+  SessionRetryNowErrors,
+  SessionRetryNowResponses,
   SessionRevertErrors,
   SessionRevertResponses,
   SessionShareErrors,
@@ -159,8 +169,12 @@ import type {
   ToolIdsResponses,
   ToolListErrors,
   ToolListResponses,
+  TuiAckErrors,
+  TuiAckResponses,
   TuiAppendPromptErrors,
   TuiAppendPromptResponses,
+  TuiAttachToRunningSessionErrors,
+  TuiAttachToRunningSessionResponses,
   TuiClearPromptResponses,
   TuiControlNextResponses,
   TuiControlResponseResponses,
@@ -576,6 +590,36 @@ export class Project extends HeyApiClient {
     )
     return (options?.client ?? this.client).get<ProjectCurrentResponses, unknown, ThrowOnError>({
       url: "/project/current",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Request workspace reload
+   *
+   * Request an asynchronous workspace reload for the current directory. Active sessions will continue to the next waitpoint and then observe refreshed workspace state.
+   */
+  public reload<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ProjectReloadResponses, unknown, ThrowOnError>({
+      url: "/project/reload",
       ...options,
       ...params,
     })
@@ -1012,13 +1056,13 @@ export class Config2 extends HeyApiClient {
   }
 }
 
-export class Tool extends HeyApiClient {
+export class Instance extends HeyApiClient {
   /**
-   * List tool IDs
+   * List loaded instances
    *
-   * Get a list of all available tool IDs, including both built-in tools and dynamically registered tools.
+   * List currently loaded server instances by directory.
    */
-  public ids<ThrowOnError extends boolean = false>(
+  public list<ThrowOnError extends boolean = false>(
     parameters?: {
       directory?: string
       workspace?: string
@@ -1036,42 +1080,8 @@ export class Tool extends HeyApiClient {
         },
       ],
     )
-    return (options?.client ?? this.client).get<ToolIdsResponses, ToolIdsErrors, ThrowOnError>({
-      url: "/experimental/tool/ids",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * List tools
-   *
-   * Get a list of available tools with their JSON schema parameters for a specific provider and model combination.
-   */
-  public list<ThrowOnError extends boolean = false>(
-    parameters: {
-      directory?: string
-      workspace?: string
-      provider: string
-      model: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "query", key: "provider" },
-            { in: "query", key: "model" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).get<ToolListResponses, ToolListErrors, ThrowOnError>({
-      url: "/experimental/tool",
+    return (options?.client ?? this.client).get<ExperimentalInstanceListResponses, unknown, ThrowOnError>({
+      url: "/experimental/instance",
       ...options,
       ...params,
     })
@@ -1270,6 +1280,11 @@ export class Resource extends HeyApiClient {
 }
 
 export class Experimental extends HeyApiClient {
+  private _instance?: Instance
+  get instance(): Instance {
+    return (this._instance ??= new Instance({ client: this.client }))
+  }
+
   private _workspace?: Workspace
   get workspace(): Workspace {
     return (this._workspace ??= new Workspace({ client: this.client }))
@@ -1283,6 +1298,72 @@ export class Experimental extends HeyApiClient {
   private _resource?: Resource
   get resource(): Resource {
     return (this._resource ??= new Resource({ client: this.client }))
+  }
+}
+
+export class Tool extends HeyApiClient {
+  /**
+   * List tool IDs
+   *
+   * Get a list of all available tool IDs, including both built-in tools and dynamically registered tools.
+   */
+  public ids<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ToolIdsResponses, ToolIdsErrors, ThrowOnError>({
+      url: "/experimental/tool/ids",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * List tools
+   *
+   * Get a list of available tools with their JSON schema parameters for a specific provider and model combination.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      provider: string
+      model: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "provider" },
+            { in: "query", key: "model" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ToolListResponses, ToolListErrors, ThrowOnError>({
+      url: "/experimental/tool",
+      ...options,
+      ...params,
+    })
   }
 }
 
@@ -1713,6 +1794,38 @@ export class Session2 extends HeyApiClient {
   }
 
   /**
+   * Get session bash tasks
+   *
+   * Retrieve merged exbash task state for the session and its workspace from server memory.
+   */
+  public exbash<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionExbashResponses, SessionExbashErrors, ThrowOnError>({
+      url: "/session/{sessionID}/exbash",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * Initialize session
    *
    * Analyze the current application and create an AGENTS.md file with project-specific agent configurations.
@@ -1821,6 +1934,70 @@ export class Session2 extends HeyApiClient {
     )
     return (options?.client ?? this.client).post<SessionAbortResponses, SessionAbortErrors, ThrowOnError>({
       url: "/session/{sessionID}/abort",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Retry session now
+   *
+   * Skip the current retry wait and immediately resume retrying the active session.
+   */
+  public retryNow<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionRetryNowResponses, SessionRetryNowErrors, ThrowOnError>({
+      url: "/session/{sessionID}/retry",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Resume session generation
+   *
+   * Resume the current session loop for interrupted or incomplete turns without resending the user prompt.
+   */
+  public resume<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionResumeResponses, SessionResumeErrors, ThrowOnError>({
+      url: "/session/{sessionID}/resume",
       ...options,
       ...params,
     })
@@ -3715,7 +3892,19 @@ export class Tui extends HeyApiClient {
     parameters?: {
       directory?: string
       workspace?: string
-      body?: EventTuiPromptAppend | EventTuiCommandExecute | EventTuiToastShow | EventTuiSessionSelect
+      body?:
+        | EventTuiPromptAppend
+        | EventTuiCommandExecute
+        | EventTuiToastShow
+        | EventTuiSessionSelect
+        | EventTuiAttachToRunningSession
+        | EventTuiDisplayReport
+        | {
+            type: string
+            properties: {
+              [key: string]: unknown
+            }
+          }
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3744,15 +3933,16 @@ export class Tui extends HeyApiClient {
   }
 
   /**
-   * Select session
+   * Acknowledge TUI control delivery
    *
-   * Navigate the TUI to display the specified session.
+   * Used by a TUI client to acknowledge that it received a directed control event.
    */
-  public selectSession<ThrowOnError extends boolean = false>(
+  public ack<ThrowOnError extends boolean = false>(
     parameters?: {
       directory?: string
       workspace?: string
-      sessionID?: string
+      requestID?: string
+      displayID?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3763,7 +3953,59 @@ export class Tui extends HeyApiClient {
           args: [
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
+            { in: "body", key: "requestID" },
+            { in: "body", key: "displayID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<TuiAckResponses, TuiAckErrors, ThrowOnError>({
+      url: "/tui/ack",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Select session
+   *
+   * Navigate the targeted TUI display to the specified session.
+   */
+  public selectSession<ThrowOnError extends boolean = false>(
+    parameters?: {
+      query_directory?: string
+      workspace?: string
+      sessionID?: string
+      displayID?: string
+      body_directory?: string
+      requestID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            {
+              in: "query",
+              key: "query_directory",
+              map: "directory",
+            },
+            { in: "query", key: "workspace" },
             { in: "body", key: "sessionID" },
+            { in: "body", key: "displayID" },
+            {
+              in: "body",
+              key: "body_directory",
+              map: "directory",
+            },
+            { in: "body", key: "requestID" },
           ],
         },
       ],
@@ -3780,13 +4022,56 @@ export class Tui extends HeyApiClient {
     })
   }
 
+  /**
+   * Attach display to running session
+   *
+   * Switch the targeted TUI display to a running session and proactively align its directory/workspace before navigation.
+   */
+  public attachToRunningSession<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionID?: string
+      displayID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sessionID" },
+            { in: "body", key: "displayID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      TuiAttachToRunningSessionResponses,
+      TuiAttachToRunningSessionErrors,
+      ThrowOnError
+    >({
+      url: "/tui/attach-to-running-session",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
   private _control?: Control
   get control(): Control {
     return (this._control ??= new Control({ client: this.client }))
   }
 }
 
-export class Instance extends HeyApiClient {
+export class Instance2 extends HeyApiClient {
   /**
    * Dispose instance
    *
@@ -4048,14 +4333,14 @@ export class OpencodeClient extends HeyApiClient {
     return (this._config ??= new Config2({ client: this.client }))
   }
 
-  private _tool?: Tool
-  get tool(): Tool {
-    return (this._tool ??= new Tool({ client: this.client }))
-  }
-
   private _experimental?: Experimental
   get experimental(): Experimental {
     return (this._experimental ??= new Experimental({ client: this.client }))
+  }
+
+  private _tool?: Tool
+  get tool(): Tool {
+    return (this._tool ??= new Tool({ client: this.client }))
   }
 
   private _worktree?: Worktree
@@ -4113,9 +4398,9 @@ export class OpencodeClient extends HeyApiClient {
     return (this._tui ??= new Tui({ client: this.client }))
   }
 
-  private _instance?: Instance
-  get instance(): Instance {
-    return (this._instance ??= new Instance({ client: this.client }))
+  private _instance?: Instance2
+  get instance(): Instance2 {
+    return (this._instance ??= new Instance2({ client: this.client }))
   }
 
   private _path?: Path
