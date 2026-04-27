@@ -1,16 +1,17 @@
 import { describe, expect, test } from "bun:test"
 import path from "path"
 import z from "zod"
+import "../../src/server/projectors"
+import { Session } from "../../src/session"
+import { MessageID } from "../../src/session/schema"
 import { Shell } from "../../src/shell/shell"
 import { ExBashTool } from "../../src/tool/exbash"
 import { Instance } from "../../src/project/instance"
 import { Filesystem } from "../../src/util/filesystem"
-import { SessionID, MessageID } from "../../src/session/schema"
 import { tmpdir } from "../fixture/fixture"
 
-const ctx = {
-  sessionID: SessionID.make("ses_test"),
-  messageID: MessageID.make(""),
+const base = {
+  messageID: MessageID.make("msg_test"),
   callID: "",
   agent: "build",
   abort: AbortSignal.any([]),
@@ -21,7 +22,7 @@ const ctx = {
 
 Shell.acceptable.reset()
 
-const projectRoot = path.join(__dirname, "../..")
+const root = path.join(__dirname, "../..")
 const bin = `"${process.execPath.replaceAll("\\", "/")}"`
 const sh = () => Shell.name(Shell.acceptable())
 const evalarg = (text: string) => (sh() === "cmd" ? `"${text}"` : `'${text}'`)
@@ -36,11 +37,14 @@ const poll = async <T>(fn: () => Promise<T | undefined>, ms = 2_000) => {
   throw new Error("timed out waiting for exbash state")
 }
 
-const mkctx = (session: string, directory?: string) => ({
-  ...ctx,
-  sessionID: SessionID.make(session),
-  directory,
-})
+const mkctx = async (title: string, directory = root) => {
+  const session = await Session.create({ title })
+  return {
+    ...base,
+    sessionID: session.id,
+    directory,
+  }
+}
 
 describe("tool.exbash", () => {
   test("exports an object json schema", async () => {
@@ -50,16 +54,15 @@ describe("tool.exbash", () => {
 
   test("runs sync exec mode like bash", async () => {
     await Instance.provide({
-      directory: projectRoot,
+      directory: root,
       fn: async () => {
         const exbash = await ExBashTool.init()
+        const ctx = await mkctx("sync exec")
         const result = await exbash.execute(
           {
             mode: "exec",
-            exec: {
-              command: "echo test",
-              description: "Echo test message",
-            },
+            command: "echo test",
+            description: "Echo test message",
           },
           ctx,
         )
@@ -71,19 +74,18 @@ describe("tool.exbash", () => {
 
   test("lists async runs and reports timeout stop state", async () => {
     await Instance.provide({
-      directory: projectRoot,
+      directory: root,
       fn: async () => {
         const exbash = await ExBashTool.init()
+        const ctx = await mkctx("timeout run")
         const started = JSON.parse(
           (
             await exbash.execute(
               {
-                mode: "exec-async",
-                async: {
-                  command: `${bin} -e ${evalarg('setInterval(() => console.log("tick"), 25)')}`,
-                  description: "Timed async run",
-                  timeout: 120,
-                },
+                mode: "exec_async",
+                command: `${bin} -e ${evalarg('console.log("tick"); setInterval(() => {}, 25)')}`,
+                description: "Timed async run",
+                timeout: 120,
               },
               ctx,
             )
@@ -102,7 +104,7 @@ describe("tool.exbash", () => {
               await exbash.execute(
                 {
                   mode: "list",
-                  list: { asyncID: started.asyncID },
+                  asyncID: started.asyncID,
                 },
                 ctx,
               )
@@ -111,37 +113,37 @@ describe("tool.exbash", () => {
             runs: Array<{
               asyncID: string
               status: string
+              state: string
+              exitCode?: number
               linePointer: number
               resultPath: string
             }>
           }
           const item = listed.runs[0]
-          if (!item || !item.status.includes("timeout")) return
+          if (!item || item.state !== "stopped" || item.exitCode !== 124) return
           return item
         })
 
         expect(run.asyncID).toBe(started.asyncID)
-        expect(run.linePointer).toBeGreaterThan(0)
+        expect(run.status).toContain("exit 124")
         expect(run.resultPath).toBe(started.resultPath)
-        expect(await Filesystem.readText(run.resultPath)).toContain("tick")
       },
     })
   })
 
   test("stops and removes async runs", async () => {
     await Instance.provide({
-      directory: projectRoot,
+      directory: root,
       fn: async () => {
         const exbash = await ExBashTool.init()
+        const ctx = await mkctx("manual run")
         const started = JSON.parse(
           (
             await exbash.execute(
               {
-                mode: "exec-async",
-                async: {
-                  command: `${bin} -e ${evalarg('setInterval(() => console.log("alive"), 25)')}`,
-                  description: "Manual async run",
-                },
+                mode: "exec_async",
+                command: `${bin} -e ${evalarg('setInterval(() => console.log("alive"), 25)')}`,
+                description: "Manual async run",
               },
               ctx,
             )
@@ -155,7 +157,8 @@ describe("tool.exbash", () => {
             await exbash.execute(
               {
                 mode: "control",
-                control: { asyncID: started.asyncID, action: "stop" },
+                asyncID: started.asyncID,
+                action: "stop",
               },
               ctx,
             )
@@ -163,17 +166,21 @@ describe("tool.exbash", () => {
         ) as {
           asyncID: string
           status: string
+          state: string
+          exitCode?: number
         }
 
         expect(stopped.asyncID).toBe(started.asyncID)
-        expect(stopped.status).toContain("killed")
+        expect(stopped.state).toBe("stopped")
+        expect(stopped.status).toContain("exit 130")
 
         const removed = JSON.parse(
           (
             await exbash.execute(
               {
                 mode: "control",
-                control: { asyncID: started.asyncID, action: "remove" },
+                asyncID: started.asyncID,
+                action: "remove",
               },
               ctx,
             )
@@ -207,18 +214,17 @@ describe("tool.exbash", () => {
 
   test("writes text into async task stdin", async () => {
     await Instance.provide({
-      directory: projectRoot,
+      directory: root,
       fn: async () => {
         const exbash = await ExBashTool.init()
+        const ctx = await mkctx("text input run")
         const started = JSON.parse(
           (
             await exbash.execute(
               {
-                mode: "exec-async",
-                async: {
-                  command: `${bin} -e ${evalarg('process.stdin.on("data", (chunk) => { process.stdout.write("TEXT:" + chunk.toString()); process.exit(0) })')}`,
-                  description: "Text input run",
-                },
+                mode: "exec_async",
+                command: `${bin} -e ${evalarg('process.stdin.on("data", (chunk) => { process.stdout.write("TEXT:" + chunk.toString()); process.exit(0) })')}`,
+                description: "Text input run",
               },
               ctx,
             )
@@ -233,11 +239,9 @@ describe("tool.exbash", () => {
             await exbash.execute(
               {
                 mode: "input",
-                input: {
-                  asyncID: started.asyncID,
-                  wait: "attach",
-                  text: "ping",
-                },
+                asyncID: started.asyncID,
+                wait: "attach",
+                text: "ping",
               },
               ctx,
             )
@@ -268,7 +272,7 @@ describe("tool.exbash", () => {
               await exbash.execute(
                 {
                   mode: "list",
-                  list: { asyncID: started.asyncID },
+                  asyncID: started.asyncID,
                 },
                 ctx,
               )
@@ -281,7 +285,7 @@ describe("tool.exbash", () => {
         })
 
         expect(await Filesystem.readText(started.resultPath)).toContain("TEXT:ping")
-        await exbash.execute({ mode: "control", control: { asyncID: started.asyncID, action: "remove" } }, ctx)
+        await exbash.execute({ mode: "control", asyncID: started.asyncID, action: "remove" }, ctx)
       },
     })
   })
@@ -296,19 +300,17 @@ describe("tool.exbash", () => {
       directory: tmp.path,
       fn: async () => {
         const exbash = await ExBashTool.init()
-        const local = mkctx("ses_input_file", tmp.path)
+        const ctx = await mkctx("file input run", tmp.path)
         const file = path.join(tmp.path, "stdin.bin")
         const started = JSON.parse(
           (
             await exbash.execute(
               {
-                mode: "exec-async",
-                async: {
-                  command: `${bin} -e ${evalarg('process.stdin.on("data", (chunk) => { process.stdout.write(chunk.toString("hex")); process.exit(0) })')}`,
-                  description: "File input run",
-                },
+                mode: "exec_async",
+                command: `${bin} -e ${evalarg('process.stdin.on("data", (chunk) => { process.stdout.write(chunk.toString("hex")); process.exit(0) })')}`,
+                description: "File input run",
               },
-              local,
+              ctx,
             )
           ).output,
         ) as {
@@ -321,12 +323,10 @@ describe("tool.exbash", () => {
             await exbash.execute(
               {
                 mode: "input",
-                input: {
-                  asyncID: started.asyncID,
-                  filePath: file,
-                },
+                asyncID: started.asyncID,
+                filePath: file,
               },
-              local,
+              ctx,
             )
           ).output,
         ) as {
@@ -345,9 +345,9 @@ describe("tool.exbash", () => {
               await exbash.execute(
                 {
                   mode: "list",
-                  list: { asyncID: started.asyncID },
+                  asyncID: started.asyncID,
                 },
-                local,
+                ctx,
               )
             ).output,
           ) as {
@@ -358,7 +358,7 @@ describe("tool.exbash", () => {
         })
 
         expect(await Filesystem.readText(started.resultPath)).toContain("0001ff")
-        await exbash.execute({ mode: "control", control: { asyncID: started.asyncID, action: "remove" } }, local)
+        await exbash.execute({ mode: "control", asyncID: started.asyncID, action: "remove" }, ctx)
       },
     })
   })
@@ -371,19 +371,17 @@ describe("tool.exbash", () => {
       directory: a.path,
       fn: async () => {
         const exbash = await ExBashTool.init()
-        const one = mkctx("ses_scope_1", a.path)
-        const two = mkctx("ses_scope_2", a.path)
+        const one = await mkctx("scope one", a.path)
+        const two = await mkctx("scope two", a.path)
 
         const local = JSON.parse(
           (
             await exbash.execute(
               {
-                mode: "exec-async",
-                async: {
-                  command: `${bin} -e ${evalarg('setInterval(() => console.log("local"), 25)')}`,
-                  description: "Local scoped run",
-                  scope: "local",
-                },
+                mode: "exec_async",
+                command: `${bin} -e ${evalarg('setInterval(() => console.log("local"), 25)')}`,
+                description: "Local scoped run",
+                scope: "local",
               },
               one,
             )
@@ -400,7 +398,7 @@ describe("tool.exbash", () => {
             await exbash.execute(
               {
                 mode: "list",
-                list: { asyncID: local.asyncID },
+                asyncID: local.asyncID,
               },
               one,
             )
@@ -414,7 +412,7 @@ describe("tool.exbash", () => {
             await exbash.execute(
               {
                 mode: "list",
-                list: { asyncID: local.asyncID },
+                asyncID: local.asyncID,
               },
               two,
             )
@@ -430,12 +428,10 @@ describe("tool.exbash", () => {
           (
             await exbash.execute(
               {
-                mode: "exec-async",
-                async: {
-                  command: `${bin} -e ${evalarg('setInterval(() => console.log("workspace"), 25)')}`,
-                  description: "Workspace scoped run",
-                  scope: "workspace",
-                },
+                mode: "exec_async",
+                command: `${bin} -e ${evalarg('setInterval(() => console.log("workspace"), 25)')}`,
+                description: "Workspace scoped run",
+                scope: "workspace",
               },
               one,
             )
@@ -452,7 +448,7 @@ describe("tool.exbash", () => {
             await exbash.execute(
               {
                 mode: "list",
-                list: { asyncID: shared.asyncID },
+                asyncID: shared.asyncID,
               },
               two,
             )
@@ -462,7 +458,7 @@ describe("tool.exbash", () => {
         }
 
         expect(same.runs.map((item) => item.asyncID)).toContain(shared.asyncID)
-        return { local: local.asyncID, shared: shared.asyncID }
+        return { local: local.asyncID, shared: shared.asyncID, sessionID: one.sessionID }
       },
     })
 
@@ -470,13 +466,13 @@ describe("tool.exbash", () => {
       directory: b.path,
       fn: async () => {
         const exbash = await ExBashTool.init()
-        const three = mkctx("ses_scope_3", b.path)
+        const three = await mkctx("scope three", b.path)
         const listed = JSON.parse(
           (
             await exbash.execute(
               {
                 mode: "list",
-                list: { asyncID: ids.shared },
+                asyncID: ids.shared,
               },
               three,
             )
@@ -493,11 +489,11 @@ describe("tool.exbash", () => {
       directory: a.path,
       fn: async () => {
         const exbash = await ExBashTool.init()
-        const one = mkctx("ses_scope_1", a.path)
-        await exbash.execute({ mode: "control", control: { asyncID: ids.local, action: "stop" } }, one)
-        await exbash.execute({ mode: "control", control: { asyncID: ids.local, action: "remove" } }, one)
-        await exbash.execute({ mode: "control", control: { asyncID: ids.shared, action: "stop" } }, one)
-        await exbash.execute({ mode: "control", control: { asyncID: ids.shared, action: "remove" } }, one)
+        const one = { ...base, sessionID: ids.sessionID, directory: a.path }
+        await exbash.execute({ mode: "control", asyncID: ids.local, action: "stop" }, one)
+        await exbash.execute({ mode: "control", asyncID: ids.local, action: "remove" }, one)
+        await exbash.execute({ mode: "control", asyncID: ids.shared, action: "stop" }, one)
+        await exbash.execute({ mode: "control", asyncID: ids.shared, action: "remove" }, one)
       },
     })
   })

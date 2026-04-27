@@ -310,10 +310,10 @@ export const ExBashTool = Tool.define("exbash", {
   ].join("\n"),
   parameters,
   async execute(args, ctx) {
-    const next = clean(args) as z.infer<typeof parameters>
+    const arg = clean(args) as z.infer<typeof parameters>
 
-    if (next.mode === "list") {
-      const input = seen.parse(next)
+    if (arg.mode === "list") {
+      const input = seen.parse(arg)
       await ctx.ask({
         permission: "bash",
         patterns: [input.asyncID ? `exbash list ${input.asyncID}` : "exbash list"],
@@ -327,8 +327,8 @@ export const ExBashTool = Tool.define("exbash", {
       return { title: "Async runs listed", metadata: { runs }, output }
     }
 
-    if (next.mode === "input") {
-      const input = feed.parse(next)
+    if (arg.mode === "input") {
+      const input = feed.parse(arg)
       if ((input.text !== undefined ? 1 : 0) + (input.filePath !== undefined ? 1 : 0) !== 1) {
         throw new Error("Provide exactly one of text or filePath for input mode.")
       }
@@ -357,20 +357,20 @@ export const ExBashTool = Tool.define("exbash", {
 
       await write(job, data)
       const wait = input.wait ?? "return"
-      const next =
+      const tail =
         wait === "attach" ? await attach(state.resultPath, stat.size, input.timeout ?? INPUT_TIMEOUT, input.window ?? INPUT_WINDOW) : undefined
       const output = {
         asyncID: input.asyncID,
         wait,
         wrote: typeof data === "string" ? Buffer.byteLength(data) : data.length,
         source: typeof data === "string" ? "text" : "file",
-        ...(next ? next : {}),
+        ...(tail ? tail : {}),
       }
       return { title: "Async input sent", metadata: output, output: JSON.stringify(output, null, 2) }
     }
 
-    if (next.mode === "control") {
-      const input = ctrl.parse(next)
+    if (arg.mode === "control") {
+      const input = ctrl.parse(arg)
       await ctx.ask({
         permission: "bash",
         patterns: [`exbash ${input.action} ${input.asyncID}`],
@@ -405,8 +405,8 @@ export const ExBashTool = Tool.define("exbash", {
       return { title: "Async run removed", metadata: output, output: JSON.stringify(output, null, 2) }
     }
 
-    if (next.mode === "exec") {
-      const input = sync.parse(next)
+    if (arg.mode === "exec") {
+      const input = sync.parse(arg)
       const bash = await BashTool.init()
       return bash.execute(
         {
@@ -419,7 +419,7 @@ export const ExBashTool = Tool.define("exbash", {
       )
     }
 
-    const input = back.parse(next)
+    const input = back.parse(arg)
 
     const shell = Shell.acceptable()
     const name = Shell.name(shell)
