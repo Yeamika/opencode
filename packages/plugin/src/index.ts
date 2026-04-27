@@ -23,6 +23,16 @@ export type ProviderContext = {
   options: Record<string, any>
 }
 
+type Keybinds = Record<string, string | Record<string, string>>
+
+type TuiConfig = {
+  scroll_speed?: number
+  scroll_acceleration?: {
+    enabled: boolean
+  }
+  diff_style?: "auto" | "stacked"
+}
+
 export type PluginInput = {
   client: ReturnType<typeof createOpencodeClient>
   project: Project
@@ -38,6 +48,9 @@ export type PluginInput = {
 export type PluginOptions = Record<string, unknown>
 
 export type Config = Omit<SDKConfig, "plugin"> & {
+  theme?: string
+  keybinds?: Keybinds
+  tui?: TuiConfig
   plugin?: Array<string | [string, PluginOptions]>
 }
 
