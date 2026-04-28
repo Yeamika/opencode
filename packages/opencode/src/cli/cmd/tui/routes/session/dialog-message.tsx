@@ -6,7 +6,7 @@ import { useRoute } from "@tui/context/route"
 import { Clipboard } from "@tui/util/clipboard"
 import type { PromptInfo } from "@tui/component/prompt/history"
 import { strip } from "@tui/component/prompt/part"
-import { DialogAlert } from "../../ui/dialog-alert"
+import { DialogToolOutput } from "./dialog-tool-output"
 
 export function DialogMessage(props: {
   messageID: string
@@ -44,7 +44,7 @@ export function DialogMessage(props: {
               value: "message.details",
               description: "show full error message",
               onSelect: (dialog) => {
-                DialogAlert.show(dialog, "Message Details", detail())
+                DialogToolOutput.show(dialog, "Message Details", detail())
               },
             },
             {

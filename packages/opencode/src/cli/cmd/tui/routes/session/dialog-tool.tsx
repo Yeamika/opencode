@@ -4,13 +4,23 @@ import { DialogToolOutput } from "./dialog-tool-output"
 
 export function DialogTool(props: {
   tool: string
+  input?: unknown
   output?: string
   error?: string
 }) {
   const options = createMemo(() => {
     const out = props.output?.trim()
     const err = props.error?.trim()
+    const input = JSON.stringify(props.input ?? {}, null, 2)
     return [
+      {
+        title: "Input details",
+        value: "tool.input",
+        description: "show full tool input parameters",
+        onSelect: (dialog) => {
+          DialogToolOutput.show(dialog, `${props.tool} Input`, input)
+        },
+      },
       ...(out
         ? [
             {

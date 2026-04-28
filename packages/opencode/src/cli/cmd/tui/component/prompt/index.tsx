@@ -243,22 +243,15 @@ export function Prompt(props: PromptProps) {
   const usage = createMemo(() => {
     if (!props.sessionID) return
     const msg = sync.data.message[props.sessionID] ?? []
-    const last = msg.findLast(
-      (item): item is AssistantMessage =>
-        item.role === "assistant" &&
-        !!item.parentID &&
-        !!item.time.completed &&
-        !!item.finish &&
-        !["tool-calls", "unknown"].includes(item.finish),
-    )
-    if (!last) return
-
-    const user = msg.find((item) => item.role === "user" && item.id === last.parentID)
+    const user = msg.findLast((item) => item.role === "user")
     if (!user) return
 
-    const span = Math.max(0, last.time.completed - user.time.created)
-    const tokens = last.tokens.total
-    const cost = last.cost
+    const last = msg.findLast((item): item is AssistantMessage => item.role === "assistant" && item.parentID === user.id)
+    const done =
+      !!last?.time.completed && !!last.finish && !["tool-calls", "unknown"].includes(last.finish) && status().type !== "busy" && status().type !== "retry"
+    const span = Math.max(0, (done ? last.time.completed : statusNow()) - user.time.created)
+    const tokens = last?.tokens.total ?? 0
+    const cost = last?.cost ?? 0
     return {
       value: [
         `${Math.floor(span / 60000)} min ${Math.floor((span % 60000) / 1000)
@@ -1034,7 +1027,7 @@ export function Prompt(props: PromptProps) {
     if (status().type === "busy") {
       return (
         <text fg={store.interrupt > 0 ? theme.primary : theme.text} wrapMode="none" overflow="hidden">
-          {keybind.print("session_interrupt")}{" "}
+          esc{" "}
           <span style={{ fg: store.interrupt > 0 ? theme.primary : theme.textMuted }}>
             {store.interrupt > 0 ? "again to interrupt" : "interrupt"}
           </span>
@@ -1406,18 +1399,23 @@ export function Prompt(props: PromptProps) {
             }
           />
         </box>
-        <box flexDirection="row" width="100%">
-          <box flexDirection="row" width="40%" minWidth={0} paddingLeft={1} paddingRight={1}>
-            {stateSlot()}
+        <box flexDirection="row" width="100%" minWidth={0} paddingLeft={1} paddingRight={1}>
+          <box flexDirection="row" gap={2} minWidth={0} flexShrink={1}>
+            <box flexDirection="row" minWidth={0} flexShrink={1}>
+              {stateSlot()}
+            </box>
+            <box flexDirection="row" flexShrink={0}>
+              {leftSlot()}
+            </box>
           </box>
-          <box flexDirection="row" width="20%" minWidth={0} paddingRight={1}>
-            {leftSlot()}
-          </box>
-          <box flexDirection="row" width="20%" minWidth={0} paddingLeft={1} paddingRight={1} justifyContent="flex-end">
-            {middleSlot()}
-          </box>
-          <box flexDirection="row" width="20%" minWidth={0} paddingLeft={1} justifyContent="flex-end">
-            {rightSlot()}
+          <box flexGrow={1} />
+          <box flexDirection="row" gap={2} minWidth={0} flexShrink={0} justifyContent="flex-end">
+            <box flexDirection="row" minWidth={0} flexShrink={1}>
+              {middleSlot()}
+            </box>
+            <box flexDirection="row" flexShrink={0} justifyContent="flex-end">
+              {rightSlot()}
+            </box>
           </box>
         </box>
       </box>
