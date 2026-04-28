@@ -1827,6 +1827,18 @@ function BlockTool(props: {
 }
 
 function shellinput(input: Partial<Tool.InferParameters<typeof BashTool>> | Partial<Tool.InferParameters<typeof ExBashTool>>) {
+  const text = (value?: string) => {
+    if (!value?.trim()) return
+    const next = value.replace(/\s+/g, " ").trim()
+    if (next.length <= 24) return next
+    return next.slice(0, 21) + "..."
+  }
+
+  const file = (value?: string) => {
+    if (!value?.trim()) return
+    return normalizePath(value)
+  }
+
   if (!("mode" in input)) {
     return {
       mode: undefined,
@@ -1868,8 +1880,15 @@ function shellinput(input: Partial<Tool.InferParameters<typeof BashTool>> | Part
   }
   return {
     mode: input.mode,
-    command: ["exbash input", input.asyncID].filter(Boolean).join(" "),
-    description: "Send async input",
+    command: [
+      "exbash input",
+      input.asyncID,
+      text(input.text) ? `[text: ${text(input.text)}]` : undefined,
+      file(input.filePath) ? `[file: ${file(input.filePath)}]` : undefined,
+    ]
+      .filter(Boolean)
+      .join(" "),
+    description: text(input.text) ? "Send async text input" : file(input.filePath) ? "Send async file input" : "Send async input",
   }
 }
 

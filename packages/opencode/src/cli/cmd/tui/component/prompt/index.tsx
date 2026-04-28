@@ -1,5 +1,5 @@
 import { BoxRenderable, TextareaRenderable, MouseEvent, PasteEvent, decodePasteBytes, t, dim, fg } from "@opentui/core"
-import { createEffect, createMemo, onMount, createSignal, onCleanup, on, Show, Switch, Match } from "solid-js"
+import { createEffect, createMemo, onMount, createSignal, onCleanup, on, Show } from "solid-js"
 import "opentui-spinner/solid"
 import path from "path"
 import { Filesystem } from "@/util/filesystem"
@@ -224,34 +224,20 @@ export function Prompt(props: PromptProps) {
     return "stopped"
   })
 
-  const hint = createMemo<JSX.Element>(() => {
-    if (!resumable()) return props.hint ?? <text />
-    return (
-      <box flexDirection="row" gap={1}>
-        <text fg={theme.textMuted}>{halted()}</text>
-        <box
-          onMouseUp={() => {
-            void resume()
-              .then((triggered) => {
-                if (!triggered) {
-                  toast.show({
-                    message: "Session is already running",
-                    variant: "info",
-                  })
-                }
-              })
-              .catch((error) => {
-                toast.show({
-                  message: error instanceof Error ? error.message : "Failed to resume session",
-                  variant: "error",
-                })
-              })
-          }}
-        >
-          <text fg={theme.primary}>resume</text>
-        </box>
-      </box>
-    )
+  const retry = createMemo(() => {
+    const next = status()
+    if (next.type !== "retry") return
+    return next
+  })
+
+  const retryText = createMemo(() => {
+    const next = retry()
+    if (!next) return ""
+    const delta = Math.max(0, Math.round((next.next - statusNow()) / 1000))
+    const wait = Math.max(0, Math.round((statusNow() - next.waitingAt) / 1000))
+    const left = formatDuration(delta)
+    const right = formatDuration(wait)
+    return [left ? `retrying in ${left}` : "retrying now", right ? `waiting ${right}` : ""].filter(Boolean).join(" · ")
   })
 
   const usage = createMemo(() => {
@@ -979,6 +965,162 @@ export function Prompt(props: PromptProps) {
     }
   })
 
+  const stateSlot = createMemo<JSX.Element>(() => {
+    if (status().type === "busy") {
+      return (
+        <box flexDirection="row" gap={1} minWidth={0}>
+          <Show when={kv.get("animations_enabled", true)} fallback={<text fg={theme.textMuted}>[⋯]</text>}>
+            <spinner color={spinnerDef().color} frames={spinnerDef().frames} interval={40} />
+          </Show>
+          <text fg={theme.textMuted} wrapMode="none" overflow="hidden">
+            {busyText()}
+          </text>
+        </box>
+      )
+    }
+
+    if (status().type === "retry") {
+      const next = retry()!
+      return (
+        <box flexDirection="row" gap={1} minWidth={0}>
+          <Show when={kv.get("animations_enabled", true)} fallback={<text fg={theme.textMuted}>[⋯]</text>}>
+            <spinner color={spinnerDef().color} frames={spinnerDef().frames} interval={40} />
+          </Show>
+          <text fg={theme.textMuted} wrapMode="none" overflow="hidden">
+            {retryText()}
+          </text>
+          <Show
+            when={next.message.length > 0}
+            fallback={
+              <text fg={theme.textMuted} wrapMode="none">
+                attempt #{next.attempt}
+              </text>
+            }
+          >
+            <box onMouseUp={() => DialogAlert.show(dialog, "Retry Error", next.message)}>
+              <text fg={theme.primary} wrapMode="none">
+                attempt #{next.attempt}
+              </text>
+            </box>
+          </Show>
+        </box>
+      )
+    }
+
+    if (resumable()) {
+      return (
+        <text fg={theme.textMuted} wrapMode="none" overflow="hidden">
+          {halted()}
+        </text>
+      )
+    }
+
+    return props.hint ?? <text />
+  })
+
+  const leftSlot = createMemo<JSX.Element>(() => {
+    if (status().type === "busy") {
+      return (
+        <text fg={store.interrupt > 0 ? theme.primary : theme.text} wrapMode="none" overflow="hidden">
+          {keybind.print("session_interrupt")}{" "}
+          <span style={{ fg: store.interrupt > 0 ? theme.primary : theme.textMuted }}>
+            {store.interrupt > 0 ? "again to interrupt" : "interrupt"}
+          </span>
+        </text>
+      )
+    }
+
+    if (status().type === "retry") {
+      return (
+        <box
+          onMouseUp={() => {
+            void retryNow()
+              .then((triggered) => {
+                if (!triggered) {
+                  toast.show({
+                    message: "Session is no longer waiting to retry",
+                    variant: "info",
+                  })
+                }
+              })
+              .catch((error) => {
+                toast.show({
+                  message: error instanceof Error ? error.message : "Failed to retry now",
+                  variant: "error",
+                })
+              })
+          }}
+        >
+          <text fg={theme.primary} wrapMode="none">
+            retry now
+          </text>
+        </box>
+      )
+    }
+
+    if (resumable()) {
+      return (
+        <box
+          onMouseUp={() => {
+            void resume()
+              .then((triggered) => {
+                if (!triggered) {
+                  toast.show({
+                    message: "Session is already running",
+                    variant: "info",
+                  })
+                }
+              })
+              .catch((error) => {
+                toast.show({
+                  message: error instanceof Error ? error.message : "Failed to resume session",
+                  variant: "error",
+                })
+              })
+          }}
+        >
+          <text fg={theme.primary} wrapMode="none">
+            resume
+          </text>
+        </box>
+      )
+    }
+
+    return <text />
+  })
+
+  const middleSlot = createMemo<JSX.Element>(() => {
+    if (store.mode === "shell") return <text />
+    const next = usage()
+    if (next) {
+      return (
+        <text fg={theme.textMuted} wrapMode="none" overflow="hidden">
+          {[next.context, next.cost].filter(Boolean).join(" · ")}
+        </text>
+      )
+    }
+    return (
+      <text fg={theme.text} wrapMode="none" overflow="hidden">
+        {keybind.print("agent_cycle")} <span style={{ fg: theme.textMuted }}>agents</span>
+      </text>
+    )
+  })
+
+  const rightSlot = createMemo<JSX.Element>(() => {
+    if (store.mode === "shell") {
+      return (
+        <text fg={theme.text} wrapMode="none" overflow="hidden">
+          esc <span style={{ fg: theme.textMuted }}>exit shell mode</span>
+        </text>
+      )
+    }
+    return (
+      <text fg={theme.text} wrapMode="none" overflow="hidden">
+        {keybind.print("command_list")} <span style={{ fg: theme.textMuted }}>commands</span>
+      </text>
+    )
+  })
+
   return (
     <>
       <Autocomplete
@@ -1252,130 +1394,19 @@ export function Prompt(props: PromptProps) {
             }
           />
         </box>
-        <box flexDirection="row">
-          <Show when={status().type !== "idle"} fallback={hint()}>
-            <box
-              flexDirection="row"
-              gap={1}
-              flexGrow={1}
-              justifyContent={status().type === "retry" ? "space-between" : "flex-start"}
-            >
-              <box flexShrink={0} flexDirection="row" gap={1}>
-                <box marginLeft={1}>
-                  <Show when={kv.get("animations_enabled", true)} fallback={<text fg={theme.textMuted}>[⋯]</text>}>
-                    <spinner color={spinnerDef().color} frames={spinnerDef().frames} interval={40} />
-                  </Show>
-                </box>
-                <box flexDirection="row" gap={1} flexShrink={0}>
-                  <Show when={status().type === "busy" && busyText()}>
-                    <text fg={theme.textMuted}>{busyText()}</text>
-                  </Show>
-                  {(() => {
-                    const retry = createMemo(() => {
-                      const s = status()
-                      if (s.type !== "retry") return
-                      return s
-                    })
-                    const expandable = createMemo(() => {
-                      const r = retry()
-                      if (!r) return false
-                      return r.message.length > 0
-                    })
-                    const handleMessageClick = () => {
-                      const r = retry()
-                      if (!r) return
-                      if (expandable()) {
-                        DialogAlert.show(dialog, "Retry Error", r.message)
-                      }
-                    }
-
-                    const retryText = () => {
-                      const r = retry()
-                      if (!r) return ""
-                      const retryIn = Math.max(0, Math.round((r.next - statusNow()) / 1000))
-                      const retryDuration = formatDuration(retryIn)
-                      const waitingDuration = formatDuration(Math.max(0, Math.round((statusNow() - r.waitingAt) / 1000)))
-                      return [
-                        retryDuration ? `retrying in ${retryDuration}` : "retrying now",
-                        waitingDuration ? `waiting ${waitingDuration}` : "",
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")
-                    }
-
-                    return (
-                      <Show when={retry()}>
-                        <box flexDirection="row" gap={1}>
-                          <text fg={theme.textMuted}>[{retryText()}</text>
-                          <box onMouseUp={handleMessageClick}>
-                            <text fg={theme.primary}>attempt #{retry()!.attempt}</text>
-                          </box>
-                          <text fg={theme.textMuted}>]</text>
-                          <box
-                            onMouseUp={() => {
-                              void retryNow()
-                                .then((triggered) => {
-                                  if (!triggered) {
-                                    toast.show({
-                                      message: "Session is no longer waiting to retry",
-                                      variant: "info",
-                                    })
-                                  }
-                                })
-                                .catch((error) => {
-                                  toast.show({
-                                    message: error instanceof Error ? error.message : "Failed to retry now",
-                                    variant: "error",
-                                  })
-                                })
-                            }}
-                          >
-                            <text fg={theme.primary}>retry now</text>
-                          </box>
-                        </box>
-                      </Show>
-                    )
-                  })()}
-                </box>
-              </box>
-              <text fg={store.interrupt > 0 ? theme.primary : theme.text}>
-                esc{" "}
-                <span style={{ fg: store.interrupt > 0 ? theme.primary : theme.textMuted }}>
-                  {store.interrupt > 0 ? "again to interrupt" : "interrupt"}
-                </span>
-              </text>
-            </box>
-          </Show>
-          <Show when={status().type !== "retry"}>
-            <box gap={2} flexDirection="row" marginLeft="auto" flexShrink={0}>
-              <Switch>
-                <Match when={store.mode === "normal"}>
-                  <Switch>
-                    <Match when={usage()}>
-                      {(item) => (
-                        <text fg={theme.textMuted} wrapMode="none">
-                          {[item().context, item().cost].filter(Boolean).join(" · ")}
-                        </text>
-                      )}
-                    </Match>
-                    <Match when={true}>
-                      <text fg={theme.text}>
-                        {keybind.print("agent_cycle")} <span style={{ fg: theme.textMuted }}>agents</span>
-                      </text>
-                    </Match>
-                  </Switch>
-                  <text fg={theme.text}>
-                    {keybind.print("command_list")} <span style={{ fg: theme.textMuted }}>commands</span>
-                  </text>
-                </Match>
-                <Match when={store.mode === "shell"}>
-                  <text fg={theme.text}>
-                    esc <span style={{ fg: theme.textMuted }}>exit shell mode</span>
-                  </text>
-                </Match>
-              </Switch>
-            </box>
-          </Show>
+        <box flexDirection="row" width="100%">
+          <box width="40%" minWidth={0} paddingLeft={1} paddingRight={1}>
+            {stateSlot()}
+          </box>
+          <box width="20%" minWidth={0} paddingRight={1}>
+            {leftSlot()}
+          </box>
+          <box width="20%" minWidth={0} paddingLeft={1} paddingRight={1} justifyContent="flex-end">
+            {middleSlot()}
+          </box>
+          <box width="20%" minWidth={0} paddingLeft={1} justifyContent="flex-end">
+            {rightSlot()}
+          </box>
         </box>
       </box>
     </>

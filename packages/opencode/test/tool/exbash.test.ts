@@ -242,6 +242,7 @@ describe("tool.exbash", () => {
                 asyncID: started.asyncID,
                 wait: "attach",
                 text: "ping",
+                filePath: "",
               },
               ctx,
             )
@@ -324,6 +325,7 @@ describe("tool.exbash", () => {
               {
                 mode: "input",
                 asyncID: started.asyncID,
+                text: "",
                 filePath: file,
               },
               ctx,
