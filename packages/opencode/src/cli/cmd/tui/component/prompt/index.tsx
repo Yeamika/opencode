@@ -246,9 +246,10 @@ export function Prompt(props: PromptProps) {
     const last = msg.findLast((item): item is AssistantMessage => item.role === "assistant" && item.tokens.output > 0)
     if (!last) return
 
-    const tokens = last.tokens.input
+    const tokens = msg.reduce((sum, item) => sum + (item.role === "assistant" ? item.tokens.input : 0), 0)
     if (tokens <= 0) return
 
+    const cost = msg.reduce((sum, item) => sum + (item.role === "assistant" ? item.cost : 0), 0)
     const span = last.time.completed ? Math.max(0, statusNow() - last.time.completed) : undefined
     return {
       value: [
@@ -257,7 +258,7 @@ export function Prompt(props: PromptProps) {
           : `${Math.floor(span / 60000)} min ${Math.floor((span % 60000) / 1000)
               .toString()
               .padStart(2, "0")}s`,
-        `${Locale.number(tokens)}(${money.format(last.cost)})`,
+        `${Locale.number(tokens)}(${money.format(cost)})`,
       ]
         .filter(Boolean)
         .join(" "),
