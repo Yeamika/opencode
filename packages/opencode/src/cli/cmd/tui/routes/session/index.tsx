@@ -62,6 +62,7 @@ import { DialogConfirm } from "@tui/ui/dialog-confirm"
 import { DialogTimeline } from "./dialog-timeline"
 import { DialogForkFromTimeline } from "./dialog-fork-from-timeline"
 import { DialogSessionRename } from "../../component/dialog-session-rename"
+import { DialogTool } from "./dialog-tool"
 import { Sidebar } from "./sidebar"
 import { SubagentFooter } from "./subagent-footer.tsx"
 import { Flag } from "@/flag/flag"
@@ -1387,8 +1388,25 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
   const local = useLocal()
   const { theme } = useTheme()
   const sync = useSync()
+  const dialog = useDialog()
+  const renderer = useRenderer()
   const messages = createMemo(() => sync.data.message[props.message.sessionID] ?? [])
   const model = createMemo(() => Model.name(ctx.providers(), props.message.providerID, props.message.modelID))
+  const error = createMemo(() => {
+    const data = props.message.error?.data
+    if (typeof data === "string") return data
+    if (data && typeof data === "object") {
+      const text = Reflect.get(data, "message")
+      if (typeof text === "string" && text.trim()) return text
+      return JSON.stringify(data)
+    }
+    return props.message.error?.message ?? ""
+  })
+  const preview = createMemo(() => {
+    const next = stripAnsi(error()).replace(/\s+/g, " ").trim()
+    if (next.length <= 120) return next
+    return next.slice(0, 117) + "..."
+  })
 
   const final = createMemo(() => {
     return props.message.finish && !["tool-calls", "unknown"].includes(props.message.finish)
@@ -1431,16 +1449,28 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
       </Show>
       <Show when={props.message.error && props.message.error.name !== "MessageAbortedError"}>
         <box
+          flexDirection="row"
+          gap={1}
+          minWidth={0}
           border={["left"]}
           paddingTop={1}
           paddingBottom={1}
           paddingLeft={2}
+          paddingRight={2}
           marginTop={1}
           backgroundColor={theme.backgroundPanel}
           customBorderChars={SplitBorder.customBorderChars}
           borderColor={theme.error}
+          onMouseUp={() => {
+            if (renderer.getSelection()?.getSelectedText()) return
+            dialog.replace(() => <DialogMessage messageID={props.message.id} sessionID={props.message.sessionID} />)
+          }}
         >
-          <text fg={theme.textMuted}>{props.message.error?.data.message}</text>
+          <text fg={theme.error}>error </text>
+          <text fg={theme.textMuted} wrapMode="none" overflow="hidden">
+            {preview()}
+          </text>
+          <text fg={theme.primary}>details</text>
         </box>
       </Show>
       <Switch>
@@ -1652,38 +1682,47 @@ type ToolProps<T> = {
 function GenericTool(props: ToolProps<any>) {
   const { theme } = useTheme()
   const ctx = use()
-  const output = createMemo(() => props.output?.trim() ?? "")
-  const [expanded, setExpanded] = createSignal(false)
-  const lines = createMemo(() => output().split("\n"))
-  const maxLines = 3
-  const overflow = createMemo(() => lines().length > maxLines)
-  const limited = createMemo(() => {
-    if (expanded() || !overflow()) return output()
-    return [...lines().slice(0, maxLines), "…"].join("\n")
-  })
+  const dialog = useDialog()
+  const out = createMemo(() => props.output?.trim() ?? "")
+  const row = createMemo(() => out().split("\n"))
+  const fold = createMemo(() => row().length > 3 || out().length > 240 || row().some((x) => x.length > 120))
+  const error = createMemo(() => (props.part.state.status === "error" ? props.part.state.error : undefined))
+  const action = () => {
+    dialog.replace(() => <DialogTool tool={props.tool} output={props.output} error={error()} />)
+  }
+  const click = createMemo(() => !!out() || !!error()?.trim())
 
-  return (
-    <Show
-      when={props.output && ctx.showGenericToolOutput()}
-      fallback={
-        <InlineTool icon="⚙" pending="Writing command..." complete={true} part={props.part}>
-          {props.tool} {input(props.input)}
-        </InlineTool>
-      }
-    >
+  if (ctx.showGenericToolOutput() && out()) {
+    return (
       <BlockTool
         title={`# ${props.tool} ${input(props.input)}`}
         part={props.part}
-        onClick={overflow() ? () => setExpanded((prev) => !prev) : undefined}
+        label={props.tool}
+        onClick={fold() ? action : undefined}
       >
         <box gap={1}>
-          <text fg={theme.text}>{limited()}</text>
-          <Show when={overflow()}>
-            <text fg={theme.textMuted}>{expanded() ? "Click to collapse" : "Click to expand"}</text>
+          <Show when={!fold()} fallback={<text fg={theme.textMuted}>Click to view details</text>}>
+            <text fg={theme.text}>{out()}</text>
           </Show>
         </box>
       </BlockTool>
-    </Show>
+    )
+  }
+
+  return (
+    <InlineTool
+      icon="⚙"
+      pending="Running tool..."
+      complete={true}
+      part={props.part}
+      label={props.tool}
+      onClick={click() ? action : undefined}
+    >
+      {props.tool} {input(props.input)}
+      <Show when={click()}>
+        <span style={{ fg: theme.primary }}> details</span>
+      </Show>
+    </InlineTool>
   )
 }
 
@@ -1696,12 +1735,14 @@ function InlineTool(props: {
   children: JSX.Element
   part: ToolPart
   onClick?: () => void
+  label?: string
 }) {
   const [margin, setMargin] = createSignal(0)
   const { theme } = useTheme()
   const ctx = use()
   const sync = useSync()
   const renderer = useRenderer()
+  const dialog = useDialog()
   const [hover, setHover] = createSignal(false)
 
   const permission = createMemo(() => {
@@ -1773,7 +1814,19 @@ function InlineTool(props: {
         </Match>
       </Switch>
       <Show when={error() && !denied()}>
-        <text fg={theme.error}>{error()}</text>
+        <box
+          flexDirection="row"
+          gap={1}
+          paddingLeft={6}
+          onMouseUp={(evt) => {
+            evt.stopPropagation()
+            if (renderer.getSelection()?.getSelectedText()) return
+            dialog.replace(() => <DialogTool tool={props.label ?? "Tool"} error={error()} />)
+          }}
+        >
+          <text fg={theme.error}>error</text>
+          <text fg={theme.primary}>details</text>
+        </box>
       </Show>
     </box>
   )
@@ -1785,9 +1838,11 @@ function BlockTool(props: {
   onClick?: () => void
   part?: ToolPart
   spinner?: boolean
+  label?: string
 }) {
   const { theme } = useTheme()
   const renderer = useRenderer()
+  const dialog = useDialog()
   const [hover, setHover] = createSignal(false)
   const error = createMemo(() => (props.part?.state.status === "error" ? props.part.state.error : undefined))
   return (
@@ -1820,7 +1875,19 @@ function BlockTool(props: {
       </Show>
       {props.children}
       <Show when={error()}>
-        <text fg={theme.error}>{error()}</text>
+        <box
+          flexDirection="row"
+          gap={1}
+          paddingLeft={3}
+          onMouseUp={(evt) => {
+            evt.stopPropagation()
+            if (renderer.getSelection()?.getSelectedText()) return
+            dialog.replace(() => <DialogTool tool={props.label ?? "Tool"} error={error()} />)
+          }}
+        >
+          <text fg={theme.error}>error</text>
+          <text fg={theme.primary}>details</text>
+        </box>
       </Show>
     </box>
   )
@@ -1894,17 +1961,13 @@ function shellinput(input: Partial<Tool.InferParameters<typeof BashTool>> | Part
 
 function Bash(props: ToolProps<typeof BashTool | typeof ExBashTool>) {
   const { theme } = useTheme()
+  const dialog = useDialog()
   const sync = useSync()
   const info = createMemo(() => shellinput(props.input))
   const isRunning = createMemo(() => props.part.state.status === "running")
   const output = createMemo(() => stripAnsi(props.metadata.output?.trim() ?? ""))
-  const [expanded, setExpanded] = createSignal(false)
   const lines = createMemo(() => output().split("\n"))
-  const overflow = createMemo(() => lines().length > 10)
-  const limited = createMemo(() => {
-    if (expanded() || !overflow()) return output()
-    return [...lines().slice(0, 10), "…"].join("\n")
-  })
+  const overflow = createMemo(() => lines().length > 10 || output().length > 600 || lines().some((x) => x.length > 160))
 
   const workdirDisplay = createMemo(() => {
     const workdir = info().workdir
@@ -1943,16 +2006,17 @@ function Bash(props: ToolProps<typeof BashTool | typeof ExBashTool>) {
         <BlockTool
           title={title()}
           part={props.part}
+          label={info().description ?? "Shell"}
           spinner={isRunning()}
-          onClick={overflow() ? () => setExpanded((prev) => !prev) : undefined}
+          onClick={overflow() ? () => dialog.replace(() => <DialogTool tool={info().description ?? "Shell"} output={output()} />) : undefined}
         >
           <box gap={1}>
             <text fg={theme.text}>$ {info().command}</text>
-            <Show when={output()}>
-              <text fg={theme.text}>{limited()}</text>
+            <Show when={output() && !overflow()}>
+              <text fg={theme.text}>{output()}</text>
             </Show>
             <Show when={overflow()}>
-              <text fg={theme.textMuted}>{expanded() ? "Click to collapse" : "Click to expand"}</text>
+              <text fg={theme.textMuted}>Click to view details</text>
             </Show>
           </box>
         </BlockTool>

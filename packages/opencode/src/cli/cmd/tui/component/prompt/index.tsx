@@ -243,22 +243,28 @@ export function Prompt(props: PromptProps) {
   const usage = createMemo(() => {
     if (!props.sessionID) return
     const msg = sync.data.message[props.sessionID] ?? []
-    const last = msg.findLast((item): item is AssistantMessage => item.role === "assistant" && item.tokens.output > 0)
+    const last = msg.findLast(
+      (item): item is AssistantMessage =>
+        item.role === "assistant" &&
+        !!item.parentID &&
+        !!item.time.completed &&
+        !!item.finish &&
+        !["tool-calls", "unknown"].includes(item.finish),
+    )
     if (!last) return
 
-    const tokens = msg.reduce((sum, item) => sum + (item.role === "assistant" ? item.tokens.input : 0), 0)
-    if (tokens <= 0) return
+    const user = msg.find((item) => item.role === "user" && item.id === last.parentID)
+    if (!user) return
 
-    const cost = msg.reduce((sum, item) => sum + (item.role === "assistant" ? item.cost : 0), 0)
-    const span = last.time.completed ? Math.max(0, statusNow() - last.time.completed) : undefined
+    const span = Math.max(0, last.time.completed - user.time.created)
+    const tokens = last.tokens.total
+    const cost = last.cost
     return {
       value: [
-        span === undefined
-          ? undefined
-          : `${Math.floor(span / 60000)} min ${Math.floor((span % 60000) / 1000)
-              .toString()
-              .padStart(2, "0")}s`,
-        `${Locale.number(tokens)}(${money.format(cost)})`,
+        `${Math.floor(span / 60000)} min ${Math.floor((span % 60000) / 1000)
+          .toString()
+          .padStart(2, "0")}s`,
+        tokens > 0 ? `${Locale.number(tokens)}(${money.format(cost)})` : undefined,
       ]
         .filter(Boolean)
         .join(" "),
@@ -1401,16 +1407,16 @@ export function Prompt(props: PromptProps) {
           />
         </box>
         <box flexDirection="row" width="100%">
-          <box width="40%" minWidth={0} paddingLeft={1} paddingRight={1}>
+          <box flexDirection="row" width="40%" minWidth={0} paddingLeft={1} paddingRight={1}>
             {stateSlot()}
           </box>
-          <box width="20%" minWidth={0} paddingRight={1}>
+          <box flexDirection="row" width="20%" minWidth={0} paddingRight={1}>
             {leftSlot()}
           </box>
-          <box width="20%" minWidth={0} paddingLeft={1} paddingRight={1} justifyContent="flex-end">
+          <box flexDirection="row" width="20%" minWidth={0} paddingLeft={1} paddingRight={1} justifyContent="flex-end">
             {middleSlot()}
           </box>
-          <box width="20%" minWidth={0} paddingLeft={1} justifyContent="flex-end">
+          <box flexDirection="row" width="20%" minWidth={0} paddingLeft={1} justifyContent="flex-end">
             {rightSlot()}
           </box>
         </box>
