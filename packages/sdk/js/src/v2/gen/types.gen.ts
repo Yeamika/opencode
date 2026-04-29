@@ -1700,6 +1700,12 @@ export type Config = {
      * Timeout in milliseconds for model context protocol (MCP) requests
      */
     mcp_timeout?: number
+    exbash?: {
+      /**
+       * Default executor for exbash exec and exec_async modes.
+       */
+      default_executor?: string
+    }
   }
 }
 
