@@ -216,6 +216,85 @@ describe("tool.exbash", () => {
     })
   })
 
+  test("returns sync output when exec_async_timeout finishes quickly", async () => {
+    await Instance.provide({
+      directory: root,
+      fn: async () => {
+        const exbash = await ExBashTool.init()
+        const ctx = await mkctx("async timeout sync")
+        const result = await exbash.execute(
+          {
+            mode: "exec_async_timeout",
+            command: `${bin} -e ${evalarg('process.stdout.write("done-fast")')}`,
+            description: "Finish before detach",
+          },
+          ctx,
+        )
+
+        expect(result.metadata.exit).toBe(0)
+        expect(result.output).toContain("done-fast")
+
+        const listed = JSON.parse((await exbash.execute({ mode: "list" }, ctx)).output) as {
+          runs: Array<unknown>
+        }
+        expect(listed.runs).toHaveLength(0)
+      },
+    })
+  })
+
+  test("detaches into async task after async timeout", async () => {
+    await Instance.provide({
+      directory: root,
+      fn: async () => {
+        const exbash = await ExBashTool.init()
+        const ctx = await mkctx("async timeout detach")
+        const started = JSON.parse(
+          (
+            await exbash.execute(
+              {
+                mode: "exec_async_timeout",
+                command: `${bin} -e ${evalarg('setTimeout(() => console.log("late-finish"), 200)')}`,
+                description: "Detach after wait",
+                async_timeout: 50,
+              },
+              ctx,
+            )
+          ).output,
+        ) as {
+          asyncID: string
+          detached: boolean
+          asyncTimeout: number
+          resultPath: string
+        }
+
+        expect(started.asyncID).toBeTruthy()
+        expect(started.detached).toBe(true)
+        expect(started.asyncTimeout).toBe(50)
+
+        await poll(async () => {
+          const listed = JSON.parse(
+            (
+              await exbash.execute(
+                {
+                  mode: "list",
+                  asyncID: started.asyncID,
+                },
+                ctx,
+              )
+            ).output,
+          ) as {
+            runs: Array<{ status: string }>
+          }
+          if (!listed.runs[0]?.status.includes("exit 0")) return
+          return listed.runs[0]
+        })
+
+        expect(await Filesystem.readText(started.resultPath)).toContain("late-finish")
+        await exbash.execute({ mode: "control", asyncID: started.asyncID, action: "remove" }, ctx)
+      },
+    })
+  })
+
   test("runs sync exec mode with explicit bash executor", async () => {
     const shell = process.platform === "win32" ? Shell.gitbash() : Bun.which("bash")
     if (!shell) return

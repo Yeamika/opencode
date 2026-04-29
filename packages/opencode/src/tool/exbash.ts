@@ -16,8 +16,10 @@ import { ask, collect, invoke, parse, resolvePath, shellEnv, spawnInput } from "
 import { ExBashTask } from "@/session/exbash"
 
 const ROOT = path.join(Global.Path.data, "exbash")
+const ASYNC_TIMEOUT = 10_000
 const INPUT_TIMEOUT = 10_000
 const INPUT_WINDOW = 100
+const OUTPUT = 30_000
 
 type Job = {
   proc?: ChildProcess
@@ -66,6 +68,10 @@ const back = z.object({
   description: z.string().describe("Clear, concise description of what this command does in 5-10 words."),
 })
 
+const auto = back.extend({
+  async_timeout: z.number().optional().describe("Milliseconds to wait before detaching into async mode. Defaults to 10000."),
+})
+
 const seen = z.object({
   asyncID: z.string().optional().describe("Optional async run id to inspect one run."),
   scope: z.enum(["local", "workspace"]).optional().describe("Optional scope filter for list."),
@@ -87,13 +93,14 @@ const feed = z.object({
 
 const parameters = z
   .object({
-    mode: z.enum(["exec", "exec_async", "list", "control", "input"]),
-    command: z.string().optional().describe("Use for exec and exec_async."),
-    description: z.string().optional().describe("Use for exec and exec_async."),
-    workdir: z.string().optional().describe("Use for exec and exec_async."),
-    executor: z.string().optional().describe("Use for exec and exec_async."),
-    scope: z.enum(["local", "workspace"]).optional().describe("Use for exec_async, or as an optional filter for list."),
-    timeout: z.number().optional().describe("Use for exec, exec_async, or input wait=attach."),
+    mode: z.enum(["exec", "exec_async", "exec_async_timeout", "list", "control", "input"]),
+    command: z.string().optional().describe("Use for exec, exec_async, and exec_async_timeout."),
+    description: z.string().optional().describe("Use for exec, exec_async, and exec_async_timeout."),
+    workdir: z.string().optional().describe("Use for exec, exec_async, and exec_async_timeout."),
+    executor: z.string().optional().describe("Use for exec, exec_async, and exec_async_timeout."),
+    scope: z.enum(["local", "workspace"]).optional().describe("Use for exec_async, exec_async_timeout, or as an optional filter for list."),
+    timeout: z.number().optional().describe("Use for exec, exec_async, exec_async_timeout, or input wait=attach."),
+    async_timeout: z.number().optional().describe("Use for exec_async_timeout."),
     asyncID: z.string().optional().describe("Use for list, control, and input."),
     action: z.enum(["stop", "remove"]).optional().describe("Use for control."),
     wait: z.enum(["return", "attach"]).optional().describe("Use for input."),
@@ -113,6 +120,11 @@ function clean(input: unknown): unknown {
 
 function file(id: string) {
   return path.join(ROOT, `${id}.log`)
+}
+
+function clip(text: string) {
+  if (text.length <= OUTPUT) return text
+  return text.slice(0, OUTPUT) + "\n\n..."
 }
 
 function key(text: string): Key | undefined {
@@ -348,6 +360,41 @@ async function attach(file: string, offset: number, timeout: number, window: num
   }
 }
 
+async function read(id: string) {
+  return fs.readFile(file(id), "utf8").catch(() => "")
+}
+
+async function wipe(id: string) {
+  jobs.delete(id)
+  await ExBashTask.remove(id)
+  await fs.rm(file(id), { force: true })
+}
+
+async function settle(id: string, timeout: number, ctx: Tool.Context, description: string) {
+  const end = Date.now() + timeout
+  let output = ""
+  while (true) {
+    const next = await read(id)
+    if (next !== output) {
+      output = next
+      ctx.metadata({
+        metadata: {
+          output: clip(output),
+          description,
+        },
+      })
+    }
+    const state = jobs.get(id)?.state
+    if (state?.status === "stopped") {
+      const last = await read(id)
+      if (last !== output) output = last
+      return { state, output }
+    }
+    if (Date.now() >= end) return { output }
+    await Bun.sleep(50)
+  }
+}
+
 async function start(input: {
   shell: string
   name: string
@@ -432,6 +479,37 @@ async function start(input: {
   return job.state
 }
 
+async function queue(
+  input: {
+    exec: Exec
+    command: string
+    cwd: string
+    scope: "local" | "workspace"
+    timeout?: number
+    description: string
+  },
+  ctx: Tool.Context,
+) {
+  const ps = ["powershell", "pwsh"].includes(input.exec.name)
+  const root = await parse(input.command, ps)
+  const scan = await collect(root, input.cwd, ps, input.exec.file)
+  if (!Instance.containsPath(input.cwd)) scan.dirs.add(input.cwd)
+  await ask(ctx, scan)
+  return start({
+    shell: input.exec.file,
+    name: input.exec.name,
+    args: input.exec.args,
+    command: input.command,
+    cwd: input.cwd,
+    scope: input.scope,
+    session: ctx.sessionID,
+    workspace: workspace(ctx),
+    env: await shellEnv(ctx, input.cwd),
+    timeout: input.timeout,
+    description: input.description,
+  })
+}
+
 export const ExBashTool = Tool.define("exbash", {
   description: [
     "Extended bash control surface with explicit sync and async execution modes.",
@@ -439,8 +517,10 @@ export const ExBashTool = Tool.define("exbash", {
     "Omit unrelated fields entirely. Do not send empty string placeholders.",
     "- mode=exec: run a shell command and wait for completion.",
     "- mode=exec_async: run a shell command in the background and return immediately.",
+    "- mode=exec_async_timeout: run like exec, but detach into an async task after async_timeout ms if still running.",
     "- if executor is omitted, exbash prefers the system-native supported executor.",
     "- executor accepts bash, powershell, cmd, node, python, or a custom command prefix for exec and exec_async.",
+    "- async_timeout defaults to 10000 for exec_async_timeout.",
     "- exec_async scope=local keeps the task visible only in the current session.",
     "- exec_async scope=workspace keeps the task visible in the same workspace.",
     "- mode=list: show async runs with status, result file path, and current line pointer.",
@@ -450,6 +530,7 @@ export const ExBashTool = Tool.define("exbash", {
     "Examples:",
     '- exec: {"mode":"exec","command":"echo hello","description":"Print hello","executor":"bash"}',
     '- exec_async: {"mode":"exec_async","command":"Write-Output hello","description":"Run async echo","scope":"local","executor":"powershell"}',
+    '- exec_async_timeout: {"mode":"exec_async_timeout","command":"sleep 20","description":"Wait and detach","async_timeout":10000}',
     '- list: {"mode":"list"}',
     '- list filtered: {"mode":"list","scope":"workspace","asyncID":"<asyncID>"}',
     '- control: {"mode":"control","asyncID":"<asyncID>","action":"stop"}',
@@ -552,6 +633,63 @@ export const ExBashTool = Tool.define("exbash", {
       return { title: "Async run removed", metadata: output, output: JSON.stringify(output, null, 2) }
     }
 
+    if (arg.mode === "exec_async_timeout") {
+      const input = auto.parse(arg)
+      const asyncTimeout = input.async_timeout ?? ASYNC_TIMEOUT
+      if (asyncTimeout < 0) {
+        throw new Error(`Invalid async_timeout value: ${asyncTimeout}. async_timeout must be a positive number.`)
+      }
+      if (input.timeout !== undefined && input.timeout < 0) {
+        throw new Error(`Invalid timeout value: ${input.timeout}. Timeout must be a positive number.`)
+      }
+      const shell = raw(input.executor).file
+      const cwd = input.workdir ? await resolvePath(input.workdir, Instance.directory, shell) : Instance.directory
+      const exec = await pick(input.executor, workspace(ctx))
+      const state = await queue(
+        {
+          exec,
+          command: input.command,
+          cwd,
+          scope: input.scope ?? "local",
+          timeout: input.timeout,
+          description: input.description,
+        },
+        ctx,
+      )
+      const next = await settle(state.asyncID, asyncTimeout, ctx, input.description)
+      if (next.state?.status === "stopped") {
+        await wipe(state.asyncID)
+        return {
+          title: input.description,
+          metadata: {
+            output: clip(next.output),
+            exit: next.state.exitCode,
+            description: input.description,
+          },
+          output: next.output,
+        }
+      }
+      const item = {
+        ...detail(jobs.get(state.asyncID)?.state ?? state),
+        detached: true,
+        asyncTimeout,
+      }
+      ctx.metadata({
+        metadata: {
+          ...item,
+          output: clip(next.output),
+        },
+      })
+      return {
+        title: input.description,
+        metadata: {
+          ...item,
+          output: clip(next.output),
+        },
+        output: JSON.stringify(item, null, 2),
+      }
+    }
+
     if (arg.mode === "exec") {
       const input = sync.parse(arg)
       const shell = raw(input.executor).file
@@ -574,30 +712,21 @@ export const ExBashTool = Tool.define("exbash", {
     const shell = raw(input.executor).file
     const cwd = input.workdir ? await resolvePath(input.workdir, Instance.directory, shell) : Instance.directory
     const exec = await pick(input.executor, workspace(ctx))
-    const scope = input.scope ?? "local"
     if (input.timeout !== undefined && input.timeout < 0) {
       throw new Error(`Invalid timeout value: ${input.timeout}. Timeout must be a positive number.`)
     }
 
-    const ps = ["powershell", "pwsh"].includes(exec.name)
-    const root = await parse(input.command, ps)
-    const scan = await collect(root, cwd, ps, exec.file)
-    if (!Instance.containsPath(cwd)) scan.dirs.add(cwd)
-    await ask(ctx, scan)
-
-    const state = await start({
-      shell: exec.file,
-      name: exec.name,
-      args: exec.args,
-      command: input.command,
-      cwd,
-      scope,
-      session: ctx.sessionID,
-      workspace: workspace(ctx),
-      env: await shellEnv(ctx, cwd),
-      timeout: input.timeout,
-      description: input.description,
-    })
+    const state = await queue(
+      {
+        exec,
+        command: input.command,
+        cwd,
+        scope: input.scope ?? "local",
+        timeout: input.timeout,
+        description: input.description,
+      },
+      ctx,
+    )
     const item = await detail(state)
     ctx.metadata({ metadata: item })
     return {
