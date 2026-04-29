@@ -62,10 +62,15 @@ export type PromptRef = {
   submit(): void
 }
 
-const money = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-})
+function short(num: number) {
+  if (num >= 1000000) return `${(num / 1000000).toFixed(2)}M`
+  if (num >= 1000) return `${(num / 1000).toFixed(2)}K`
+  return num.toString()
+}
+
+function usd(num: number) {
+  return `${num.toFixed(2)}$`
+}
 
 function randomIndex(count: number) {
   if (count <= 0) return 0
@@ -253,16 +258,12 @@ export function Prompt(props: PromptProps) {
     const span = Math.max(0, end - user.time.created)
     const tokens = last?.tokens.total ?? 0
     const cost = last?.cost ?? 0
+    const time = `${Math.floor(span / 60000)} min ${Math.floor((span % 60000) / 1000)
+      .toString()
+      .padStart(2, "0")} s`
+    const usage = tokens > 0 ? `${short(tokens)}(${usd(cost)})` : undefined
     return {
-      value: [
-        `${Math.floor(span / 60000)} min ${Math.floor((span % 60000) / 1000)
-          .toString()
-          .padStart(2, "0")}s`,
-        tokens > 0 ? `${Locale.number(tokens)} tokens` : undefined,
-        cost > 0 ? money.format(cost) : undefined,
-      ]
-        .filter(Boolean)
-        .join(" · "),
+      value: usage ? `${time}   ${usage}` : time,
     }
   })
 
