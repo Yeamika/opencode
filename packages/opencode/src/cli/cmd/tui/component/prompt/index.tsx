@@ -249,7 +249,8 @@ export function Prompt(props: PromptProps) {
     const last = msg.findLast((item): item is AssistantMessage => item.role === "assistant" && item.parentID === user.id)
     const done =
       !!last?.time.completed && !!last.finish && !["tool-calls", "unknown"].includes(last.finish) && status().type !== "busy" && status().type !== "retry"
-    const span = Math.max(0, (done ? last.time.completed : statusNow()) - user.time.created)
+    const end = done ? last?.time.completed ?? statusNow() : statusNow()
+    const span = Math.max(0, end - user.time.created)
     const tokens = last?.tokens.total ?? 0
     const cost = last?.cost ?? 0
     return {
@@ -257,10 +258,11 @@ export function Prompt(props: PromptProps) {
         `${Math.floor(span / 60000)} min ${Math.floor((span % 60000) / 1000)
           .toString()
           .padStart(2, "0")}s`,
-        tokens > 0 ? `${Locale.number(tokens)}(${money.format(cost)})` : undefined,
+        tokens > 0 ? `${Locale.number(tokens)} tokens` : undefined,
+        cost > 0 ? money.format(cost) : undefined,
       ]
         .filter(Boolean)
-        .join(" "),
+        .join(" · "),
     }
   })
 

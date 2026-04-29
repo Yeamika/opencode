@@ -1067,6 +1067,14 @@ export namespace Config {
             .positive()
             .optional()
             .describe("Timeout in milliseconds for model context protocol (MCP) requests"),
+          exbash: z
+            .object({
+              default_executor: z
+                .string()
+                .optional()
+                .describe("Default executor for exbash exec and exec_async modes."),
+            })
+            .optional(),
         })
         .optional(),
     })

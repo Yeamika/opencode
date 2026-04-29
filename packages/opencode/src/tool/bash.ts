@@ -61,6 +61,12 @@ type Scan = {
   always: Set<string>
 }
 
+export type Exec = {
+  file: string
+  name?: string
+  args?: string[]
+}
+
 export const log = Log.create({ service: "bash-tool" })
 
 const resolveWasm = (asset: string) => {
@@ -295,12 +301,70 @@ export async function shellEnv(ctx: Tool.Context, cwd: string) {
   }
 }
 
-function cmd(shell: string, name: string, command: string, cwd: string, env: NodeJS.ProcessEnv) {
-  const next = spawnInput(shell, name, command, cwd, env)
+export async function invoke(
+  params: {
+    command: string
+    timeout?: number
+    workdir?: string
+    description: string
+  },
+  ctx: Tool.Context,
+  exec?: Exec,
+) {
+  const shell = exec?.file ?? Shell.acceptable()
+  const name = exec?.name ?? Shell.name(shell)
+  const cwd = params.workdir ? await resolvePath(params.workdir, Instance.directory, shell) : Instance.directory
+  if (params.timeout !== undefined && params.timeout < 0) {
+    throw new Error(`Invalid timeout value: ${params.timeout}. Timeout must be a positive number.`)
+  }
+  const timeout = params.timeout ?? DEFAULT_TIMEOUT
+  const ps = PS.has(name)
+  const root = await parse(params.command, ps)
+  const scan = await collect(root, cwd, ps, shell)
+  if (!Instance.containsPath(cwd)) scan.dirs.add(cwd)
+  await ask(ctx, scan)
+
+  return run(
+    {
+      shell,
+      name,
+      args: exec?.args ?? [],
+      command: params.command,
+      cwd,
+      env: await shellEnv(ctx, cwd),
+      timeout,
+      description: params.description,
+    },
+    ctx,
+  )
+}
+
+function cmd(shell: string, name: string, args: string[], command: string, cwd: string, env: NodeJS.ProcessEnv) {
+  const next = spawnInput(shell, name, command, cwd, env, args)
   return ChildProcess.make(next.command, next.args, next.options)
 }
 
-export function spawnInput(shell: string, name: string, command: string, cwd: string, env: NodeJS.ProcessEnv) {
+export function spawnInput(
+  shell: string,
+  name: string,
+  command: string,
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  args: string[] = [],
+) {
+  if (args.length) {
+    return {
+      command: shell,
+      args: [...args, command],
+      options: {
+        cwd,
+        env,
+        stdin: "ignore" as const,
+        detached: process.platform !== "win32",
+      },
+    }
+  }
+
   if (process.platform === "win32" && PS.has(name)) {
     return {
       command: shell,
@@ -331,6 +395,7 @@ async function run(
   input: {
     shell: string
     name: string
+    args: string[]
     command: string
     cwd: string
     env: NodeJS.ProcessEnv
@@ -352,7 +417,7 @@ async function run(
 
   const exit = await CrossSpawnSpawner.runPromiseExit((spawner) =>
     Effect.gen(function* () {
-      const handle = yield* spawner.spawn(cmd(input.shell, input.name, input.command, input.cwd, input.env))
+      const handle = yield* spawner.spawn(cmd(input.shell, input.name, input.args, input.command, input.cwd, input.env))
 
       yield* Effect.forkScoped(
         Stream.runForEach(Stream.decodeText(handle.all), (chunk) =>
@@ -481,29 +546,7 @@ export const BashTool = Tool.define("bash", async () => {
         ),
     }),
     async execute(params, ctx) {
-      const cwd = params.workdir ? await resolvePath(params.workdir, Instance.directory, shell) : Instance.directory
-      if (params.timeout !== undefined && params.timeout < 0) {
-        throw new Error(`Invalid timeout value: ${params.timeout}. Timeout must be a positive number.`)
-      }
-      const timeout = params.timeout ?? DEFAULT_TIMEOUT
-      const ps = PS.has(name)
-      const root = await parse(params.command, ps)
-      const scan = await collect(root, cwd, ps, shell)
-      if (!Instance.containsPath(cwd)) scan.dirs.add(cwd)
-      await ask(ctx, scan)
-
-      return run(
-        {
-          shell,
-          name,
-          command: params.command,
-          cwd,
-          env: await shellEnv(ctx, cwd),
-          timeout,
-          description: params.description,
-        },
-        ctx,
-      )
+      return invoke(params, ctx, { file: shell, name })
     },
   }
 })

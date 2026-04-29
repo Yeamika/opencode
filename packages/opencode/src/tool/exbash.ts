@@ -5,12 +5,14 @@ import { createWriteStream } from "fs"
 import { randomUUID } from "crypto"
 import type { ChildProcess } from "child_process"
 import launch from "cross-spawn"
+import { Config } from "@/config/config"
 import { Global } from "@/global"
 import { Instance } from "@/project/instance"
 import { Shell } from "@/shell/shell"
 import { Filesystem } from "@/util/filesystem"
+import { which } from "@/util/which"
 import { Tool } from "./tool"
-import { BashTool, ask, collect, parse, resolvePath, shellEnv, spawnInput } from "./bash"
+import { ask, collect, invoke, parse, resolvePath, shellEnv, spawnInput } from "./bash"
 import { ExBashTask } from "@/session/exbash"
 
 const ROOT = path.join(Global.Path.data, "exbash")
@@ -27,12 +29,22 @@ type Job = {
   open: boolean
 }
 
+type Exec = {
+  file: string
+  name: string
+  args: string[]
+}
+
 const jobs = new Map<string, Job>()
 
 const sync = z.object({
   command: z.string().describe("The command to execute."),
   timeout: z.number().optional().describe("Optional timeout in milliseconds."),
   workdir: z.string().optional().describe("Working directory. Use this instead of cd."),
+  executor: z
+    .string()
+    .optional()
+    .describe("Optional executor. Built-ins: bash, powershell, cmd. Other strings are treated as command prefixes."),
   description: z.string().describe("Clear, concise description of what this command does in 5-10 words."),
 })
 
@@ -43,6 +55,10 @@ const back = z.object({
   ),
   timeout: z.number().optional().describe("Optional timeout in milliseconds."),
   workdir: z.string().optional().describe("Working directory. Use this instead of cd."),
+  executor: z
+    .string()
+    .optional()
+    .describe("Optional executor. Built-ins: bash, powershell, cmd. Other strings are treated as command prefixes."),
   description: z.string().describe("Clear, concise description of what this command does in 5-10 words."),
 })
 
@@ -71,6 +87,7 @@ const parameters = z
     command: z.string().optional().describe("Use for exec and exec_async."),
     description: z.string().optional().describe("Use for exec and exec_async."),
     workdir: z.string().optional().describe("Use for exec and exec_async."),
+    executor: z.string().optional().describe("Use for exec and exec_async."),
     scope: z.enum(["local", "workspace"]).optional().describe("Use for exec_async, or as an optional filter for list."),
     timeout: z.number().optional().describe("Use for exec, exec_async, or input wait=attach."),
     asyncID: z.string().optional().describe("Use for list, control, and input."),
@@ -92,6 +109,65 @@ function clean(input: unknown): unknown {
 
 function file(id: string) {
   return path.join(ROOT, `${id}.log`)
+}
+
+function split(text: string) {
+  const list = text.match(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\S+/g) ?? []
+  return list.map((item) => {
+    if (item.startsWith('"') && item.endsWith('"')) {
+      return item.slice(1, -1).replace(/\\(["\\])/g, "$1")
+    }
+    if (item.startsWith("'") && item.endsWith("'")) {
+      return item.slice(1, -1).replace(/\\(['\\])/g, "$1")
+    }
+    return item
+  })
+}
+
+function prefix(text: string) {
+  const list = split(text.trim())
+  if (!list.length) throw new Error("Executor must not be empty")
+  const file = process.platform === "win32" ? Filesystem.windowsPath(list[0]) : list[0]
+  return {
+    file,
+    name: Shell.name(file),
+    args: list.slice(1),
+  }
+}
+
+function builtin(text: string) {
+  if (text === "bash") {
+    const file = process.platform === "win32" ? Shell.gitbash() || which("bash") || "bash" : which("bash") || "/bin/bash"
+    return { file, name: "bash", args: ["-lc"] }
+  }
+
+  if (text === "powershell") {
+    const file = which("pwsh") || which("pwsh.exe") || which("powershell") || which("powershell.exe") || "powershell"
+    return { file, name: Shell.name(file), args: ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"] }
+  }
+
+  if (text === "cmd") {
+    const file = process.env.COMSPEC || which("cmd") || which("cmd.exe") || "cmd.exe"
+    return {
+      file: process.platform === "win32" ? Filesystem.windowsPath(file) : file,
+      name: "cmd",
+      args: ["/d", "/s", "/c"],
+    }
+  }
+}
+
+async function pick(text?: string): Promise<Exec> {
+  const cfg = await Config.get()
+  const next = text?.trim() || cfg.experimental?.exbash?.default_executor?.trim()
+  if (!next) {
+    const file = Shell.acceptable()
+    return { file, name: Shell.name(file), args: [] }
+  }
+
+  const key = next.toLowerCase()
+  const hit = builtin(key)
+  if (hit) return hit
+  return prefix(next)
 }
 
 async function inputfile(file: string, ctx: Tool.Context) {
@@ -207,6 +283,7 @@ async function attach(file: string, offset: number, timeout: number, window: num
 async function start(input: {
   shell: string
   name: string
+  args: string[]
   command: string
   cwd: string
   scope: "local" | "workspace"
@@ -238,7 +315,7 @@ async function start(input: {
   }
   jobs.set(id, job)
 
-  const next = spawnInput(input.shell, input.name, input.command, input.cwd, input.env)
+  const next = spawnInput(input.shell, input.name, input.command, input.cwd, input.env, input.args)
   const proc = launch(next.command, next.args, {
     cwd: input.cwd,
     env: input.env,
@@ -294,6 +371,7 @@ export const ExBashTool = Tool.define("exbash", {
     "Omit unrelated fields entirely. Do not send empty string placeholders.",
     "- mode=exec: run a shell command and wait for completion.",
     "- mode=exec_async: run a shell command in the background and return immediately.",
+    "- executor accepts bash, powershell, cmd, or a custom command prefix for exec and exec_async.",
     "- exec_async scope=local keeps the task visible only in the current session.",
     "- exec_async scope=workspace keeps the task visible in the same workspace.",
     "- mode=list: show async runs with status, result file path, and current line pointer.",
@@ -301,15 +379,15 @@ export const ExBashTool = Tool.define("exbash", {
     "- mode=input: write text or file bytes into a running async task stdin.",
     "- input wait=attach waits for new output, default timeout 10000ms, default output window 100 bytes.",
     "Examples:",
-    '- exec: {"mode":"exec","command":"echo hello","description":"Print hello"}',
-    '- exec_async: {"mode":"exec_async","command":"sh -lc \'sleep 1; echo hello\'","description":"Run async echo","scope":"local"}',
+    '- exec: {"mode":"exec","command":"echo hello","description":"Print hello","executor":"bash"}',
+    '- exec_async: {"mode":"exec_async","command":"Write-Output hello","description":"Run async echo","scope":"local","executor":"powershell"}',
     '- list: {"mode":"list"}',
     '- list filtered: {"mode":"list","scope":"workspace","asyncID":"<asyncID>"}',
     '- control: {"mode":"control","asyncID":"<asyncID>","action":"stop"}',
     '- input: {"mode":"input","asyncID":"<asyncID>","text":"hello","wait":"attach"}',
   ].join("\n"),
   parameters,
-  async execute(args, ctx) {
+  async execute(args, ctx): Promise<{ title: string; metadata: Record<string, unknown>; output: string }> {
     const arg = clean(args) as z.infer<typeof parameters>
 
     if (arg.mode === "list") {
@@ -407,8 +485,8 @@ export const ExBashTool = Tool.define("exbash", {
 
     if (arg.mode === "exec") {
       const input = sync.parse(arg)
-      const bash = await BashTool.init()
-      return bash.execute(
+      const exec = await pick(input.executor)
+      return invoke(
         {
           command: input.command,
           timeout: input.timeout,
@@ -416,28 +494,29 @@ export const ExBashTool = Tool.define("exbash", {
           description: input.description,
         },
         ctx,
+        exec,
       )
     }
 
     const input = back.parse(arg)
 
-    const shell = Shell.acceptable()
-    const name = Shell.name(shell)
-    const cwd = input.workdir ? await resolvePath(input.workdir, Instance.directory, shell) : Instance.directory
+    const exec = await pick(input.executor)
+    const cwd = input.workdir ? await resolvePath(input.workdir, Instance.directory, exec.file) : Instance.directory
     const scope = input.scope ?? "local"
     if (input.timeout !== undefined && input.timeout < 0) {
       throw new Error(`Invalid timeout value: ${input.timeout}. Timeout must be a positive number.`)
     }
 
-    const ps = ["powershell", "pwsh"].includes(name)
+    const ps = ["powershell", "pwsh"].includes(exec.name)
     const root = await parse(input.command, ps)
-    const scan = await collect(root, cwd, ps, shell)
+    const scan = await collect(root, cwd, ps, exec.file)
     if (!Instance.containsPath(cwd)) scan.dirs.add(cwd)
     await ask(ctx, scan)
 
     const state = await start({
-      shell,
-      name,
+      shell: exec.file,
+      name: exec.name,
+      args: exec.args,
       command: input.command,
       cwd,
       scope,

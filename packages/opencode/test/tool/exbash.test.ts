@@ -26,6 +26,7 @@ const root = path.join(__dirname, "../..")
 const bin = `"${process.execPath.replaceAll("\\", "/")}"`
 const sh = () => Shell.name(Shell.acceptable())
 const evalarg = (text: string) => (sh() === "cmd" ? `"${text}"` : `'${text}'`)
+const q = (text: string) => `"${text.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`
 
 const poll = async <T>(fn: () => Promise<T | undefined>, ms = 2_000) => {
   const end = Date.now() + ms
@@ -71,6 +72,175 @@ describe("tool.exbash", () => {
       },
     })
   })
+
+  test("runs sync exec mode with custom executor prefix", async () => {
+    await Instance.provide({
+      directory: root,
+      fn: async () => {
+        const exbash = await ExBashTool.init()
+        const ctx = await mkctx("sync custom exec")
+        const result = await exbash.execute(
+          {
+            mode: "exec",
+            executor: `${bin} -e ${q("process.stdout.write(process.argv[1])")}`,
+            command: "custom",
+            description: "Echo custom message",
+          },
+          ctx,
+        )
+        expect(result.metadata.exit).toBe(0)
+        expect(result.output).toContain("custom")
+      },
+    })
+  })
+
+  test("uses default executor from config", async () => {
+    await using tmp = await tmpdir({
+      config: {
+        experimental: {
+          exbash: {
+            default_executor: `${bin} -e ${q("process.stdout.write(process.argv[1])")}`,
+          },
+        },
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const exbash = await ExBashTool.init()
+        const ctx = await mkctx("config exec", tmp.path)
+        const result = await exbash.execute(
+          {
+            mode: "exec",
+            command: "config",
+            description: "Echo config message",
+          },
+          ctx,
+        )
+        expect(result.metadata.exit).toBe(0)
+        expect(result.output).toContain("config")
+      },
+    })
+  })
+
+  test("runs async mode with custom executor prefix", async () => {
+    await Instance.provide({
+      directory: root,
+      fn: async () => {
+        const exbash = await ExBashTool.init()
+        const ctx = await mkctx("async custom exec")
+        const started = JSON.parse(
+          (
+            await exbash.execute(
+              {
+                mode: "exec_async",
+                executor: `${bin} -e ${q("console.log(process.argv[1])")}`,
+                command: "async-custom",
+                description: "Run custom async exec",
+              },
+              ctx,
+            )
+          ).output,
+        ) as {
+          asyncID: string
+          resultPath: string
+        }
+
+        await poll(async () => {
+          const listed = JSON.parse(
+            (
+              await exbash.execute(
+                {
+                  mode: "list",
+                  asyncID: started.asyncID,
+                },
+                ctx,
+              )
+            ).output,
+          ) as {
+            runs: Array<{ status: string }>
+          }
+          if (!listed.runs[0]?.status.includes("exit 0")) return
+          return listed.runs[0]
+        })
+
+        expect(await Filesystem.readText(started.resultPath)).toContain("async-custom")
+        await exbash.execute({ mode: "control", asyncID: started.asyncID, action: "remove" }, ctx)
+      },
+    })
+  })
+
+  test("runs sync exec mode with explicit bash executor", async () => {
+    const shell = process.platform === "win32" ? Shell.gitbash() : Bun.which("bash")
+    if (!shell) return
+
+    await Instance.provide({
+      directory: root,
+      fn: async () => {
+        const exbash = await ExBashTool.init()
+        const ctx = await mkctx("sync bash exec")
+        const result = await exbash.execute(
+          {
+            mode: "exec",
+            executor: "bash",
+            command: "echo bash-test",
+            description: "Echo bash message",
+          },
+          ctx,
+        )
+        expect(result.metadata.exit).toBe(0)
+        expect(result.output).toContain("bash-test")
+      },
+    })
+  })
+
+  if (process.platform === "win32") {
+    test("runs sync exec mode with explicit cmd executor", async () => {
+      await Instance.provide({
+        directory: root,
+        fn: async () => {
+          const exbash = await ExBashTool.init()
+          const ctx = await mkctx("sync cmd exec")
+          const result = await exbash.execute(
+            {
+              mode: "exec",
+              executor: "cmd",
+              command: "echo cmd-test",
+              description: "Echo cmd message",
+            },
+            ctx,
+          )
+          expect(result.metadata.exit).toBe(0)
+          expect(result.output).toContain("cmd-test")
+        },
+      })
+    })
+
+    test("runs sync exec mode with explicit powershell executor", async () => {
+      const shell = Bun.which("pwsh") || Bun.which("powershell")
+      if (!shell) return
+
+      await Instance.provide({
+        directory: root,
+        fn: async () => {
+          const exbash = await ExBashTool.init()
+          const ctx = await mkctx("sync powershell exec")
+          const result = await exbash.execute(
+            {
+              mode: "exec",
+              executor: "powershell",
+              command: "Write-Output pwsh-test",
+              description: "Echo powershell message",
+            },
+            ctx,
+          )
+          expect(result.metadata.exit).toBe(0)
+          expect(result.output).toContain("pwsh-test")
+        },
+      })
+    })
+  }
 
   test("lists async runs and reports timeout stop state", async () => {
     await Instance.provide({
