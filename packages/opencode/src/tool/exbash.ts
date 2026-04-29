@@ -35,6 +35,10 @@ type Exec = {
   args: string[]
 }
 
+type Key = "bash" | "powershell" | "cmd" | "node" | "python"
+
+type Paths = Partial<Record<Key, string | string[]>>
+
 const jobs = new Map<string, Job>()
 
 const sync = z.object({
@@ -44,7 +48,7 @@ const sync = z.object({
   executor: z
     .string()
     .optional()
-    .describe("Optional executor. Built-ins: bash, powershell, cmd. Other strings are treated as command prefixes."),
+    .describe("Optional executor. Built-ins: bash, powershell, cmd, node, python. Other strings are treated as command prefixes."),
   description: z.string().describe("Clear, concise description of what this command does in 5-10 words."),
 })
 
@@ -58,7 +62,7 @@ const back = z.object({
   executor: z
     .string()
     .optional()
-    .describe("Optional executor. Built-ins: bash, powershell, cmd. Other strings are treated as command prefixes."),
+    .describe("Optional executor. Built-ins: bash, powershell, cmd, node, python. Other strings are treated as command prefixes."),
   description: z.string().describe("Clear, concise description of what this command does in 5-10 words."),
 })
 
@@ -111,6 +115,40 @@ function file(id: string) {
   return path.join(ROOT, `${id}.log`)
 }
 
+function key(text: string): Key | undefined {
+  if (text === "pwsh" || text === "powershell") return "powershell"
+  if (text === "bash" || text === "cmd" || text === "node" || text === "python") return text
+}
+
+function list(input?: string | string[]) {
+  if (!input) return []
+  return (Array.isArray(input) ? input : [input]).map((item) => item.trim()).filter(Boolean)
+}
+
+function pathy(text: string) {
+  return path.isAbsolute(text) || text.startsWith(".") || text.includes("/") || text.includes("\\")
+}
+
+function prog(text: string, root?: string) {
+  const next = process.platform === "win32" ? Filesystem.windowsPath(text) : text
+  if (!root || !pathy(next) || path.isAbsolute(next)) return next
+  return Filesystem.resolve(path.join(root, next))
+}
+
+function select(input: string | string[] | undefined, root?: string) {
+  const vals = list(input)
+  const seen = vals.map((item) => prog(item, root))
+  for (const item of seen) {
+    if (pathy(item)) {
+      if (Filesystem.stat(item)) return item
+      continue
+    }
+    const hit = which(item)
+    if (hit) return hit
+  }
+  return seen[0]
+}
+
 function split(text: string) {
   const list = text.match(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\S+/g) ?? []
   return list.map((item) => {
@@ -124,10 +162,10 @@ function split(text: string) {
   })
 }
 
-function prefix(text: string) {
+function prefix(text: string, root?: string) {
   const list = split(text.trim())
   if (!list.length) throw new Error("Executor must not be empty")
-  const file = process.platform === "win32" ? Filesystem.windowsPath(list[0]) : list[0]
+  const file = prog(list[0], root)
   return {
     file,
     name: Shell.name(file),
@@ -135,39 +173,69 @@ function prefix(text: string) {
   }
 }
 
-function builtin(text: string) {
+function builtin(text: Key, root?: string, cfg?: Paths) {
   if (text === "bash") {
-    const file = process.platform === "win32" ? Shell.gitbash() || which("bash") || "bash" : which("bash") || "/bin/bash"
+    const file = select(cfg?.bash, root) || (process.platform === "win32" ? Shell.gitbash() || "bash" : which("bash") || "/bin/bash")
     return { file, name: "bash", args: ["-lc"] }
   }
 
   if (text === "powershell") {
-    const file = which("pwsh") || which("pwsh.exe") || which("powershell") || which("powershell.exe") || "powershell"
+    const file = select(cfg?.powershell, root) || which("pwsh") || which("powershell") || "powershell"
     return { file, name: Shell.name(file), args: ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"] }
   }
 
   if (text === "cmd") {
-    const file = process.env.COMSPEC || which("cmd") || which("cmd.exe") || "cmd.exe"
+    const file = select(cfg?.cmd, root) || process.env.COMSPEC || "cmd.exe"
     return {
       file: process.platform === "win32" ? Filesystem.windowsPath(file) : file,
       name: "cmd",
       args: ["/d", "/s", "/c"],
     }
   }
+
+  if (text === "node") {
+    const file = select(cfg?.node, root) || "node"
+    return { file, name: "node", args: ["-e"] }
+  }
+
+  const file = select(cfg?.python, root) || "python"
+  return { file, name: "python", args: ["-c"] }
 }
 
-async function pick(text?: string): Promise<Exec> {
-  const cfg = await Config.get()
-  const next = text?.trim() || cfg.experimental?.exbash?.default_executor?.trim()
+function native(root: string, cfg?: Paths): Exec {
+  const file = Shell.acceptable()
+  const name = Shell.name(file)
+  const next = key(name)
+  if (!next) return { file, name, args: [] }
+  if (!list(cfg?.[next]).length) return { file, name, args: [] }
+  const exec = builtin(next, root, cfg)
+  return {
+    file: exec.file,
+    name: exec.name,
+    args: [],
+  }
+}
+
+function raw(text?: string): Exec {
+  const next = text?.trim()
   if (!next) {
     const file = Shell.acceptable()
     return { file, name: Shell.name(file), args: [] }
   }
 
-  const key = next.toLowerCase()
-  const hit = builtin(key)
-  if (hit) return hit
+  const hit = key(next.toLowerCase())
+  if (hit) return builtin(hit)
   return prefix(next)
+}
+
+async function pick(text: string | undefined, root: string): Promise<Exec> {
+  const cfg = (await Config.get()).experimental?.exbash?.executors
+  const next = text?.trim()
+  if (!next) return native(root, cfg)
+
+  const hit = key(next.toLowerCase())
+  if (hit) return builtin(hit, root, cfg)
+  return prefix(next, root)
 }
 
 async function inputfile(file: string, ctx: Tool.Context) {
@@ -185,7 +253,7 @@ async function inputfile(file: string, ctx: Tool.Context) {
 }
 
 function workspace(ctx: Tool.Context) {
-  const dir = ctx.worktree && ctx.worktree !== "/" ? ctx.worktree : ctx.directory ?? Instance.directory
+  const dir = ctx.worktree && ctx.worktree !== "/" ? ctx.worktree : Instance.worktree !== "/" ? Instance.worktree : ctx.directory ?? Instance.directory
   return Filesystem.resolve(dir)
 }
 
@@ -371,7 +439,8 @@ export const ExBashTool = Tool.define("exbash", {
     "Omit unrelated fields entirely. Do not send empty string placeholders.",
     "- mode=exec: run a shell command and wait for completion.",
     "- mode=exec_async: run a shell command in the background and return immediately.",
-    "- executor accepts bash, powershell, cmd, or a custom command prefix for exec and exec_async.",
+    "- if executor is omitted, exbash prefers the system-native supported executor.",
+    "- executor accepts bash, powershell, cmd, node, python, or a custom command prefix for exec and exec_async.",
     "- exec_async scope=local keeps the task visible only in the current session.",
     "- exec_async scope=workspace keeps the task visible in the same workspace.",
     "- mode=list: show async runs with status, result file path, and current line pointer.",
@@ -485,7 +554,9 @@ export const ExBashTool = Tool.define("exbash", {
 
     if (arg.mode === "exec") {
       const input = sync.parse(arg)
-      const exec = await pick(input.executor)
+      const shell = raw(input.executor).file
+      const cwd = input.workdir ? await resolvePath(input.workdir, Instance.directory, shell) : Instance.directory
+      const exec = await pick(input.executor, workspace(ctx))
       return invoke(
         {
           command: input.command,
@@ -500,8 +571,9 @@ export const ExBashTool = Tool.define("exbash", {
 
     const input = back.parse(arg)
 
-    const exec = await pick(input.executor)
-    const cwd = input.workdir ? await resolvePath(input.workdir, Instance.directory, exec.file) : Instance.directory
+    const shell = raw(input.executor).file
+    const cwd = input.workdir ? await resolvePath(input.workdir, Instance.directory, shell) : Instance.directory
+    const exec = await pick(input.executor, workspace(ctx))
     const scope = input.scope ?? "local"
     if (input.timeout !== undefined && input.timeout < 0) {
       throw new Error(`Invalid timeout value: ${input.timeout}. Timeout must be a positive number.`)

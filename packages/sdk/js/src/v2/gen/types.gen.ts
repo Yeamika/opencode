@@ -1701,10 +1701,28 @@ export type Config = {
      */
     mcp_timeout?: number
     exbash?: {
-      /**
-       * Default executor for exbash exec and exec_async modes.
-       */
-      default_executor?: string
+      executors?: {
+        /**
+         * Path or ordered fallback paths for the bash executable used by exbash. Relative paths resolve from the session workspace directory.
+         */
+        bash?: string | Array<string>
+        /**
+         * Path or ordered fallback paths for the PowerShell executable used by exbash. Relative paths resolve from the session workspace directory.
+         */
+        powershell?: string | Array<string>
+        /**
+         * Path or ordered fallback paths for the cmd executable used by exbash. Relative paths resolve from the session workspace directory.
+         */
+        cmd?: string | Array<string>
+        /**
+         * Path or ordered fallback paths for the node executable used by exbash. Relative paths resolve from the session workspace directory.
+         */
+        node?: string | Array<string>
+        /**
+         * Path or ordered fallback paths for the python executable used by exbash. Relative paths resolve from the session workspace directory.
+         */
+        python?: string | Array<string>
+      }
     }
   }
 }

@@ -1,5 +1,6 @@
 import { TextAttributes } from "@opentui/core"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
+import { createMemo } from "solid-js"
 import { useTheme } from "@tui/context/theme"
 import { useTuiConfig } from "../../context/tui-config"
 import { getScrollAcceleration } from "../../util/scroll"
@@ -13,9 +14,13 @@ export function DialogToolOutput(props: {
   const { theme } = useTheme()
   const cfg = useTuiConfig()
   const dim = useTerminalDimensions()
+  const height = createMemo(() => {
+    const max = Math.max(6, Math.floor(dim().height * 0.75) - 7)
+    return Math.max(6, Math.min(Math.floor(dim().height * 0.5), max))
+  })
 
   useKeyboard((evt) => {
-    if (evt.name === "return") dialog.clear()
+    if (evt.name === "return" || evt.name === "escape") dialog.clear()
   })
 
   return (
@@ -29,7 +34,7 @@ export function DialogToolOutput(props: {
         </text>
       </box>
       <scrollbox
-        height={Math.max(8, Math.floor(dim().height * 0.6))}
+        height={height()}
         scrollAcceleration={getScrollAcceleration(cfg)}
         verticalScrollbarOptions={{
           visible: true,
@@ -41,10 +46,16 @@ export function DialogToolOutput(props: {
       >
         <text fg={theme.textMuted}>{props.message}</text>
       </scrollbox>
+      <box flexDirection="row" justifyContent="flex-end" paddingBottom={1}>
+        <box paddingLeft={3} paddingRight={3} backgroundColor={theme.primary} onMouseUp={() => dialog.clear()}>
+          <text fg={theme.selectedListItemText}>ok</text>
+        </box>
+      </box>
     </box>
   )
 }
 
 DialogToolOutput.show = (dialog: DialogContext, title: string, message: string) => {
+  dialog.setSize("large")
   dialog.replace(() => <DialogToolOutput title={title} message={message} />)
 }

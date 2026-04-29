@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test"
+import * as fs from "fs/promises"
 import path from "path"
 import z from "zod"
 import "../../src/server/projectors"
+import { Project } from "../../src/project/project"
 import { Session } from "../../src/session"
 import { MessageID } from "../../src/session/schema"
 import { Shell } from "../../src/shell/shell"
@@ -94,32 +96,75 @@ describe("tool.exbash", () => {
     })
   })
 
-  test("uses default executor from config", async () => {
+  test("runs sync exec mode with explicit node executor", async () => {
+    if (!Bun.which("node")) return
+
+    await Instance.provide({
+      directory: root,
+      fn: async () => {
+        const exbash = await ExBashTool.init()
+        const ctx = await mkctx("sync node exec")
+        const result = await exbash.execute(
+          {
+            mode: "exec",
+            executor: "node",
+            command: 'process.stdout.write("node-test")',
+            description: "Echo node message",
+          },
+          ctx,
+        )
+        expect(result.metadata.exit).toBe(0)
+        expect(result.output).toContain("node-test")
+      },
+    })
+  })
+
+  test("uses configured python candidates relative to workspace", async () => {
+    const rel = process.platform === "win32" ? ".venv/python.cmd" : ".venv/python"
     await using tmp = await tmpdir({
+      init: async (dir) => {
+        const file = path.join(dir, rel)
+        await fs.mkdir(path.dirname(file), { recursive: true })
+        await fs.mkdir(path.join(dir, "nested/child"), { recursive: true })
+        await Bun.write(
+          file,
+          process.platform === "win32"
+            ? '@echo off\r\nif "%1"=="-c" <nul set /p=%2\r\n'
+            : '#!/bin/sh\nif [ "$1" = "-c" ]; then\n  printf "%s" "$2"\n  exit 0\nfi\nexit 1\n',
+        )
+        await fs.chmod(file, 0o755)
+        return path.join(dir, "nested/child")
+      },
       config: {
         experimental: {
           exbash: {
-            default_executor: `${bin} -e ${q("process.stdout.write(process.argv[1])")}`,
+            executors: {
+              python: ["missing/python", rel, "python"],
+            },
           },
         },
       },
     })
 
+    const { project } = await Project.fromDirectory(tmp.path)
+    await Instance.reload({ directory: tmp.extra, project, worktree: tmp.path })
+
     await Instance.provide({
-      directory: tmp.path,
+      directory: tmp.extra,
       fn: async () => {
         const exbash = await ExBashTool.init()
-        const ctx = await mkctx("config exec", tmp.path)
+        const ctx = await mkctx("config exec", tmp.extra)
         const result = await exbash.execute(
           {
             mode: "exec",
-            command: "config",
-            description: "Echo config message",
+            executor: "python",
+            command: "config-python",
+            description: "Echo config python",
           },
           ctx,
         )
         expect(result.metadata.exit).toBe(0)
-        expect(result.output).toContain("config")
+        expect(result.output).toContain("config-python")
       },
     })
   })

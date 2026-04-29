@@ -1,5 +1,7 @@
 import { useSync } from "@tui/context/sync"
+import { useDialog } from "@tui/ui/dialog"
 import { createMemo, Show } from "solid-js"
+import { DialogSessionList } from "@tui/component/dialog-session-list"
 import { useTheme } from "../../context/theme"
 import { useTuiConfig } from "../../context/tui-config"
 import { Installation } from "@/installation"
@@ -8,6 +10,7 @@ import { TuiPluginRuntime } from "../../plugin"
 import { getScrollAcceleration } from "../../util/scroll"
 
 export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
+  const dialog = useDialog()
   const sync = useSync()
   const { theme } = useTheme()
   const tuiConfig = useTuiConfig()
@@ -44,7 +47,12 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
               title={session()!.title}
               share_url={session()!.share?.url}
             >
-              <box paddingRight={1}>
+              <box
+                paddingRight={1}
+                onMouseUp={() => {
+                  dialog.replace(() => <DialogSessionList />)
+                }}
+              >
                 <text fg={theme.text}>
                   <b>{session()!.title}</b>
                 </text>

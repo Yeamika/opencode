@@ -1069,10 +1069,40 @@ export namespace Config {
             .describe("Timeout in milliseconds for model context protocol (MCP) requests"),
           exbash: z
             .object({
-              default_executor: z
-                .string()
-                .optional()
-                .describe("Default executor for exbash exec and exec_async modes."),
+              executors: z
+                .object({
+                  bash: z
+                    .union([z.string(), z.array(z.string()).min(1)])
+                    .optional()
+                    .describe(
+                      "Path or ordered fallback paths for the bash executable used by exbash. Relative paths resolve from the session workspace directory.",
+                    ),
+                  powershell: z
+                    .union([z.string(), z.array(z.string()).min(1)])
+                    .optional()
+                    .describe(
+                      "Path or ordered fallback paths for the PowerShell executable used by exbash. Relative paths resolve from the session workspace directory.",
+                    ),
+                  cmd: z
+                    .union([z.string(), z.array(z.string()).min(1)])
+                    .optional()
+                    .describe(
+                      "Path or ordered fallback paths for the cmd executable used by exbash. Relative paths resolve from the session workspace directory.",
+                    ),
+                  node: z
+                    .union([z.string(), z.array(z.string()).min(1)])
+                    .optional()
+                    .describe(
+                      "Path or ordered fallback paths for the node executable used by exbash. Relative paths resolve from the session workspace directory.",
+                    ),
+                  python: z
+                    .union([z.string(), z.array(z.string()).min(1)])
+                    .optional()
+                    .describe(
+                      "Path or ordered fallback paths for the python executable used by exbash. Relative paths resolve from the session workspace directory.",
+                    ),
+                })
+                .optional(),
             })
             .optional(),
         })
