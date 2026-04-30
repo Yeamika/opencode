@@ -93,14 +93,14 @@ const feed = z.object({
 
 const parameters = z
   .object({
-    mode: z.enum(["exec", "exec_async", "exec_async_timeout", "list", "control", "input"]),
-    command: z.string().optional().describe("Use for exec, exec_async, and exec_async_timeout."),
-    description: z.string().optional().describe("Use for exec, exec_async, and exec_async_timeout."),
-    workdir: z.string().optional().describe("Use for exec, exec_async, and exec_async_timeout."),
-    executor: z.string().optional().describe("Use for exec, exec_async, and exec_async_timeout."),
-    scope: z.enum(["local", "workspace"]).optional().describe("Use for exec_async, exec_async_timeout, or as an optional filter for list."),
-    timeout: z.number().optional().describe("Use for exec, exec_async, exec_async_timeout, or input wait=attach."),
-    async_timeout: z.number().optional().describe("Use for exec_async_timeout."),
+    mode: z.enum(["exec_timeout_async", "exec_async", "list", "control", "input"]),
+    command: z.string().optional().describe("Use for exec_timeout_async and exec_async."),
+    description: z.string().optional().describe("Use for exec_timeout_async and exec_async."),
+    workdir: z.string().optional().describe("Use for exec_timeout_async and exec_async."),
+    executor: z.string().optional().describe("Use for exec_timeout_async and exec_async."),
+    scope: z.enum(["local", "workspace"]).optional().describe("Use for exec_timeout_async, exec_async, or as an optional filter for list."),
+    timeout: z.number().optional().describe("Use for exec_timeout_async, exec_async, or input wait=attach."),
+    async_timeout: z.number().optional().describe("Use for exec_timeout_async."),
     asyncID: z.string().optional().describe("Use for list, control, and input."),
     action: z.enum(["stop", "remove"]).optional().describe("Use for control."),
     wait: z.enum(["return", "attach"]).optional().describe("Use for input."),
@@ -515,22 +515,21 @@ export const ExBashTool = Tool.define("exbash", {
     "Extended bash control surface with explicit sync and async execution modes.",
     "Only include fields that belong to the selected mode.",
     "Omit unrelated fields entirely. Do not send empty string placeholders.",
-    "- mode=exec: run a shell command and wait for completion.",
+    "- mode=exec_timeout_async: run first in the foreground, then detach into an async task after async_timeout ms if still running.",
     "- mode=exec_async: run a shell command in the background and return immediately.",
-    "- mode=exec_async_timeout: run like exec, but detach into an async task after async_timeout ms if still running.",
     "- if executor is omitted, exbash prefers the system-native supported executor.",
-    "- executor accepts bash, powershell, cmd, node, python, or a custom command prefix for exec and exec_async.",
-    "- async_timeout defaults to 10000 for exec_async_timeout.",
+    "- executor accepts bash, powershell, cmd, node, python, or a custom command prefix for async modes.",
+    "- async_timeout defaults to 10000 for exec_timeout_async.",
     "- exec_async scope=local keeps the task visible only in the current session.",
     "- exec_async scope=workspace keeps the task visible in the same workspace.",
+    "- exec_async and detached exec_timeout_async calls return asyncID and resultPath immediately.",
     "- mode=list: show async runs with status, result file path, and current line pointer.",
     "- mode=control: stop a running async run or remove a stopped run from the list.",
     "- mode=input: write text or file bytes into a running async task stdin.",
     "- input wait=attach waits for new output, default timeout 10000ms, default output window 100 bytes.",
     "Examples:",
-    '- exec: {"mode":"exec","command":"echo hello","description":"Print hello","executor":"bash"}',
+    '- exec_timeout_async: {"mode":"exec_timeout_async","command":"sleep 20","description":"Wait and detach","async_timeout":10000}',
     '- exec_async: {"mode":"exec_async","command":"Write-Output hello","description":"Run async echo","scope":"local","executor":"powershell"}',
-    '- exec_async_timeout: {"mode":"exec_async_timeout","command":"sleep 20","description":"Wait and detach","async_timeout":10000}',
     '- list: {"mode":"list"}',
     '- list filtered: {"mode":"list","scope":"workspace","asyncID":"<asyncID>"}',
     '- control: {"mode":"control","asyncID":"<asyncID>","action":"stop"}',
@@ -633,7 +632,7 @@ export const ExBashTool = Tool.define("exbash", {
       return { title: "Async run removed", metadata: output, output: JSON.stringify(output, null, 2) }
     }
 
-    if (arg.mode === "exec_async_timeout") {
+    if (arg.mode === "exec_timeout_async") {
       const input = auto.parse(arg)
       const asyncTimeout = input.async_timeout ?? ASYNC_TIMEOUT
       if (asyncTimeout < 0) {
@@ -688,23 +687,6 @@ export const ExBashTool = Tool.define("exbash", {
         },
         output: JSON.stringify(item, null, 2),
       }
-    }
-
-    if (arg.mode === "exec") {
-      const input = sync.parse(arg)
-      const shell = raw(input.executor).file
-      const cwd = input.workdir ? await resolvePath(input.workdir, Instance.directory, shell) : Instance.directory
-      const exec = await pick(input.executor, workspace(ctx))
-      return invoke(
-        {
-          command: input.command,
-          timeout: input.timeout,
-          workdir: input.workdir,
-          description: input.description,
-        },
-        ctx,
-        exec,
-      )
     }
 
     const input = back.parse(arg)

@@ -50,76 +50,12 @@ const mkctx = async (title: string, directory = root) => {
 }
 
 describe("tool.exbash", () => {
-  test("exports an object json schema", async () => {
+  test.serial("exports an object json schema", async () => {
     const exbash = await ExBashTool.init()
     expect(z.toJSONSchema(exbash.parameters).type).toBe("object")
   })
 
-  test("runs sync exec mode like bash", async () => {
-    await Instance.provide({
-      directory: root,
-      fn: async () => {
-        const exbash = await ExBashTool.init()
-        const ctx = await mkctx("sync exec")
-        const result = await exbash.execute(
-          {
-            mode: "exec",
-            command: "echo test",
-            description: "Echo test message",
-          },
-          ctx,
-        )
-        expect(result.metadata.exit).toBe(0)
-        expect(result.output).toContain("test")
-      },
-    })
-  })
-
-  test("runs sync exec mode with custom executor prefix", async () => {
-    await Instance.provide({
-      directory: root,
-      fn: async () => {
-        const exbash = await ExBashTool.init()
-        const ctx = await mkctx("sync custom exec")
-        const result = await exbash.execute(
-          {
-            mode: "exec",
-            executor: `${bin} -e ${q("process.stdout.write(process.argv[1])")}`,
-            command: "custom",
-            description: "Echo custom message",
-          },
-          ctx,
-        )
-        expect(result.metadata.exit).toBe(0)
-        expect(result.output).toContain("custom")
-      },
-    })
-  })
-
-  test("runs sync exec mode with explicit node executor", async () => {
-    if (!Bun.which("node")) return
-
-    await Instance.provide({
-      directory: root,
-      fn: async () => {
-        const exbash = await ExBashTool.init()
-        const ctx = await mkctx("sync node exec")
-        const result = await exbash.execute(
-          {
-            mode: "exec",
-            executor: "node",
-            command: 'process.stdout.write("node-test")',
-            description: "Echo node message",
-          },
-          ctx,
-        )
-        expect(result.metadata.exit).toBe(0)
-        expect(result.output).toContain("node-test")
-      },
-    })
-  })
-
-  test("uses configured python candidates relative to workspace", async () => {
+  test.serial("uses configured python candidates relative to workspace in exec_timeout_async", async () => {
     const rel = process.platform === "win32" ? ".venv/python.cmd" : ".venv/python"
     await using tmp = await tmpdir({
       init: async (dir) => {
@@ -156,7 +92,7 @@ describe("tool.exbash", () => {
         const ctx = await mkctx("config exec", tmp.extra)
         const result = await exbash.execute(
           {
-            mode: "exec",
+            mode: "exec_timeout_async",
             executor: "python",
             command: "config-python",
             description: "Echo config python",
@@ -169,7 +105,7 @@ describe("tool.exbash", () => {
     })
   })
 
-  test("runs async mode with custom executor prefix", async () => {
+  test.serial("runs async mode with custom executor prefix", async () => {
     await Instance.provide({
       directory: root,
       fn: async () => {
@@ -216,7 +152,7 @@ describe("tool.exbash", () => {
     })
   })
 
-  test("returns sync output when exec_async_timeout finishes quickly", async () => {
+  test.serial("returns sync output when exec_timeout_async finishes quickly", async () => {
     await Instance.provide({
       directory: root,
       fn: async () => {
@@ -224,7 +160,7 @@ describe("tool.exbash", () => {
         const ctx = await mkctx("async timeout sync")
         const result = await exbash.execute(
           {
-            mode: "exec_async_timeout",
+            mode: "exec_timeout_async",
             command: `${bin} -e ${evalarg('process.stdout.write("done-fast")')}`,
             description: "Finish before detach",
           },
@@ -242,7 +178,7 @@ describe("tool.exbash", () => {
     })
   })
 
-  test("detaches into async task after async timeout", async () => {
+  test.serial("detaches into async task after exec timeout async threshold", async () => {
     await Instance.provide({
       directory: root,
       fn: async () => {
@@ -252,7 +188,7 @@ describe("tool.exbash", () => {
           (
             await exbash.execute(
               {
-                mode: "exec_async_timeout",
+                mode: "exec_timeout_async",
                 command: `${bin} -e ${evalarg('setTimeout(() => console.log("late-finish"), 200)')}`,
                 description: "Detach after wait",
                 async_timeout: 50,
@@ -295,78 +231,7 @@ describe("tool.exbash", () => {
     })
   })
 
-  test("runs sync exec mode with explicit bash executor", async () => {
-    const shell = process.platform === "win32" ? Shell.gitbash() : Bun.which("bash")
-    if (!shell) return
-
-    await Instance.provide({
-      directory: root,
-      fn: async () => {
-        const exbash = await ExBashTool.init()
-        const ctx = await mkctx("sync bash exec")
-        const result = await exbash.execute(
-          {
-            mode: "exec",
-            executor: "bash",
-            command: "echo bash-test",
-            description: "Echo bash message",
-          },
-          ctx,
-        )
-        expect(result.metadata.exit).toBe(0)
-        expect(result.output).toContain("bash-test")
-      },
-    })
-  })
-
-  if (process.platform === "win32") {
-    test("runs sync exec mode with explicit cmd executor", async () => {
-      await Instance.provide({
-        directory: root,
-        fn: async () => {
-          const exbash = await ExBashTool.init()
-          const ctx = await mkctx("sync cmd exec")
-          const result = await exbash.execute(
-            {
-              mode: "exec",
-              executor: "cmd",
-              command: "echo cmd-test",
-              description: "Echo cmd message",
-            },
-            ctx,
-          )
-          expect(result.metadata.exit).toBe(0)
-          expect(result.output).toContain("cmd-test")
-        },
-      })
-    })
-
-    test("runs sync exec mode with explicit powershell executor", async () => {
-      const shell = Bun.which("pwsh") || Bun.which("powershell")
-      if (!shell) return
-
-      await Instance.provide({
-        directory: root,
-        fn: async () => {
-          const exbash = await ExBashTool.init()
-          const ctx = await mkctx("sync powershell exec")
-          const result = await exbash.execute(
-            {
-              mode: "exec",
-              executor: "powershell",
-              command: "Write-Output pwsh-test",
-              description: "Echo powershell message",
-            },
-            ctx,
-          )
-          expect(result.metadata.exit).toBe(0)
-          expect(result.output).toContain("pwsh-test")
-        },
-      })
-    })
-  }
-
-  test("lists async runs and reports timeout stop state", async () => {
+  test.serial("lists async runs and reports timeout stop state", async () => {
     await Instance.provide({
       directory: root,
       fn: async () => {
@@ -425,7 +290,7 @@ describe("tool.exbash", () => {
     })
   })
 
-  test("stops and removes async runs", async () => {
+  test.serial("stops and removes async runs", async () => {
     await Instance.provide({
       directory: root,
       fn: async () => {
@@ -506,7 +371,7 @@ describe("tool.exbash", () => {
     })
   })
 
-  test("writes text into async task stdin", async () => {
+  test.serial("writes text into async task stdin", async () => {
     await Instance.provide({
       directory: root,
       fn: async () => {
@@ -585,7 +450,7 @@ describe("tool.exbash", () => {
     })
   })
 
-  test("writes file bytes into async task stdin", async () => {
+  test.serial("writes file bytes into async task stdin", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {
         await Bun.write(path.join(dir, "stdin.bin"), Buffer.from([0x00, 0x01, 0xff]))
@@ -659,7 +524,7 @@ describe("tool.exbash", () => {
     })
   })
 
-  test("limits local tasks to one session and workspace tasks to one workspace", async () => {
+  test.serial("limits local tasks to one session and workspace tasks to one workspace", async () => {
     await using a = await tmpdir()
     await using b = await tmpdir()
 
