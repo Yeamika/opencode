@@ -1693,7 +1693,7 @@ export type Config = {
      */
     primary_tools?: Array<string>
     /**
-     * Continue the agent loop when a tool call is denied
+     * Continue the agent loop when a tool call is denied. Defaults to true.
      */
     continue_loop_on_deny?: boolean
     /**
