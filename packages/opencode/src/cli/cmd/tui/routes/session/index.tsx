@@ -78,6 +78,7 @@ import { useExit } from "../../context/exit"
 import { Filesystem } from "@/util/filesystem"
 import { Global } from "@/global"
 import { PermissionPrompt } from "./permission"
+import { shellinput } from "./shellinput"
 import { QuestionPrompt } from "./question"
 import { DialogExportOptions } from "../../ui/dialog-export-options"
 import * as Model from "../../util/model"
@@ -1908,79 +1909,13 @@ function BlockTool(props: {
   )
 }
 
-function shellinput(input: Partial<Tool.InferParameters<typeof BashTool>> | Partial<Tool.InferParameters<typeof ExBashTool>>) {
-  const text = (value?: string) => {
-    if (!value?.trim()) return
-    const next = value.replace(/\s+/g, " ").trim()
-    if (next.length <= 24) return next
-    return next.slice(0, 21) + "..."
-  }
-
-  const file = (value?: string) => {
-    if (!value?.trim()) return
-    return normalizePath(value)
-  }
-
-  if (!("mode" in input)) {
-    return {
-      mode: undefined,
-      command: (input as Partial<Tool.InferParameters<typeof BashTool>>).command,
-      description: (input as Partial<Tool.InferParameters<typeof BashTool>>).description,
-      workdir: (input as Partial<Tool.InferParameters<typeof BashTool>>).workdir,
-    }
-  }
-
-  if (input.mode === "exec") {
-    return {
-      mode: input.mode,
-      command: input.command,
-      description: input.description,
-      workdir: input.workdir,
-    }
-  }
-  if (input.mode === "exec_async") {
-    return {
-      mode: input.mode,
-      command: input.command,
-      description: input.description,
-      workdir: input.workdir,
-    }
-  }
-  if (input.mode === "list") {
-    return {
-      mode: input.mode,
-      command: ["exbash list", input.scope, input.asyncID].filter(Boolean).join(" "),
-      description: "List async runs",
-    }
-  }
-  if (input.mode === "control") {
-    return {
-      mode: input.mode,
-      command: ["exbash", input.action, input.asyncID].filter(Boolean).join(" "),
-      description: `Async ${input.action ?? "control"}`,
-    }
-  }
-  return {
-    mode: input.mode,
-    command: [
-      "exbash input",
-      input.asyncID,
-      text(input.text) ? `[text: ${text(input.text)}]` : undefined,
-      file(input.filePath) ? `[file: ${file(input.filePath)}]` : undefined,
-    ]
-      .filter(Boolean)
-      .join(" "),
-    description: text(input.text) ? "Send async text input" : file(input.filePath) ? "Send async file input" : "Send async input",
-  }
-}
-
 function Bash(props: ToolProps<typeof BashTool | typeof ExBashTool>) {
   const { theme } = useTheme()
   const dialog = useDialog()
   const sync = useSync()
-  const info = createMemo(() => shellinput(props.input))
+  const info = createMemo(() => shellinput(props.input, normalizePath))
   const isRunning = createMemo(() => props.part.state.status === "running")
-  const output = createMemo(() => stripAnsi(props.metadata.output?.trim() ?? ""))
+  const output = createMemo(() => stripAnsi(typeof props.metadata.output === "string" ? props.metadata.output.trim() : ""))
   const lines = createMemo(() => output().split("\n"))
   const overflow = createMemo(() => lines().length > 10 || output().length > 600 || lines().some((x) => x.length > 160))
 
@@ -2002,17 +1937,19 @@ function Bash(props: ToolProps<typeof BashTool | typeof ExBashTool>) {
   })
 
   const title = createMemo(() => {
-    const desc = info().description ?? "Shell"
-    const mode = info().mode ? ` [${info().mode}]` : ""
+    const desc = ("title" in props.part.state && props.part.state.title) || info().description || "Shell"
     const wd = workdirDisplay()
-    if (!wd) return `# ${desc}${mode}`
-    if (desc.includes(wd)) return `# ${desc}${mode}`
-    return `# ${desc}${mode} in ${wd}`
+    if (!wd) return `# ${desc}`
+    if (desc.includes(wd)) return `# ${desc}`
+    return `# ${desc} in ${wd}`
   })
 
-  const inline = createMemo(() => {
-    if (!info().mode) return info().command
-    return `[${info().mode}] ${info().command}`
+  const inline = createMemo(() => info().command)
+  const pending = createMemo(() => {
+    if (info().mode === "input") return "Sending input..."
+    if (info().mode === "list") return "Listing async runs..."
+    if (info().mode === "control") return "Updating async run..."
+    return "Running command..."
   })
 
   return (
@@ -2030,7 +1967,9 @@ function Bash(props: ToolProps<typeof BashTool | typeof ExBashTool>) {
           }
         >
           <box gap={1}>
-            <text fg={theme.text}>$ {info().command}</text>
+            <text fg={theme.text}>
+              {info().icon} {info().command}
+            </text>
             <Show when={output() && !overflow()}>
               <text fg={theme.text}>{output()}</text>
             </Show>
@@ -2041,7 +1980,7 @@ function Bash(props: ToolProps<typeof BashTool | typeof ExBashTool>) {
         </BlockTool>
       </Match>
       <Match when={true}>
-        <InlineTool icon="$" pending="Writing command..." complete={inline()} part={props.part} tool={info().description ?? "Shell"} input={props.input}>
+        <InlineTool icon={info().icon} pending={pending()} complete={inline()} part={props.part} tool={info().description ?? "Shell"} input={props.input}>
           {inline()}
         </InlineTool>
       </Match>
