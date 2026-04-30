@@ -450,6 +450,56 @@ describe("tool.exbash", () => {
     })
   })
 
+  test.serial("attaches to async output without writing stdin", async () => {
+    await Instance.provide({
+      directory: root,
+      fn: async () => {
+        const exbash = await ExBashTool.init()
+        const ctx = await mkctx("input attach only")
+        const started = JSON.parse(
+          (
+            await exbash.execute(
+              {
+                mode: "exec_async",
+                command: `${bin} -e ${evalarg('setTimeout(() => console.log("later"), 80); setTimeout(() => {}, 400)')}`,
+                description: "Attach without input",
+              },
+              ctx,
+            )
+          ).output,
+        ) as {
+          asyncID: string
+        }
+
+        const attached = JSON.parse(
+          (
+            await exbash.execute(
+              {
+                mode: "input",
+                asyncID: started.asyncID,
+                wait: "attach",
+                timeout: 500,
+                window: 200,
+              },
+              ctx,
+            )
+          ).output,
+        ) as {
+          wrote: number
+          source: string
+          output?: string
+        }
+
+        expect(attached.wrote).toBe(0)
+        expect(attached.source).toBe("attach")
+        expect(attached.output).toContain("later")
+
+        await exbash.execute({ mode: "control", asyncID: started.asyncID, action: "stop" }, ctx)
+        await exbash.execute({ mode: "control", asyncID: started.asyncID, action: "remove" }, ctx)
+      },
+    })
+  })
+
   test.serial("writes file bytes into async task stdin", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {

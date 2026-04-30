@@ -556,8 +556,8 @@ export const ExBashTool = Tool.define("exbash", {
 
     if (arg.mode === "input") {
       const input = feed.parse(arg)
-      if ((input.text !== undefined ? 1 : 0) + (input.filePath !== undefined ? 1 : 0) !== 1) {
-        throw new Error("Provide exactly one of text or filePath for input mode.")
+      if (input.text !== undefined && input.filePath !== undefined) {
+        throw new Error("Provide only one of text or filePath for input mode.")
       }
       if (input.timeout !== undefined && input.timeout < 0) {
         throw new Error(`Invalid timeout value: ${input.timeout}. Timeout must be a positive number.`)
@@ -580,17 +580,17 @@ export const ExBashTool = Tool.define("exbash", {
 
       const data = input.filePath !== undefined
         ? Buffer.from(await Bun.file(await inputfile(input.filePath, ctx)).arrayBuffer())
-        : input.text!
+        : input.text
 
-      await write(job, data)
+      if (data !== undefined) await write(job, data)
       const wait = input.wait ?? "return"
       const tail =
         wait === "attach" ? await attach(state.resultPath, stat.size, input.timeout ?? INPUT_TIMEOUT, input.window ?? INPUT_WINDOW) : undefined
       const output = {
         asyncID: input.asyncID,
         wait,
-        wrote: typeof data === "string" ? Buffer.byteLength(data) : data.length,
-        source: typeof data === "string" ? "text" : "file",
+        wrote: data === undefined ? 0 : typeof data === "string" ? Buffer.byteLength(data) : data.length,
+        source: data === undefined ? "attach" : typeof data === "string" ? "text" : "file",
         ...(tail ? tail : {}),
       }
       return { title: "Async input sent", metadata: output, output: JSON.stringify(output, null, 2) }
