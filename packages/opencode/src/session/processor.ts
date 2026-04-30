@@ -246,7 +246,11 @@ export namespace SessionProcessor {
                   time: { start: match.state.time.start, end: Date.now() },
                 },
               })
-              if (value.error instanceof Permission.RejectedError || value.error instanceof Question.RejectedError) {
+              if (
+                value.error instanceof Permission.RejectedError ||
+                value.error instanceof Permission.CorrectedError ||
+                value.error instanceof Question.RejectedError
+              ) {
                 ctx.blocked = ctx.shouldBreak
               }
               delete ctx.toolcalls[value.toolCallId]
@@ -449,7 +453,7 @@ export namespace SessionProcessor {
         const process = Effect.fn("SessionProcessor.process")(function* (streamInput: LLM.StreamInput) {
           log.info("process")
           ctx.needsCompaction = false
-          ctx.shouldBreak = (yield* config.get()).experimental?.continue_loop_on_deny !== true
+          ctx.shouldBreak = (yield* config.get()).experimental?.continue_loop_on_deny === false
 
           return yield* Effect.gen(function* () {
             const runAttempt = Effect.gen(function* () {

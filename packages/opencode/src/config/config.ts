@@ -1060,7 +1060,10 @@ export namespace Config {
             .array(z.string())
             .optional()
             .describe("Tools that should only be available to primary agents."),
-          continue_loop_on_deny: z.boolean().optional().describe("Continue the agent loop when a tool call is denied"),
+          continue_loop_on_deny: z
+            .boolean()
+            .optional()
+            .describe("Continue the agent loop when a tool call is denied. Defaults to true."),
           mcp_timeout: z
             .number()
             .int()

@@ -51,4 +51,40 @@ describe("workspaceMcp", () => {
       },
     })
   })
+
+  test("rejects invalid MCP entries before writing config", async () => {
+    await using tmp = await tmpdir()
+    process.env.OPENCODE_TEST_HOME = tmp.path
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const tool = await WorkspaceMcpTool.init()
+        await expect(
+          tool.execute(
+            {
+              mode: "write",
+              scope: "local",
+              name: "bad-entry",
+              value: '{"type":"remote"}',
+            },
+            {
+              sessionID: "ses_test_workspace_mcp" as any,
+              messageID: "msg_test_workspace_mcp" as any,
+              agent: "build",
+              abort: AbortSignal.any([]),
+              directory: tmp.path,
+              worktree: tmp.path,
+              messages: [],
+              metadata() {},
+              ask: async () => {},
+            },
+          ),
+        ).rejects.toThrow("Invalid MCP configuration")
+
+        const file = path.join(Global.Path.home, ".opencode", "opencode.json")
+        await expect(fs.readFile(file, "utf-8")).rejects.toBeTruthy()
+      },
+    })
+  })
 })

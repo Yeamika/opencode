@@ -1,6 +1,7 @@
 import z from "zod"
 import path from "node:path"
 import fs from "node:fs/promises"
+import { Config } from "@/config/config"
 import { Global } from "@/global"
 import { Tool } from "./tool"
 
@@ -54,7 +55,12 @@ export const WorkspaceMcpTool = Tool.define("workspaceMcp", {
       if (!value || typeof value !== "object" || Array.isArray(value)) {
         throw new Error("value must be a JSON object string")
       }
-      json.mcp[args.name] = value
+      const parsed = Config.Mcp.safeParse(value)
+      if (!parsed.success) {
+        const msg = parsed.error.issues.map((item) => item.message).join("; ") || "Invalid MCP configuration"
+        throw new Error(`Invalid MCP configuration: ${msg}`)
+      }
+      json.mcp[args.name] = parsed.data
     }
     if (args.mode === "delete") {
       if (!args.name) throw new Error("name is required for delete")
