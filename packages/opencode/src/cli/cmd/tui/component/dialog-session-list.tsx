@@ -98,12 +98,17 @@ export function DialogSessionList() {
         const isDeleting = toDelete() === x.id
         const status = sync.data.session_status?.[x.id]
         const isWorking = status?.type === "busy"
+        const dir = all() ? getFilename(x.directory) : undefined
+        const dot = x.parentID ? "● " : ""
+        const room = Math.max(20, 61 - (dir ? dir.length + 1 : 0))
         return {
-          title: isDeleting ? `Press ${keybind.print("session_delete")} again to confirm` : x.title,
+          title: isDeleting
+            ? `Press ${keybind.print("session_delete")} again to confirm`
+            : dot + Locale.truncate(x.title, room),
           bg: isDeleting ? theme.error : undefined,
           value: x.id,
           category,
-          description: all() ? getFilename(x.directory) : undefined,
+          description: dir,
           footer: Locale.time(updated),
           gutter: isWorking ? <Spinner /> : undefined,
         }
