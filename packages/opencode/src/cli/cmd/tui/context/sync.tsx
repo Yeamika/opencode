@@ -35,6 +35,13 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
   init: () => {
     const [store, setStore] = createStore<{
       status: "loading" | "partial" | "complete"
+      bootstrap: {
+        count: number
+        modal?: {
+          reason: "directory"
+          directory?: string
+        }
+      }
       provider: Provider[]
       provider_default: Record<string, string>
       provider_next: ProviderListResponse
@@ -109,6 +116,9 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       plugin: [],
       config: {},
       status: "loading",
+      bootstrap: {
+        count: 0,
+      },
       agent: [],
       permission: {},
       question: {},
@@ -455,8 +465,13 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
     const exit = useExit()
     const args = useArgs()
 
-    async function bootstrap(options?: { fatal?: boolean }) {
+    async function bootstrap(options?: { fatal?: boolean; reason?: "directory"; directory?: string }) {
       console.log("bootstrapping")
+      const modal = options?.reason === "directory" ? { reason: "directory" as const, directory: options.directory } : undefined
+      batch(() => {
+        setStore("bootstrap", "count", (x) => x + 1)
+        if (modal) setStore("bootstrap", "modal", modal)
+      })
       const start = Date.now() - 30 * 24 * 60 * 60 * 1000
       const sessionListPromise = sdk.client.session
         .list({ start: start })
@@ -477,72 +492,69 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         ...(args.continue ? [sessionListPromise] : []),
       ]
 
-      await Promise.all(blockingRequests)
-        .then(() => {
-          const providersResponse = providersPromise.then((x) => x.data!)
-          const providerListResponse = providerListPromise.then((x) => x.data!)
-          const agentsResponse = agentsPromise.then((x) => x.data ?? [])
-          const configResponse = configPromise.then((x) => x.data!)
-          const pluginsResponse = pluginsPromise.then((x) => x.data ?? [])
-          const sessionListResponse = args.continue ? sessionListPromise : undefined
+      try {
+        await Promise.all(blockingRequests)
 
-          return Promise.all([
-            providersResponse,
-            providerListResponse,
-            agentsResponse,
-            configResponse,
-            pluginsResponse,
-            ...(sessionListResponse ? [sessionListResponse] : []),
-          ]).then((responses) => {
-            const providers = responses[0]
-            const providerList = responses[1]
-            const agents = responses[2]
-            const config = responses[3]
-            const plugins = responses[4]
-            const sessions = responses[5]
+        const responses = await Promise.all([
+          providersPromise.then((x) => x.data!),
+          providerListPromise.then((x) => x.data!),
+          agentsPromise.then((x) => x.data ?? []),
+          configPromise.then((x) => x.data!),
+          pluginsPromise.then((x) => x.data ?? []),
+          ...(args.continue ? [sessionListPromise] : []),
+        ])
 
-            batch(() => {
-              setStore("provider", reconcile(providers.providers))
-              setStore("provider_default", reconcile(providers.default))
-              setStore("provider_next", reconcile(providerList))
-              setStore("agent", reconcile(agents))
-              setStore("plugin", reconcile(plugins))
-              setStore("config", reconcile(config))
-              if (sessions !== undefined) setStore("session", reconcile(sessions))
-            })
-          })
+        const providers = responses[0]
+        const providerList = responses[1]
+        const agents = responses[2]
+        const config = responses[3]
+        const plugins = responses[4]
+        const sessions = responses[5]
+
+        batch(() => {
+          setStore("provider", reconcile(providers.providers))
+          setStore("provider_default", reconcile(providers.default))
+          setStore("provider_next", reconcile(providerList))
+          setStore("agent", reconcile(agents))
+          setStore("plugin", reconcile(plugins))
+          setStore("config", reconcile(config))
+          if (sessions !== undefined) setStore("session", reconcile(sessions))
         })
-        .then(() => {
-          if (store.status !== "complete") setStore("status", "partial")
-          // non-blocking
-          Promise.all([
-            ...(args.continue ? [] : [sessionListPromise.then((sessions) => setStore("session", reconcile(sessions)))]),
-            sdk.client.command.list().then((x) => setStore("command", reconcile(x.data ?? []))),
-            sdk.client.lsp.status().then((x) => setStore("lsp", reconcile(x.data!))),
-            sdk.client.mcp.status().then((x) => setStore("mcp", reconcile(x.data!))),
-            sdk.client.experimental.resource.list().then((x) => setStore("mcp_resource", reconcile(x.data ?? {}))),
-            sdk.client.formatter.status().then((x) => setStore("formatter", reconcile(x.data!))),
-            sdk.client.session.status().then((x) => {
-              setStore("session_status", reconcile(x.data!))
-            }),
-            sdk.client.provider.auth().then((x) => setStore("provider_auth", reconcile(x.data ?? {}))),
-            sdk.client.vcs.get().then((x) => setStore("vcs", reconcile(x.data))),
-            sdk.client.path.get().then((x) => setStore("path", reconcile(x.data!))),
-            syncWorkspaces(),
-          ]).then(() => {
-            setStore("status", "complete")
-          })
+
+        if (store.status !== "complete") setStore("status", "partial")
+
+        await Promise.all([
+          ...(args.continue ? [] : [sessionListPromise.then((sessions) => setStore("session", reconcile(sessions)))]),
+          sdk.client.command.list().then((x) => setStore("command", reconcile(x.data ?? []))),
+          sdk.client.lsp.status().then((x) => setStore("lsp", reconcile(x.data!))),
+          sdk.client.mcp.status().then((x) => setStore("mcp", reconcile(x.data!))),
+          sdk.client.experimental.resource.list().then((x) => setStore("mcp_resource", reconcile(x.data ?? {}))),
+          sdk.client.formatter.status().then((x) => setStore("formatter", reconcile(x.data!))),
+          sdk.client.session.status().then((x) => {
+            setStore("session_status", reconcile(x.data!))
+          }),
+          sdk.client.provider.auth().then((x) => setStore("provider_auth", reconcile(x.data ?? {}))),
+          sdk.client.vcs.get().then((x) => setStore("vcs", reconcile(x.data))),
+          sdk.client.path.get().then((x) => setStore("path", reconcile(x.data!))),
+          syncWorkspaces(),
+        ])
+
+        setStore("status", "complete")
+      } catch (e) {
+        Log.Default.error("tui bootstrap failed", {
+          error: e instanceof Error ? e.message : String(e),
+          name: e instanceof Error ? e.name : undefined,
+          stack: e instanceof Error ? e.stack : undefined,
         })
-        .catch(async (e) => {
-          Log.Default.error("tui bootstrap failed", {
-            error: e instanceof Error ? e.message : String(e),
-            name: e instanceof Error ? e.name : undefined,
-            stack: e instanceof Error ? e.stack : undefined,
-          })
-          if (options?.fatal !== false) {
-            await exit(e)
-          }
+        if (options?.fatal !== false) {
+          await exit(e)
+        }
+      } finally {
+        batch(() => {
+          setStore("bootstrap", "count", (x) => Math.max(0, x - 1))
+          if (modal) setStore("bootstrap", "modal", undefined)
         })
+      }
     }
 
     onMount(() => {

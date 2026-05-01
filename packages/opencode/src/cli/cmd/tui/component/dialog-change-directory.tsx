@@ -19,7 +19,7 @@ export function DialogChangeDirectory() {
     dialog.clear()
     sdk.setDirectory(dir)
     route.navigate({ type: "home" })
-    void sync.bootstrap()
+    void sync.bootstrap({ reason: "directory", directory: dir })
   }
 
   onMount(() => {

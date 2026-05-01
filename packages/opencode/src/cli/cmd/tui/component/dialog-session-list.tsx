@@ -164,7 +164,7 @@ export function DialogSessionList() {
         dialog.clear()
         if (item?.directory && item.directory !== sdk.directory) {
           sdk.setDirectory(item.directory)
-          await sync.bootstrap()
+          await sync.bootstrap({ reason: "directory", directory: item.directory })
         }
         route.navigate({
           type: "session",

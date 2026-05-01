@@ -25,6 +25,7 @@ import { ErrorComponent } from "@tui/component/error-component"
 import { PluginRouteMissing } from "@tui/component/plugin-route-missing"
 import { SDKProvider, useSDK } from "@tui/context/sdk"
 import { StartupLoading } from "@tui/component/startup-loading"
+import { BootstrapLoading } from "@tui/component/bootstrap-loading"
 import { SyncProvider, useSync } from "@tui/context/sync"
 import { LocalProvider, useLocal } from "@tui/context/local"
 import { DialogModel, useConnected } from "@tui/component/dialog-model"
@@ -1031,6 +1032,9 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
       {plugin()}
       <TuiPluginRuntime.Slot name="app" />
       <StartupLoading ready={ready} />
+      <Show when={sync.data.bootstrap.modal?.reason === "directory"}>
+        <BootstrapLoading title="Switching directory" detail={sync.data.bootstrap.modal?.directory} />
+      </Show>
     </box>
   )
 }

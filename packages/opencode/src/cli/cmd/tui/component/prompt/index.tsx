@@ -21,6 +21,7 @@ import { useCommandDialog } from "../dialog-command"
 import { useKeyboard, useRenderer, type JSX } from "@opentui/solid"
 import { Editor } from "@tui/util/editor"
 import { useExit } from "../../context/exit"
+import { useArgs } from "../../context/args"
 import { Clipboard } from "../../util/clipboard"
 import type { AssistantMessage, FilePart } from "@opencode-ai/sdk/v2"
 import { TuiEvent } from "../../event"
@@ -83,6 +84,7 @@ export function Prompt(props: PromptProps) {
   let autocomplete: AutocompleteRef
 
   const keybind = useKeybind()
+  const args = useArgs()
   const local = useLocal()
   const sdk = useSDK()
   const route = useRoute()
@@ -1115,17 +1117,25 @@ export function Prompt(props: PromptProps) {
   })
 
   const rightSlot = createMemo<JSX.Element>(() => {
-    if (store.mode === "shell") {
-      return (
-        <text fg={theme.text} wrapMode="none" overflow="hidden">
-          esc <span style={{ fg: theme.textMuted }}>exit shell mode</span>
-        </text>
-      )
-    }
+    const body = store.mode === "shell"
+      ? (
+          <text fg={theme.text} wrapMode="none" overflow="hidden">
+            esc <span style={{ fg: theme.textMuted }}>exit shell mode</span>
+          </text>
+        )
+      : (
+          <text fg={theme.text} wrapMode="none" overflow="hidden">
+            {keybind.print("command_list")} <span style={{ fg: theme.textMuted }}>commands</span>
+          </text>
+        )
+    if (args.transport !== "attach") return body
     return (
-      <text fg={theme.text} wrapMode="none" overflow="hidden">
-        {keybind.print("command_list")} <span style={{ fg: theme.textMuted }}>commands</span>
-      </text>
+      <box flexDirection="row" gap={1}>
+        <text fg={theme.textMuted} wrapMode="none">
+          [Remote]
+        </text>
+        {body}
+      </box>
     )
   })
 
