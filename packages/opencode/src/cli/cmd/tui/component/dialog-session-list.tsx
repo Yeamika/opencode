@@ -3,6 +3,7 @@ import { DialogSelect } from "@tui/ui/dialog-select"
 import { useRoute } from "@tui/context/route"
 import { useSync } from "@tui/context/sync"
 import { createEffect, createMemo, createSignal, createResource, onMount } from "solid-js"
+import { createStore } from "solid-js/store"
 import { Locale } from "@/util/locale"
 import { useKeybind } from "../context/keybind"
 import { useTheme } from "../context/theme"
@@ -27,6 +28,8 @@ export function DialogSessionList() {
   const [search, setSearch] = createDebouncedSignal("", 150)
   const [all, setAll] = kv.signal("session_list_all_recent", false)
   const [hover, setHover] = createSignal<string>()
+  const [meta, setMeta] = createStore<Record<string, { agent: string | null }>>({})
+  const pend = new Set<string>()
 
   async function globalList(input?: { search?: string; limit?: number }) {
     const url = new URL("/experimental/session", sdk.url)
@@ -54,10 +57,11 @@ export function DialogSessionList() {
     if (!id) return undefined
     const result = await sdk.client.session.messages({ sessionID: id })
     const list = result.data ?? []
-    const msg = [...list].reverse().find((item) => item.info.role === "user" && item.info.model)
+    const msg = [...list].reverse().find((item) => item.info.role === "user")
+    const info = msg?.info as { model?: { providerID: string; modelID: string } } | undefined
     return {
       turns: list.length,
-      model: msg ? `${msg.info.model.providerID}/${msg.info.model.modelID}` : undefined,
+      model: info?.model ? `${info.model.providerID}/${info.model.modelID}` : undefined,
     }
   })
 
@@ -65,6 +69,29 @@ export function DialogSessionList() {
 
   const sessions = createMemo(() => searchResults() ?? (all() ? recent() : sync.data.session) ?? [])
   const pick = (id?: string) => sessions().find((item) => item.id === id)
+
+  function hdr(dir?: string) {
+    const h = new Headers(sdk.headers as HeadersInit | undefined)
+    if (dir) h.set("x-opencode-directory", encodeURIComponent(dir))
+    return h
+  }
+
+  async function agent(id: string, dir: string) {
+    const url = new URL(`/session/${id}/message`, sdk.url)
+    url.searchParams.set("limit", "8")
+    const res = await sdk.fetch(url, { headers: hdr(dir) })
+    if (!res.ok) return null
+    const list = (await res.json().catch(() => [])) as Array<{ info?: { role?: string; agent?: string } }>
+    const msg = [...list].reverse().find((item) => item.info?.role === "user" && item.info?.agent)
+    return msg?.info?.agent ?? null
+  }
+
+  const list = createMemo(() => {
+    return sessions()
+      .filter((x) => !x.time.archived)
+      .filter((x) => (all() ? true : x.parentID === undefined))
+      .toSorted((a, b) => (b.time.updated ?? b.time.created) - (a.time.updated ?? a.time.created))
+  })
 
   createEffect(() => {
     dialog.setSize(all() ? "xlarge" : "large")
@@ -76,6 +103,25 @@ export function DialogSessionList() {
     if (currentSessionID()) setHover(currentSessionID())
   })
 
+  createEffect(() => {
+    const items = sessions()
+    for (const item of items) {
+      if (meta[item.id]) continue
+      if (pend.has(item.id)) continue
+      pend.add(item.id)
+      void agent(item.id, item.directory)
+        .then((value) => {
+          setMeta(item.id, { agent: value })
+        })
+        .catch(() => {
+          setMeta(item.id, { agent: null })
+        })
+        .finally(() => {
+          pend.delete(item.id)
+        })
+    }
+  })
+
   const toggle = () => {
     setAll((x) => !x)
     setToDelete(undefined)
@@ -84,42 +130,39 @@ export function DialogSessionList() {
 
   const options = createMemo(() => {
     const today = new Date().toDateString()
-    return sessions()
-      .filter((x) => !x.time.archived)
-      .filter((x) => (all() ? true : x.parentID === undefined))
-      .toSorted((a, b) => (b.time.updated ?? b.time.created) - (a.time.updated ?? a.time.created))
-      .map((x) => {
-        const updated = x.time.updated ?? x.time.created
-        const date = new Date(updated)
-        let category = date.toDateString()
-        if (category === today) {
-          category = "Today"
-        }
-        const isDeleting = toDelete() === x.id
-        const status = sync.data.session_status?.[x.id]
-        const isWorking = status?.type === "busy"
-        const dir = all() ? getFilename(x.directory) : undefined
-        const dot = x.parentID ? "● " : ""
-        const room = Math.max(20, 61 - (dir ? dir.length + 1 : 0))
-        return {
-          title: isDeleting
-            ? `Press ${keybind.print("session_delete")} again to confirm`
-            : dot + Locale.truncate(x.title, room),
-          bg: isDeleting ? theme.error : undefined,
-          value: x.id,
-          category,
-          description: dir,
-          footer: Locale.time(updated),
-          gutter: isWorking ? <Spinner /> : undefined,
-        }
-      })
+    return list().map((x) => {
+      const updated = x.time.updated ?? x.time.created
+      const date = new Date(updated)
+      let category = date.toDateString()
+      if (category === today) {
+        category = "Today"
+      }
+      const isDeleting = toDelete() === x.id
+      const isWorking = sync.data.session_status?.[x.id]?.type !== undefined && sync.data.session_status?.[x.id].type !== "idle"
+      const dir = all() ? getFilename(x.directory) : undefined
+      const dot = x.parentID ? "● " : ""
+      const room = Math.max(20, 61 - (dir ? dir.length + 1 : 0))
+      const ag = meta[x.id]?.agent
+      const desc = all() ? [ag, dir].filter(Boolean).join(" · ") || dir : ag ?? undefined
+      return {
+        title: isDeleting
+          ? `Press ${keybind.print("session_delete")} again to confirm`
+          : dot + Locale.truncate(x.title, room),
+        bg: isDeleting ? theme.error : undefined,
+        value: x.id,
+        category,
+        description: desc,
+        footer: Locale.time(updated),
+        gutter: isWorking ? <Spinner /> : undefined,
+      }
+    })
   })
 
   onMount(() => {
     dialog.setSize("large")
   })
 
-  const head = createMemo(() => (
+  const top = createMemo(() => (
     <box
       flexDirection="row"
       gap={1}
@@ -137,6 +180,7 @@ export function DialogSessionList() {
     return (
       <box flexDirection="column" gap={1}>
         <text fg={theme.text} attributes={TextAttributes.BOLD}>Dir: {getFilename(item.directory)}</text>
+        <text fg={theme.text}>Agent: {meta[item.id]?.agent ?? "-"}</text>
         <text fg={theme.text}>UpdatedAt: {Locale.time(updated)}</text>
         <text fg={theme.text}>Model: {extra()?.model ?? "-"}</text>
         <text fg={theme.text}>Turns: {extra()?.turns ?? "-"}</text>
@@ -148,7 +192,7 @@ export function DialogSessionList() {
   return (
     <DialogSelect
       title="Sessions"
-      titleRight={head()}
+      titleRight={top()}
       options={options()}
       skipFilter={true}
       current={currentSessionID()}
