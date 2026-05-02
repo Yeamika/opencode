@@ -932,7 +932,7 @@ export namespace TuiPluginRuntime {
   let runtime: RuntimeState | undefined
   export const Slot = View
 
-  export async function init(api: HostPluginApi) {
+  export async function init(api: HostPluginApi, input?: { detached?: boolean }) {
     const cwd = process.cwd()
     if (loaded) {
       if (dir !== cwd) {
@@ -942,7 +942,7 @@ export namespace TuiPluginRuntime {
     }
 
     dir = cwd
-    loaded = load(api)
+    loaded = load(api, input)
     return loaded
   }
 
@@ -982,7 +982,7 @@ export namespace TuiPluginRuntime {
     clearSlots()
   }
 
-  async function load(api: Api) {
+  async function load(api: Api, input?: { detached?: boolean }) {
     const cwd = process.cwd()
     const slots = setupSlots(api)
     const next: RuntimeState = {
@@ -995,43 +995,44 @@ export namespace TuiPluginRuntime {
     }
     runtime = next
 
-    await Instance.provide({
-      directory: cwd,
-      fn: async () => {
-        const config = await TuiConfig.get()
-        const records = Flag.OPENCODE_PURE ? [] : (config.plugin_origins ?? [])
-        if (Flag.OPENCODE_PURE && config.plugin_origins?.length) {
-          log.info("skipping external tui plugins in pure mode", { count: config.plugin_origins.length })
-        }
+    const boot = async () => {
+      const config = (input?.detached ? api.tuiConfig : await TuiConfig.get()) as TuiConfig.Info
+      const records = Flag.OPENCODE_PURE ? [] : (config.plugin_origins ?? [])
+      if (Flag.OPENCODE_PURE && config.plugin_origins?.length) {
+        log.info("skipping external tui plugins in pure mode", { count: config.plugin_origins.length })
+      }
 
-        for (const item of INTERNAL_TUI_PLUGINS) {
-          log.info("loading internal tui plugin", { id: item.id })
-          const entry = loadInternalPlugin(item)
-          const meta = createMeta(entry.source, entry.spec, entry.target, undefined, entry.id)
-          addPluginEntry(next, {
-            id: entry.id,
-            load: entry,
-            meta,
-            themes: {},
-            plugin: entry.module.tui,
-            enabled: true,
-          })
-        }
+      for (const item of INTERNAL_TUI_PLUGINS) {
+        log.info("loading internal tui plugin", { id: item.id })
+        const entry = loadInternalPlugin(item)
+        const meta = createMeta(entry.source, entry.spec, entry.target, undefined, entry.id)
+        addPluginEntry(next, {
+          id: entry.id,
+          load: entry,
+          meta,
+          themes: {},
+          plugin: entry.module.tui,
+          enabled: true,
+        })
+      }
 
-        const ready = await resolveExternalPlugins(records, () => TuiConfig.waitForDependencies())
-        await addExternalPluginEntries(next, ready)
+      const ready = await resolveExternalPlugins(records, () =>
+        input?.detached ? TuiConfig.waitForDetachedDependencies() : TuiConfig.waitForDependencies(),
+      )
+      await addExternalPluginEntries(next, ready)
 
-        applyInitialPluginEnabledState(next, config)
-        for (const plugin of next.plugins) {
-          if (!plugin.enabled) continue
-          // Keep plugin execution sequential for deterministic side effects:
-          // command registration order affects keybind/command precedence,
-          // route registration is last-wins when ids collide,
-          // and hook chains rely on stable plugin ordering.
-          await activatePluginEntry(next, plugin, false)
-        }
-      },
-    }).catch((error) => {
+      applyInitialPluginEnabledState(next, config)
+      for (const plugin of next.plugins) {
+        if (!plugin.enabled) continue
+        // Keep plugin execution sequential for deterministic side effects:
+        // command registration order affects keybind/command precedence,
+        // route registration is last-wins when ids collide,
+        // and hook chains rely on stable plugin ordering.
+        await activatePluginEntry(next, plugin, false)
+      }
+    }
+
+    await (input?.detached ? boot() : Instance.provide({ directory: cwd, fn: boot })).catch((error) => {
       fail("failed to load tui plugins", { directory: cwd, error })
     })
   }

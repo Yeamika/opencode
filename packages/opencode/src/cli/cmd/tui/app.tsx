@@ -267,7 +267,6 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
   const sync = useSync()
   const exit = useExit()
   const args = useArgs()
-  const attached = args.transport === "attach"
   const promptRef = usePromptRef()
   const routes: RouteMap = new Map()
   const [routeRev, setRouteRev] = createSignal(0)
@@ -294,15 +293,14 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
   onCleanup(() => {
     api.dispose()
   })
-  const [ready, setReady] = createSignal(attached)
-  if (!attached)
-    TuiPluginRuntime.init(api)
-      .catch((error) => {
-        console.error("Failed to load TUI plugins", error)
-      })
-      .finally(() => {
-        setReady(true)
-      })
+  const [ready, setReady] = createSignal(false)
+  TuiPluginRuntime.init(api, { detached: args.transport === "attach" })
+    .catch((error) => {
+      console.error("Failed to load TUI plugins", error)
+    })
+    .finally(() => {
+      setReady(true)
+    })
 
   useKeyboard((evt) => {
     if (!Flag.OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT) return
@@ -996,7 +994,6 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
   })
 
   const plugin = createMemo(() => {
-    if (attached) return
     if (!ready()) return
     if (route.data.type !== "plugin") return
     const render = routeView(route.data.id)

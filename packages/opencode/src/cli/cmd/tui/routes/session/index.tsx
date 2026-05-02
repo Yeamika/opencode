@@ -116,7 +116,6 @@ export function Session() {
   const sync = useSync()
   const tuiConfig = useTuiConfig()
   const kv = useKV()
-  const args = useArgs()
   const { theme } = useTheme()
   const promptRef = usePromptRef()
   const session = createMemo(() => sync.session.get(route.sessionID))
@@ -161,7 +160,6 @@ export function Session() {
 
   const wide = createMemo(() => dimensions().width > 120)
   const sidebarVisible = createMemo(() => {
-    if (args.transport === "attach") return false
     if (session()?.parentID) return false
     if (sidebarOpen()) return true
     if (sidebar() === "auto" && wide()) return true
@@ -248,6 +246,7 @@ export function Session() {
   const keybind = useKeybind()
   const dialog = useDialog()
   const renderer = useRenderer()
+  const args = useArgs()
 
   // Allow exit when in child session (prompt is hidden)
   const exit = useExit()

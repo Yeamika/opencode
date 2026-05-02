@@ -54,18 +54,70 @@ export namespace TuiConfig {
     return Config.installDependencies(dir)
   }
 
-  async function mergeFile(acc: Acc, file: string) {
+  async function mergeFile(acc: Acc, file: string, scope: (file: string) => Config.PluginScope) {
     const data = await loadFile(file)
     acc.result = mergeDeep(acc.result, data)
     if (!data.plugin?.length) return
 
-    const scope = pluginScope(file)
     const plugins = Config.deduplicatePluginOrigins([
       ...(acc.result.plugin_origins ?? []),
-      ...data.plugin.map((spec) => ({ spec, scope, source: file })),
+      ...data.plugin.map((spec) => ({ spec, scope: scope(file), source: file })),
     ])
     acc.result.plugin = plugins.map((item) => item.spec)
     acc.result.plugin_origins = plugins
+  }
+
+  async function collect(input: {
+    project: string[]
+    dirs: string[]
+    managed: string
+    scope: (file: string) => Config.PluginScope
+  }) {
+    const custom = customPath()
+    const acc: Acc = {
+      result: {},
+    }
+
+    for (const file of ConfigPaths.fileInDirectory(Global.Path.config, "tui")) {
+      await mergeFile(acc, file, input.scope)
+    }
+
+    if (custom) {
+      await mergeFile(acc, custom, input.scope)
+      log.debug("loaded custom tui config", { path: custom })
+    }
+
+    for (const file of input.project) {
+      await mergeFile(acc, file, input.scope)
+    }
+
+    for (const dir of unique(input.dirs)) {
+      if (!dir.endsWith(".opencode") && dir !== Flag.OPENCODE_CONFIG_DIR) continue
+      for (const file of ConfigPaths.fileInDirectory(dir, "tui")) {
+        await mergeFile(acc, file, input.scope)
+      }
+    }
+
+    if (existsSync(input.managed)) {
+      for (const file of ConfigPaths.fileInDirectory(input.managed, "tui")) {
+        await mergeFile(acc, file, input.scope)
+      }
+    }
+
+    acc.result.keybinds = Config.Keybinds.parse(acc.result.keybinds ?? {})
+
+    const deps: Promise<void>[] = []
+    if (acc.result.plugin?.length) {
+      for (const dir of unique(input.dirs)) {
+        if (!dir.endsWith(".opencode") && dir !== Flag.OPENCODE_CONFIG_DIR) continue
+        deps.push(installDeps(dir))
+      }
+    }
+
+    return {
+      config: acc.result,
+      deps,
+    }
   }
 
   const state = Instance.state(async () => {
@@ -80,59 +132,42 @@ export namespace TuiConfig {
     projectFiles = Flag.OPENCODE_DISABLE_PROJECT_CONFIG
       ? []
       : await ConfigPaths.projectFiles("tui", Instance.directory, Instance.worktree)
-
-    const acc: Acc = {
-      result: {},
-    }
-
-    for (const file of ConfigPaths.fileInDirectory(Global.Path.config, "tui")) {
-      await mergeFile(acc, file)
-    }
-
-    if (custom) {
-      await mergeFile(acc, custom)
-      log.debug("loaded custom tui config", { path: custom })
-    }
-
-    for (const file of projectFiles) {
-      await mergeFile(acc, file)
-    }
-
-    for (const dir of unique(directories)) {
-      if (!dir.endsWith(".opencode") && dir !== Flag.OPENCODE_CONFIG_DIR) continue
-      for (const file of ConfigPaths.fileInDirectory(dir, "tui")) {
-        await mergeFile(acc, file)
-      }
-    }
-
-    if (existsSync(managed)) {
-      for (const file of ConfigPaths.fileInDirectory(managed, "tui")) {
-        await mergeFile(acc, file)
-      }
-    }
-
-    acc.result.keybinds = Config.Keybinds.parse(acc.result.keybinds ?? {})
-
-    const deps: Promise<void>[] = []
-    if (acc.result.plugin?.length) {
-      for (const dir of unique(directories)) {
-        if (!dir.endsWith(".opencode") && dir !== Flag.OPENCODE_CONFIG_DIR) continue
-        deps.push(installDeps(dir))
-      }
-    }
-
-    return {
-      config: acc.result,
-      deps,
-    }
+    return collect({
+      project: projectFiles,
+      dirs: directories,
+      managed,
+      scope: pluginScope,
+    })
   })
+
+  async function detachedState() {
+    const dirs = await ConfigPaths.directories(Global.Path.home, Global.Path.home)
+    const custom = customPath()
+    const managed = Config.managedConfigDir()
+    await migrateTuiConfig({ directories: dirs, custom, managed })
+    return collect({
+      project: [],
+      dirs,
+      managed,
+      scope: () => "global",
+    })
+  }
 
   export async function get() {
     return state().then((x) => x.config)
   }
 
+  export async function detached() {
+    return detachedState().then((x) => x.config)
+  }
+
   export async function waitForDependencies() {
     const deps = await state().then((x) => x.deps)
+    await Promise.all(deps)
+  }
+
+  export async function waitForDetachedDependencies() {
+    const deps = await detachedState().then((x) => x.deps)
     await Promise.all(deps)
   }
 
