@@ -29,6 +29,7 @@ interface MigrateInput {
   directories: string[]
   custom?: string
   managed: string
+  project?: string[]
 }
 
 /**
@@ -134,10 +135,12 @@ async function backupAndStripLegacy(file: string, source: string) {
     })
 }
 
-async function opencodeFiles(input: { directories: string[]; managed: string }) {
-  const project = Flag.OPENCODE_DISABLE_PROJECT_CONFIG
-    ? []
-    : await ConfigPaths.projectFiles("opencode", Instance.directory, Instance.worktree)
+async function opencodeFiles(input: { directories: string[]; managed: string; project?: string[] }) {
+  const project =
+    input.project ??
+    (Flag.OPENCODE_DISABLE_PROJECT_CONFIG
+      ? []
+      : await ConfigPaths.projectFiles("opencode", Instance.directory, Instance.worktree))
   const files = [...project, ...ConfigPaths.fileInDirectory(Global.Path.config, "opencode")]
   for (const dir of unique(input.directories)) {
     files.push(...ConfigPaths.fileInDirectory(dir, "opencode"))

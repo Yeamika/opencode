@@ -144,7 +144,7 @@ export namespace TuiConfig {
     const dirs = await ConfigPaths.directories(Global.Path.home, Global.Path.home)
     const custom = customPath()
     const managed = Config.managedConfigDir()
-    await migrateTuiConfig({ directories: dirs, custom, managed })
+    await migrateTuiConfig({ directories: dirs, custom, managed, project: [] })
     return collect({
       project: [],
       dirs,
