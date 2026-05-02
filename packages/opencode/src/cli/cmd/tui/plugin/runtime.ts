@@ -37,7 +37,7 @@ import { Process } from "@/util/process"
 import { Flock } from "@/util/flock"
 import { Flag } from "@/flag/flag"
 import { INTERNAL_TUI_PLUGINS, type InternalTuiPlugin } from "./internal"
-import { setupSlots, Slot as View } from "./slots"
+import { clearSlots, setupSlots, Slot as View } from "./slots"
 import type { HostPluginApi, HostSlots } from "./slots"
 
 type PluginLoad = {
@@ -979,6 +979,7 @@ export namespace TuiPluginRuntime {
     for (const plugin of queue) {
       await deactivatePluginEntry(state, plugin, false)
     }
+    clearSlots()
   }
 
   async function load(api: Api) {

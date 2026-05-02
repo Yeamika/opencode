@@ -15,11 +15,15 @@ export type HostSlots = {
   }
 }
 
-function empty<Name extends string>(_props: TuiSlotProps<Name>) {
-  return null
+function empty<Name extends string>(props: TuiSlotProps<Name>) {
+  return props.children ?? null
 }
 
 let view: Slot = empty
+
+export function clearSlots() {
+  view = empty
+}
 
 export const Slot: Slot = (props) => view(props)
 

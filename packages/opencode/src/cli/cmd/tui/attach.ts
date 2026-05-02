@@ -2,9 +2,6 @@ import { cmd } from "../cmd"
 import { UI } from "@/cli/ui"
 import { tui } from "./app"
 import { win32DisableProcessedInput, win32InstallCtrlCGuard } from "./win32"
-import { TuiConfig } from "@/config/tui"
-import { Instance } from "@/project/instance"
-import { existsSync } from "fs"
 
 export const AttachCommand = cmd({
   command: "attach <url>",
@@ -66,17 +63,14 @@ export const AttachCommand = cmd({
         const auth = `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`
         return { Authorization: auth }
       })()
-      const config = await Instance.provide({
-        directory: directory && existsSync(directory) ? directory : process.cwd(),
-        fn: () => TuiConfig.get(),
-      })
       const displayID =
         typeof process.env.OPENCODE_DISPLAY_ID === "string" && process.env.OPENCODE_DISPLAY_ID.trim()
           ? process.env.OPENCODE_DISPLAY_ID.trim()
           : `tui_${crypto.randomUUID().slice(0, 8)}`
       await tui({
         url: args.url,
-        config,
+        // Keep attach detached from local instance bootstrap.
+        config: {},
         args: {
           continue: args.continue,
           sessionID: args.session,
