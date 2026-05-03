@@ -289,6 +289,9 @@ export type EventProjectReloadUpdated = {
   properties: {
     directory: string
     status: "idle" | "pending" | "running"
+    totalSessions: number
+    readySessions: number
+    waitingSessions: number
   }
 }
 
@@ -1247,6 +1250,12 @@ export type PermissionConfig =
       grep?: PermissionRuleConfig
       list?: PermissionRuleConfig
       bash?: PermissionRuleConfig
+      exbash?: PermissionRuleConfig
+      reload?: PermissionRuleConfig
+      workspaceMcp?: PermissionRuleConfig
+      workspaceTool?: PermissionRuleConfig
+      workspaceSkill?: PermissionRuleConfig
+      workspaceOverview?: PermissionRuleConfig
       task?: PermissionRuleConfig
       external_directory?: PermissionRuleConfig
       todowrite?: PermissionActionConfig
@@ -1532,7 +1541,7 @@ export type Config = {
     ignore?: Array<string>
   }
   /**
-   * Enable or disable snapshot tracking. When false, filesystem snapshots are not recorded and undoing or reverting will not undo/redo file changes. Defaults to false.
+   * Enable or disable snapshot tracking. When false, filesystem snapshots are not recorded and undoing or reverting will not undo/redo file changes. Defaults to true.
    */
   snapshot?: boolean
   plugin?: Array<
