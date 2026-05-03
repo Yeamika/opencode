@@ -30,6 +30,16 @@ export const WorkspaceSkillTool = Tool.define("workspaceSkill", {
     directoryPath: z.string().optional().describe("Absolute source directory path. Required for write and delete."),
   }),
   async execute(args, ctx) {
+    await ctx.ask({
+      permission: "workspaceSkill",
+      patterns: [args.mode === "read" ? `${args.scope} read` : `${args.scope} ${args.mode} ${args.directoryPath ?? "*"}`],
+      always: ["*"],
+      metadata: {
+        mode: args.mode,
+        scope: args.scope,
+        directoryPath: args.directoryPath,
+      },
+    })
     if ((args.mode === "write" || args.mode === "delete") && args.scope === "global") {
       throw new Error("workspaceSkill only allows write/delete for local scope")
     }

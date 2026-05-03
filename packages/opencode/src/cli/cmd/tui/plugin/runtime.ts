@@ -513,14 +513,14 @@ function pluginApi(runtime: RuntimeState, plugin: PluginEntry, scope: PluginScop
     install: createThemeInstaller(load.origin, load.theme_root, load.spec, plugin),
   })
 
-  const event: TuiPluginApi["event"] = {
-    on(type, handler) {
-      return scope.track(api.event.on(type, handler))
+  const event = {
+    on(...args: [string, (event: { type: string; properties: Record<string, unknown> }) => void]) {
+      return scope.track(api.event.on(args[0], args[1]))
     },
     publish(type, properties) {
       return api.event.publish(type, properties)
     },
-  }
+  } as TuiPluginApi["event"]
 
   let count = 0
 

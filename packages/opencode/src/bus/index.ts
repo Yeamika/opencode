@@ -86,7 +86,7 @@ export namespace Bus {
 
       function publish<D extends BusEvent.Definition>(def: D, properties: z.output<D["properties"]>) {
         return Effect.gen(function* () {
-          yield* publishRaw(def.type, properties)
+          yield* publishRaw(def.type, properties as Record<string, unknown>)
         })
       }
 

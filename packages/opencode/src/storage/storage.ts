@@ -5,6 +5,7 @@ import { NamedError } from "@opencode-ai/util/error"
 import z from "zod"
 import { AppFileSystem } from "@/filesystem"
 import { makeRuntime } from "@/effect/run-service"
+import { Flag } from "@/flag/flag"
 import { Effect, Exit, Layer, Option, RcMap, Schema, ServiceMap, TxReentrantLock } from "effect"
 import { Git } from "@/git"
 

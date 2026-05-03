@@ -19,6 +19,15 @@ import { Auth } from "@/auth"
 import { Installation } from "@/installation"
 import { Wildcard } from "@/util/wildcard"
 
+const TOOLS = {
+  reload: "reload",
+  workspaceMcp: "workspaceMcp",
+  workspaceTool: "workspaceTool",
+  workspaceSkill: "workspaceSkill",
+  workspaceOverview: "workspaceOverview",
+  exbash: "bash",
+} as const
+
 export namespace LLM {
   const log = Log.create({ service: "llm" })
   export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
@@ -342,6 +351,11 @@ export namespace LLM {
     const disabled = Permission.disabled(Object.keys(input.tools), rules)
     return Record.filter(input.tools, (_, k) => {
       const enabled = input.user.tools?.[k]
+      const mapped = TOOLS[k as keyof typeof TOOLS]
+      if (mapped) {
+        const rule = Permission.evaluate(mapped, "*", rules)
+        if (rule.action === "deny") return false
+      }
       if (k === "bash") {
         const allowed = rules.some((rule) => Wildcard.match("bash", rule.permission) && rule.action === "allow")
         return (enabled === true || allowed) && !disabled.has(k)

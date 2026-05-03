@@ -134,8 +134,28 @@ export function Session() {
     if (session()?.parentID) return []
     return children().flatMap((x) => sync.data.question[x.id] ?? [])
   })
+  const state = createMemo(() => sync.data.session_status?.[route.sessionID] ?? { type: "idle" as const })
+  const load = createMemo(() => {
+    const dir = sync.data.path.directory || sdk.directory || ""
+    if (!dir) return
+    const next = sync.data.reload[dir]
+    if (!next || next.status === "idle") return
+    return next
+  })
+  const resumable = createMemo(() => {
+    if (load()) return false
+    if (state().type !== "idle") return false
+    const msg = messages().at(-1)
+    if (!msg) return false
+    if (msg.role === "user") return true
+    if (msg.role !== "assistant") return false
+    if (msg.error) return true
+    return !msg.finish || ["tool-calls", "unknown"].includes(msg.finish)
+  })
   const visible = createMemo(() => !session()?.parentID && permissions().length === 0 && questions().length === 0)
-  const disabled = createMemo(() => permissions().length > 0 || questions().length > 0)
+  const disabled = createMemo(
+    () => permissions().length > 0 || questions().length > 0 || !!load() || state().type === "retry" || resumable(),
+  )
 
   const pending = createMemo(() => {
     return messages().findLast((x) => x.role === "assistant" && !x.time.completed)?.id
@@ -1401,7 +1421,8 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
       if (typeof text === "string" && text.trim()) return text
       return JSON.stringify(data)
     }
-    return props.message.error?.message ?? ""
+    const text = Reflect.get(props.message.error ?? {}, "message")
+    return typeof text === "string" ? text : ""
   })
   const preview = createMemo(() => {
     const next = stripAnsi(error()).replace(/\s+/g, " ").trim()

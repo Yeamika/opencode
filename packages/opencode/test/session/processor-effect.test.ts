@@ -17,6 +17,7 @@ import { SessionProcessor } from "../../src/session/processor"
 import { SessionRetry } from "../../src/session/retry"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { SessionStatus } from "../../src/session/status"
+import { SessionSummary } from "../../src/session/summary"
 import { Snapshot } from "../../src/snapshot"
 import { Log } from "../../src/util/log"
 import * as CrossSpawnSpawner from "../../src/effect/cross-spawn-spawner"
@@ -158,7 +159,10 @@ const deps = Layer.mergeAll(
   Provider.defaultLayer,
   status,
 ).pipe(Layer.provideMerge(infra))
-const env = Layer.mergeAll(TestLLMServer.layer, SessionProcessor.layer.pipe(Layer.provideMerge(deps)))
+const env = Layer.mergeAll(
+  TestLLMServer.layer,
+  SessionProcessor.layer.pipe(Layer.provide(SessionSummary.defaultLayer), Layer.provideMerge(deps)),
+)
 
 const it = testEffect(env)
 

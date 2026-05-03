@@ -3,6 +3,7 @@ import { useSync } from "@tui/context/sync"
 import { DialogSelect } from "@tui/ui/dialog-select"
 import { useSDK } from "@tui/context/sdk"
 import { useRoute } from "@tui/context/route"
+import type { DialogContext } from "@tui/ui/dialog"
 import { Clipboard } from "@tui/util/clipboard"
 import type { PromptInfo } from "@tui/component/prompt/history"
 import { strip } from "@tui/component/prompt/part"
@@ -31,7 +32,8 @@ export function DialogMessage(props: {
       if (typeof text === "string" && text.trim()) return text
       if (body) return body
     }
-    return msg.error.message
+    const text = Reflect.get(msg.error, "message")
+    return typeof text === "string" ? text : ""
   })
 
   const options = createMemo(() => {
@@ -43,7 +45,7 @@ export function DialogMessage(props: {
               title: "Message details",
               value: "message.details",
               description: "show full error message",
-              onSelect: (dialog) => {
+              onSelect: (dialog: DialogContext) => {
                 DialogToolOutput.show(dialog, "Message Details", detail())
               },
             },
@@ -51,7 +53,7 @@ export function DialogMessage(props: {
               title: "Delete",
               value: "message.delete",
               description: "remove this message",
-              onSelect: async (dialog) => {
+              onSelect: async (dialog: DialogContext) => {
                 await sdk.client.session.deleteMessage({
                   sessionID: props.sessionID,
                   messageID: props.messageID,
@@ -65,7 +67,7 @@ export function DialogMessage(props: {
         title: "Revert",
         value: "session.revert",
         description: "undo messages and file changes",
-        onSelect: (dialog) => {
+        onSelect: (dialog: DialogContext) => {
           const msg = message()
           if (!msg) return
 
@@ -96,7 +98,7 @@ export function DialogMessage(props: {
         title: "Copy",
         value: "message.copy",
         description: "message text to clipboard",
-        onSelect: async (dialog) => {
+        onSelect: async (dialog: DialogContext) => {
           const msg = message()
           if (!msg) return
 
@@ -116,7 +118,7 @@ export function DialogMessage(props: {
         title: "Fork",
         value: "session.fork",
         description: "create a new session",
-        onSelect: async (dialog) => {
+        onSelect: async (dialog: DialogContext) => {
           const result = await sdk.client.session.fork({
             sessionID: props.sessionID,
             messageID: props.messageID,

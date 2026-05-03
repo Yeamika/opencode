@@ -35,6 +35,15 @@ process.env["XDG_CONFIG_HOME"] = path.join(dir, "config")
 process.env["XDG_STATE_HOME"] = path.join(dir, "state")
 process.env["OPENCODE_MODELS_PATH"] = path.join(import.meta.dir, "tool", "fixtures", "models-api.json")
 
+// Clear host config wiring so tests only see their own fixture-controlled config.
+delete process.env["OPENCODE_CONFIG"]
+delete process.env["OPENCODE_CONFIG_CONTENT"]
+delete process.env["OPENCODE_CONFIG_DIR"]
+delete process.env["OPENCODE_TUI_CONFIG"]
+delete process.env["OPENCODE_DISABLE_PROJECT_CONFIG"]
+delete process.env["OPENCODE_DISABLE_VCS"]
+delete process.env["OPENCODE_FAKE_VCS"]
+
 // Set test home directory to isolate tests from user's actual home directory
 // This prevents tests from picking up real user configs/skills from ~/.claude/skills
 const testHome = path.join(dir, "home")
@@ -45,6 +54,21 @@ process.env["OPENCODE_TEST_HOME"] = testHome
 const testManagedConfigDir = path.join(dir, "managed")
 process.env["OPENCODE_TEST_MANAGED_CONFIG_DIR"] = testManagedConfigDir
 process.env["OPENCODE_DISABLE_DEFAULT_PLUGINS"] = "true"
+
+const testConfig = path.join(dir, "config", "opencode")
+await fs.mkdir(path.join(testConfig, "node_modules", "@opencode-ai", "plugin"), { recursive: true })
+await fs.writeFile(
+  path.join(testConfig, "package.json"),
+  JSON.stringify({ dependencies: { "@opencode-ai/plugin": "*" } }),
+)
+await fs.writeFile(
+  path.join(testConfig, ".gitignore"),
+  ["node_modules", "package.json", "package-lock.json", "bun.lock", ".gitignore"].join("\n"),
+)
+await fs.writeFile(
+  path.join(testConfig, "node_modules", "@opencode-ai", "plugin", "package.json"),
+  JSON.stringify({ name: "@opencode-ai/plugin", version: "0.0.0-test" }),
+)
 
 // Write the cache version file to prevent global/index.ts from clearing the cache
 const cacheDir = path.join(dir, "cache", "opencode")

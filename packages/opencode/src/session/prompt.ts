@@ -314,7 +314,7 @@ export namespace SessionPrompt {
             .toReversed()
             .flatMap((msg) => msg.parts.toReversed())
             .find(
-              (part): part is MessageV2.ToolPart =>
+              (part): part is MessageV2.ToolPart & { state: MessageV2.ToolStateCompleted } =>
                 part.type === "tool" &&
                 part.state.status === "completed" &&
                 Boolean(part.state.attachments?.some((item) => item.mime === "application/pdf")),
@@ -334,7 +334,7 @@ export namespace SessionPrompt {
               },
             },
           })
-          yield* sessions.removeMessage({ sessionID, messageID: input.current.id })
+          yield* sessions.removeMessage({ sessionID: input.current.sessionID, messageID: input.current.id })
           return true
         },
       )
@@ -1465,8 +1465,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         yield* Effect.promise(() => promise)
       })
 
-      const runLoop: (sessionID: SessionID) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.run")(
-        function* (sessionID: SessionID) {
+      const runLoop = Effect.fn("SessionPrompt.run")(function* (sessionID: SessionID) {
           const ctx = yield* InstanceState.context
           let structured: unknown | undefined
           let step = 0
@@ -1709,15 +1708,14 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
           yield* compaction.prune({ sessionID }).pipe(Effect.ignore, Effect.forkIn(scope))
           return yield* lastAssistant(sessionID)
-        },
-      )
+        })
 
       const loop: (input: z.infer<typeof LoopInput>) => Effect.Effect<MessageV2.WithParts> = Effect.fn(
         "SessionPrompt.loop",
       )(function* (input: z.infer<typeof LoopInput>) {
         const s = yield* InstanceState.get(state)
         const runner = getRunner(s.runners, input.sessionID)
-        return yield* runner.ensureRunning(runLoop(input.sessionID)).pipe(
+        return yield* runner.ensureRunning(runLoop(input.sessionID).pipe(Effect.orDie)).pipe(
           Effect.ensuring(
             status
               .get(input.sessionID)

@@ -24,11 +24,26 @@ describe("tui.selectSession endpoint", () => {
 
         // #when
         const app = Server.Default()
-        const response = await app.request("/tui/select-session", {
+        const event = new Promise<{ requestID?: string; displayID?: string }>((resolve) => {
+          const unsub = Bus.subscribe(TuiEvent.SessionSelect, (evt) => {
+            unsub()
+            resolve(evt.properties)
+            return "done"
+          })
+        })
+        const pending = app.request(`/tui/select-session?directory=${encodeURIComponent(tmp.path)}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ sessionID: session.id, displayID: "tui_test1234" }),
         })
+        const evt = await event
+        const ack = await app.request("/tui/ack", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ requestID: evt.requestID, displayID: evt.displayID }),
+        })
+        expect(ack.status).toBe(200)
+        const response = await pending
 
         // #then
         expect(response.status).toBe(200)
@@ -111,7 +126,8 @@ describe("tui.selectSession endpoint", () => {
       directory: tmp.path,
       fn: async () => {
         const session = await Session.create({})
-        const event = new Promise<{ sessionID: string; displayID?: string }>((resolve) => {
+        const app = Server.Default()
+        const event = new Promise<{ sessionID: string; displayID?: string; directory?: string; requestID?: string }>((resolve) => {
           const unsub = Bus.subscribe(TuiEvent.SessionSelect, (evt) => {
             unsub()
             resolve(evt.properties)
@@ -119,18 +135,26 @@ describe("tui.selectSession endpoint", () => {
           })
         })
 
-        const app = Server.Default()
-        const response = await app.request(`/tui/select-session?directory=${encodeURIComponent(tmp.path)}`, {
+        const pending = app.request(`/tui/select-session?directory=${encodeURIComponent(tmp.path)}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ sessionID: session.id, displayID: "tui_test1234" }),
         })
+        const evt = await event
+        const ack = await app.request("/tui/ack", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ requestID: evt.requestID, displayID: evt.displayID }),
+        })
+        expect(ack.status).toBe(200)
+        const response = await pending
 
         expect(response.status).toBe(200)
-        expect(await event).toEqual({
+        expect(evt).toEqual({
           sessionID: session.id,
           displayID: "tui_test1234",
           directory: tmp.path,
+          requestID: evt.requestID,
         })
 
         await Session.remove(session.id)

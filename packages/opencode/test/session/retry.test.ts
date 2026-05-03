@@ -26,10 +26,10 @@ function wrap(message: unknown): ReturnType<NamedError["toObject"]> {
 }
 
 describe("session.retry.delay", () => {
-  test("caps delay at 5 minutes when headers missing", () => {
+  test("caps delay at 30 seconds when headers missing", () => {
     const error = apiError()
     const delays = Array.from({ length: 10 }, (_, index) => SessionRetry.delay(index + 1, error))
-    expect(delays).toStrictEqual([2000, 4000, 8000, 16000, 32000, 64000, 128000, 256000, 300000, 300000])
+    expect(delays).toStrictEqual([2000, 4000, 8000, 16000, 30000, 30000, 30000, 30000, 30000, 30000])
   })
 
   test("prefers retry-after-ms when shorter than exponential", () => {
@@ -66,12 +66,12 @@ describe("session.retry.delay", () => {
     expect(SessionRetry.delay(1, error)).toBe(2000)
   })
 
-  test("caps retry-after header delays to five minutes", () => {
+  test("uses retry-after values even when exceeding 10 minutes with headers", () => {
     const error = apiError({ "retry-after": "50" })
     expect(SessionRetry.delay(1, error)).toBe(50000)
 
     const longError = apiError({ "retry-after-ms": "700000" })
-    expect(SessionRetry.delay(1, longError)).toBe(300000)
+    expect(SessionRetry.delay(1, longError)).toBe(700000)
   })
 
   test("caps oversized header delays to the runtime timer limit", () => {

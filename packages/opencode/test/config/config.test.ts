@@ -423,7 +423,7 @@ test("treats agent variant as model-scoped setting (not provider option)", async
         $schema: "https://opencode.ai/config.json",
         agent: {
           test_agent: {
-            model: "openai/gpt-5.2",
+            model: "openai/gpt-5.4",
             variant: "xhigh",
             max_tokens: 123,
           },
@@ -859,7 +859,7 @@ test("dedupes concurrent config dependency installs for the same dir", async () 
     run.mockRestore()
   }
 
-  expect(calls).toBe(2)
+  expect(calls).toBe(1)
   expect(ticks.length).toBeGreaterThan(0)
   expect(await Filesystem.exists(path.join(dir, "package.json"))).toBe(true)
 })
@@ -1589,6 +1589,39 @@ test("permission config preserves key order", async () => {
         "tools_*",
         "pr_comments_*",
       ])
+    },
+  })
+})
+
+test("permission config accepts workspace tool permissions", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Filesystem.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          permission: {
+            reload: "ask",
+            workspaceMcp: "deny",
+            workspaceTool: "allow",
+            workspaceSkill: "ask",
+            workspaceOverview: "allow",
+            exbash: "deny",
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await Config.get()
+      expect(config.permission?.reload).toBe("ask")
+      expect(config.permission?.workspaceMcp).toBe("deny")
+      expect(config.permission?.workspaceTool).toBe("allow")
+      expect(config.permission?.workspaceSkill).toBe("ask")
+      expect(config.permission?.workspaceOverview).toBe("allow")
+      expect(config.permission?.exbash).toBe("deny")
     },
   })
 })

@@ -630,13 +630,103 @@ describe("session.llm.stream", () => {
     })
   })
 
+  test("hides workspace tools denied by permissions", async () => {
+    const server = state.server
+    if (!server) throw new Error("Server not initialized")
+
+    const providerID = "alibaba"
+    const modelID = "qwen-plus"
+    const fixture = await loadFixture(providerID, modelID)
+    const model = fixture.model
+
+    const request = waitRequest(
+      "/chat/completions",
+      new Response(createChatStream("Hello"), {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      }),
+    )
+
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify({
+            $schema: "https://opencode.ai/config.json",
+            enabled_providers: [providerID],
+            provider: {
+              [providerID]: {
+                options: {
+                  apiKey: "test-key",
+                  baseURL: `${server.url.origin}/v1`,
+                },
+              },
+            },
+          }),
+        )
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const resolved = await Provider.getModel(ProviderID.make(providerID), ModelID.make(model.id))
+        const sessionID = SessionID.make("session-test-workspace-tools")
+        const agent = {
+          name: "test",
+          mode: "primary",
+          options: {},
+          permission: [{ permission: "workspace*", pattern: "*", action: "deny" }],
+        } satisfies Agent.Info
+
+        const user = {
+          id: MessageID.make("user-workspace-tools"),
+          sessionID,
+          role: "user",
+          time: { created: Date.now() },
+          agent: agent.name,
+          model: { providerID: ProviderID.make(providerID), modelID: resolved.id },
+        } satisfies MessageV2.User
+
+        const stream = await LLM.stream({
+          user,
+          sessionID,
+          model: resolved,
+          agent,
+          system: ["You are a helpful assistant."],
+          abort: new AbortController().signal,
+          messages: [{ role: "user", content: "Hello" }],
+          tools: {
+            workspaceMcp: tool({ description: "mcp", inputSchema: z.object({}), execute: async () => ({ output: "" }) }),
+            workspaceTool: tool({ description: "tool", inputSchema: z.object({}), execute: async () => ({ output: "" }) }),
+            workspaceSkill: tool({ description: "skill", inputSchema: z.object({}), execute: async () => ({ output: "" }) }),
+            workspaceOverview: tool({ description: "overview", inputSchema: z.object({}), execute: async () => ({ output: "" }) }),
+            question: tool({ description: "question", inputSchema: z.object({}), execute: async () => ({ output: "" }) }),
+          },
+        })
+
+        for await (const _ of stream.fullStream) {
+        }
+
+        const capture = await request
+        const tools = (capture.body.tools as Array<{ function?: { name?: string } }> | undefined) ?? []
+        const names = tools.map((item) => item.function?.name)
+        expect(names).not.toContain("workspaceMcp")
+        expect(names).not.toContain("workspaceTool")
+        expect(names).not.toContain("workspaceSkill")
+        expect(names).not.toContain("workspaceOverview")
+        expect(names).toContain("question")
+      },
+    })
+  })
+
   test("sends responses API payload for OpenAI models", async () => {
     const server = state.server
     if (!server) {
       throw new Error("Server not initialized")
     }
 
-    const source = await loadFixture("openai", "gpt-5.2")
+    const source = await loadFixture("openai", "gpt-5.4")
     const model = source.model
 
     const responseChunks = [
@@ -684,6 +774,7 @@ describe("session.llm.stream", () => {
                 env: ["OPENAI_API_KEY"],
                 npm: "@ai-sdk/openai",
                 api: "https://api.openai.com/v1",
+                whitelist: [model.id],
                 models: {
                   [model.id]: model,
                 },
@@ -756,7 +847,7 @@ describe("session.llm.stream", () => {
       throw new Error("Server not initialized")
     }
 
-    const source = await loadFixture("openai", "gpt-5.2")
+    const source = await loadFixture("openai", "gpt-5.4")
     const model = source.model
     const chunks = [
       {
@@ -806,6 +897,7 @@ describe("session.llm.stream", () => {
                 env: ["OPENAI_API_KEY"],
                 npm: "@ai-sdk/openai",
                 api: "https://api.openai.com/v1",
+                whitelist: [model.id],
                 models: {
                   [model.id]: model,
                 },
@@ -874,55 +966,22 @@ describe("session.llm.stream", () => {
     })
   })
 
-  test("sends messages API payload for Anthropic models", async () => {
+  test("sends OpenAI-compatible payload for GLM models", async () => {
     const server = state.server
     if (!server) {
       throw new Error("Server not initialized")
     }
 
-    const providerID = "anthropic"
-    const modelID = "claude-3-5-sonnet-20241022"
-    const fixture = await loadFixture(providerID, modelID)
-    const provider = fixture.provider
+    const providerID = "zai-coding-plan"
+    const fixture = await loadFixture(providerID, "glm-5.1")
     const model = fixture.model
-
-    const chunks = [
-      {
-        type: "message_start",
-        message: {
-          id: "msg-1",
-          model: model.id,
-          usage: {
-            input_tokens: 3,
-            cache_creation_input_tokens: null,
-            cache_read_input_tokens: null,
-          },
-        },
-      },
-      {
-        type: "content_block_start",
-        index: 0,
-        content_block: { type: "text", text: "" },
-      },
-      {
-        type: "content_block_delta",
-        index: 0,
-        delta: { type: "text_delta", text: "Hello" },
-      },
-      { type: "content_block_stop", index: 0 },
-      {
-        type: "message_delta",
-        delta: { stop_reason: "end_turn", stop_sequence: null, container: null },
-        usage: {
-          input_tokens: 3,
-          output_tokens: 2,
-          cache_creation_input_tokens: null,
-          cache_read_input_tokens: null,
-        },
-      },
-      { type: "message_stop" },
-    ]
-    const request = waitRequest("/messages", createEventResponse(chunks))
+    const request = waitRequest(
+      "/chat/completions",
+      new Response(createChatStream("Hello"), {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      }),
+    )
 
     await using tmp = await tmpdir({
       init: async (dir) => {
@@ -933,8 +992,12 @@ describe("session.llm.stream", () => {
             enabled_providers: [providerID],
             provider: {
               [providerID]: {
+                whitelist: [model.id],
+                models: {
+                  [model.id]: model,
+                },
                 options: {
-                  apiKey: "test-anthropic-key",
+                  apiKey: "test-zai-key",
                   baseURL: `${server.url.origin}/v1`,
                 },
               },
@@ -964,7 +1027,7 @@ describe("session.llm.stream", () => {
           role: "user",
           time: { created: Date.now() },
           agent: agent.name,
-          model: { providerID: ProviderID.make("minimax"), modelID: ModelID.make("MiniMax-M2.7") },
+          model: { providerID: ProviderID.make(providerID), modelID: resolved.id },
         } satisfies MessageV2.User
 
         const stream = await LLM.stream({
@@ -984,46 +1047,35 @@ describe("session.llm.stream", () => {
         const capture = await request
         const body = capture.body
 
-        expect(capture.url.pathname.endsWith("/messages")).toBe(true)
+        expect(capture.url.pathname.endsWith("/chat/completions")).toBe(true)
         expect(body.model).toBe(resolved.api.id)
-        expect(body.max_tokens).toBe(ProviderTransform.maxOutputTokens(resolved))
+        const maxTokens =
+          (body.max_tokens as number | undefined) ??
+          (body.max_output_tokens as number | undefined) ??
+          (body.max_completion_tokens as number | undefined)
+        expect(maxTokens).toBe(ProviderTransform.maxOutputTokens(resolved))
         expect(body.temperature).toBe(0.4)
         expect(body.top_p).toBe(0.9)
       },
     })
   })
 
-  test("sends Google API payload for Gemini models", async () => {
+  test("sends OpenAI-compatible payload for Kimi models", async () => {
     const server = state.server
     if (!server) {
       throw new Error("Server not initialized")
     }
 
-    const providerID = "google"
-    const modelID = "gemini-2.5-flash"
-    const fixture = await loadFixture(providerID, modelID)
-    const provider = fixture.provider
+    const providerID = "moonshotai"
+    const fixture = await loadFixture(providerID, "kimi-k2.5")
     const model = fixture.model
-    const pathSuffix = `/v1beta/models/${model.id}:streamGenerateContent`
-
-    const chunks = [
-      {
-        candidates: [
-          {
-            content: {
-              parts: [{ text: "Hello" }],
-            },
-            finishReason: "STOP",
-          },
-        ],
-        usageMetadata: {
-          promptTokenCount: 1,
-          candidatesTokenCount: 1,
-          totalTokenCount: 2,
-        },
-      },
-    ]
-    const request = waitRequest(pathSuffix, createEventResponse(chunks))
+    const request = waitRequest(
+      "/chat/completions",
+      new Response(createChatStream("Hello"), {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      }),
+    )
 
     await using tmp = await tmpdir({
       init: async (dir) => {
@@ -1034,9 +1086,13 @@ describe("session.llm.stream", () => {
             enabled_providers: [providerID],
             provider: {
               [providerID]: {
+                whitelist: [model.id],
+                models: {
+                  [model.id]: model,
+                },
                 options: {
-                  apiKey: "test-google-key",
-                  baseURL: `${server.url.origin}/v1beta`,
+                  apiKey: "test-moonshot-key",
+                  baseURL: `${server.url.origin}/v1`,
                 },
               },
             },
@@ -1084,14 +1140,16 @@ describe("session.llm.stream", () => {
 
         const capture = await request
         const body = capture.body
-        const config = body.generationConfig as
-          | { temperature?: number; topP?: number; maxOutputTokens?: number }
-          | undefined
 
-        expect(capture.url.pathname).toBe(pathSuffix)
-        expect(config?.temperature).toBe(0.3)
-        expect(config?.topP).toBe(0.8)
-        expect(config?.maxOutputTokens).toBe(ProviderTransform.maxOutputTokens(resolved))
+        expect(capture.url.pathname.endsWith("/chat/completions")).toBe(true)
+        expect(body.model).toBe(resolved.api.id)
+        expect(body.temperature).toBeUndefined()
+        expect(body.top_p).toBe(0.8)
+        const maxTokens =
+          (body.max_tokens as number | undefined) ??
+          (body.max_output_tokens as number | undefined) ??
+          (body.max_completion_tokens as number | undefined)
+        expect(maxTokens).toBe(ProviderTransform.maxOutputTokens(resolved))
       },
     })
   })

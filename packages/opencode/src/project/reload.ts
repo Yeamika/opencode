@@ -28,15 +28,29 @@ export namespace Reload {
     z.object({
       directory: z.string(),
       status: z.enum(["idle", "pending", "running"]),
+      totalSessions: z.number(),
+      readySessions: z.number(),
+      waitingSessions: z.number(),
     }),
   )
 
-  function publish(directory: string, status: "idle" | "pending" | "running") {
+  function publish(directory: string, status: "idle" | "pending" | "running", entry?: Entry) {
+    const state = entry
+      ? progress(entry)
+      : {
+          totalSessions: 0,
+          readySessions: 0,
+          waitingSessions: 0,
+          waitingSessionIDs: [],
+        }
     const payload = {
       type: Updated.type,
       properties: {
         directory,
         status,
+        totalSessions: state.totalSessions,
+        readySessions: state.readySessions,
+        waitingSessions: state.waitingSessions,
       },
     }
 
@@ -107,7 +121,7 @@ export namespace Reload {
       ...progress(entry),
     })
 
-    void publish(key, "running")
+    void publish(key, "running", entry)
     entry.running = Promise.all([State.dispose(key, { soft: true }), disposeInstance(key, { soft: true })])
       .catch((error) => {
         log.error("reload failed", {
@@ -130,7 +144,7 @@ export namespace Reload {
       })
       .finally(() => {
         if (pending.get(key) === entry) pending.delete(key)
-        void publish(key, "idle")
+        void publish(key, "idle", entry)
       })
     return entry.running
   }
@@ -200,7 +214,7 @@ export namespace Reload {
       directory: key,
       ...progress(entry),
     })
-    void publish(key, "pending")
+    void publish(key, "pending", entry)
     if (entry.sessions.size === 0) {
       void run(key, entry)
     }

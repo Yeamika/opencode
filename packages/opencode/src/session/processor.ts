@@ -1,4 +1,4 @@
-import { Cause, Effect, Exit, Layer, ServiceMap } from "effect"
+import { Cause, Effect, Exit, Layer, Scope, ServiceMap } from "effect"
 import * as Stream from "effect/Stream"
 import { Agent } from "@/agent/agent"
 import { Bus } from "@/bus"
@@ -69,6 +69,7 @@ export namespace SessionProcessor {
     | LLM.Service
     | Permission.Service
     | Plugin.Service
+    | SessionSummary.Service
     | SessionRetry.Service
     | SessionStatus.Service
   > = Layer.effect(
@@ -82,7 +83,9 @@ export namespace SessionProcessor {
       const llm = yield* LLM.Service
       const permission = yield* Permission.Service
       const plugin = yield* Plugin.Service
+      const summary = yield* SessionSummary.Service
       const retry = yield* SessionRetry.Service
+      const scope = yield* Scope.Scope
       const status = yield* SessionStatus.Service
 
       const create = Effect.fn("SessionProcessor.create")(function* (input: Input) {
@@ -306,10 +309,12 @@ export namespace SessionProcessor {
                 }
                 ctx.snapshot = undefined
               }
-              SessionSummary.summarize({
-                sessionID: ctx.sessionID,
-                messageID: ctx.assistantMessage.parentID,
-              })
+              yield* summary
+                .summarize({
+                  sessionID: ctx.sessionID,
+                  messageID: ctx.assistantMessage.parentID,
+                })
+                .pipe(Effect.ignore, Effect.forkIn(scope))
               if (
                 !ctx.assistantMessage.summary &&
                 isOverflow({ cfg: yield* config.get(), tokens: usage.tokens, model: ctx.model })
@@ -540,6 +545,7 @@ export namespace SessionProcessor {
         Layer.provide(LLM.defaultLayer),
         Layer.provide(Permission.defaultLayer),
         Layer.provide(Plugin.defaultLayer),
+        Layer.provide(SessionSummary.defaultLayer),
         Layer.provide(SessionRetry.layer),
         Layer.provide(SessionStatus.layer.pipe(Layer.provide(Bus.layer))),
         Layer.provide(Bus.layer),

@@ -865,7 +865,6 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
       variant: "success",
       message: `Workspace reload completed for ${directory}`,
     })
-    void sync.bootstrap().catch(() => {})
   })
 
   sdk.event.on(TuiEvent.SessionSelect.type, (evt) => {

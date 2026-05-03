@@ -433,7 +433,7 @@ export function createTuiApi(input: Input): TuiHostPluginApi {
       },
     },
     get tuiConfig() {
-      return input.tuiConfig
+      return input.tuiConfig as TuiPluginApi["tuiConfig"]
     },
     kv: {
       get(key, fallback) {

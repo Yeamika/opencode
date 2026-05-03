@@ -91,6 +91,19 @@ export namespace Plugin {
     }
   }
 
+  function sync(hooks: Hooks[], cfg: Config.Info) {
+    return Effect.gen(function* () {
+      for (const hook of hooks) {
+        yield* Effect.tryPromise({
+          try: () => Promise.resolve((hook as any).config?.(cfg)),
+          catch: (err) => {
+            log.error("plugin config hook failed", { error: err })
+          },
+        }).pipe(Effect.ignore)
+      }
+    })
+  }
+
   export const layer = Layer.effect(
     Service,
     Effect.gen(function* () {
@@ -221,15 +234,7 @@ export namespace Plugin {
             )
           }
 
-          // Notify plugins of current config
-          for (const hook of hooks) {
-            yield* Effect.tryPromise({
-              try: () => Promise.resolve((hook as any).config?.(cfg)),
-              catch: (err) => {
-                log.error("plugin config hook failed", { error: err })
-              },
-            }).pipe(Effect.ignore)
-          }
+          yield* sync(hooks, cfg)
 
           // Subscribe to bus events, fiber interrupted when scope closes
           yield* bus.subscribeAll().pipe(
@@ -245,6 +250,7 @@ export namespace Plugin {
 
           return { hooks }
         }),
+        { preserveOnSoft: true },
       )
 
       const trigger = Effect.fn("Plugin.trigger")(function* <
@@ -268,7 +274,10 @@ export namespace Plugin {
       })
 
       const init = Effect.fn("Plugin.init")(function* () {
-        yield* InstanceState.get(state)
+        const hit = yield* InstanceState.has(state)
+        const s = yield* InstanceState.get(state)
+        if (!hit) return
+        yield* sync(s.hooks, yield* config.get())
       })
 
       return Service.of({ trigger, list, init })

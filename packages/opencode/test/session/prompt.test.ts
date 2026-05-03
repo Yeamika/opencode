@@ -96,7 +96,7 @@ describe("session.prompt missing file", () => {
       config: {
         agent: {
           build: {
-            model: "openai/gpt-5.2",
+            model: "openai/gpt-5.4",
           },
         },
       },
@@ -141,7 +141,7 @@ describe("session.prompt missing file", () => {
       config: {
         agent: {
           build: {
-            model: "openai/gpt-5.2",
+            model: "openai/gpt-5.4",
           },
         },
       },
@@ -390,7 +390,7 @@ describe("session.prompt agent variant", () => {
         config: {
           agent: {
             build: {
-              model: "openai/gpt-5.2",
+              model: "openai/gpt-5.4",
               variant: "xhigh",
             },
           },
@@ -419,7 +419,7 @@ describe("session.prompt agent variant", () => {
             parts: [{ type: "text", text: "hello again" }],
           })
           if (match.info.role !== "user") throw new Error("expected user message")
-          expect(match.info.model).toEqual({ providerID: ProviderID.make("openai"), modelID: ModelID.make("gpt-5.2") })
+          expect(match.info.model).toEqual({ providerID: ProviderID.make("openai"), modelID: ModelID.make("gpt-5.4") })
           expect(match.info.variant).toBe("xhigh")
 
           const override = await SessionPrompt.prompt({

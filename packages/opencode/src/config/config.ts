@@ -158,24 +158,34 @@ export namespace Config {
     input?.signal?.throwIfAborted()
 
     const pkg = path.join(dir, "package.json")
+    const plugin = path.join(dir, "node_modules", "@opencode-ai", "plugin", "package.json")
     const target = Installation.isLocal() ? "*" : Installation.VERSION
     const json = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(pkg).catch(() => ({
-      dependencies: {},
+      dependencies: {} as Record<string, string>,
     }))
-    json.dependencies = {
-      ...json.dependencies,
-      "@opencode-ai/plugin": target,
-    }
-    await Filesystem.writeJson(pkg, json)
 
     const gitignore = path.join(dir, ".gitignore")
-    const ignore = await Filesystem.exists(gitignore)
-    if (!ignore) {
+    const hasDep = json.dependencies?.["@opencode-ai/plugin"] === target
+    const hasIgnore = await Filesystem.exists(gitignore)
+    const hasPkg = await Filesystem.exists(plugin)
+
+    if (!hasDep) {
+      json.dependencies = {
+        ...json.dependencies,
+        "@opencode-ai/plugin": target,
+      }
+      await Filesystem.writeJson(pkg, json)
+    }
+
+    if (!hasIgnore) {
       await Filesystem.write(
         gitignore,
         ["node_modules", "package.json", "package-lock.json", "bun.lock", ".gitignore"].join("\n"),
       )
     }
+
+    if (hasDep && hasIgnore && hasPkg) return
+
     await Npm.install(dir)
   }
 
@@ -512,6 +522,12 @@ export namespace Config {
           grep: PermissionRule.optional(),
           list: PermissionRule.optional(),
           bash: PermissionRule.optional(),
+          exbash: PermissionRule.optional(),
+          reload: PermissionRule.optional(),
+          workspaceMcp: PermissionRule.optional(),
+          workspaceTool: PermissionRule.optional(),
+          workspaceSkill: PermissionRule.optional(),
+          workspaceOverview: PermissionRule.optional(),
           task: PermissionRule.optional(),
           external_directory: PermissionRule.optional(),
           todowrite: PermissionAction.optional(),
@@ -897,7 +913,7 @@ export namespace Config {
         .boolean()
         .optional()
         .describe(
-          "Enable or disable snapshot tracking. When false, filesystem snapshots are not recorded and undoing or reverting will not undo/redo file changes. Defaults to false.",
+          "Enable or disable snapshot tracking. When false, filesystem snapshots are not recorded and undoing or reverting will not undo/redo file changes. Defaults to true.",
         ),
       plugin: PluginSpec.array().optional(),
       share: z
@@ -1514,7 +1530,6 @@ export namespace Config {
           }
 
           if (!result.username) result.username = os.userInfo().username
-          if (result.snapshot === undefined) result.snapshot = false
 
           if (result.autoshare === true && !result.share) {
             result.share = "auto"

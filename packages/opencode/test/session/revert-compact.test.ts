@@ -445,7 +445,7 @@ describe("revert + compact workflow", () => {
   })
 
   test("restore messages in sequential order", async () => {
-    await using tmp = await tmpdir({ git: true })
+    await using tmp = await tmpdir({ git: true, config: { snapshot: true } })
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
@@ -537,7 +537,7 @@ describe("revert + compact workflow", () => {
   })
 
   test("restore same file in sequential order", async () => {
-    await using tmp = await tmpdir({ git: true })
+    await using tmp = await tmpdir({ git: true, config: { snapshot: true } })
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {

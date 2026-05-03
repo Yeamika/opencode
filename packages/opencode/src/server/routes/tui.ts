@@ -374,7 +374,7 @@ export const TuiRoutes = lazy(() =>
         const evt = c.req.valid("json")
         const def = Object.values(TuiEvent).find((item) => item.type === evt.type)
         if (def) {
-          await Bus.publish(def, evt.properties)
+          await Bus.publishRaw(def.type, evt.properties)
           return c.json(true)
         }
         await Bus.publishRaw(evt.type, evt.properties)

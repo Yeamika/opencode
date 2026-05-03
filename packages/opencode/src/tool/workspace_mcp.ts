@@ -34,6 +34,16 @@ export const WorkspaceMcpTool = Tool.define("workspaceMcp", {
   }),
   async execute(args, ctx) {
     const directory = String(ctx.directory ?? "")
+    await ctx.ask({
+      permission: "workspaceMcp",
+      patterns: [args.mode === "read" ? `${args.scope} read` : `${args.scope} ${args.mode} ${args.name ?? "*"}`],
+      always: ["*"],
+      metadata: {
+        mode: args.mode,
+        scope: args.scope,
+        name: args.name,
+      },
+    })
     if ((args.mode === "write" || args.mode === "delete") && args.scope === "global") {
       throw new Error("workspaceMcp only allows write/delete for local scope")
     }

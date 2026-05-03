@@ -173,6 +173,20 @@ export function createTuiPluginApi(opts: Opts = {}): HostPluginApi {
     },
     scopedClient,
     workspace,
+    display: {
+      get id() {
+        return undefined
+      },
+      get directory() {
+        return opts.state?.path?.directory
+      },
+      get sessionID() {
+        return undefined
+      },
+      report: async () => {},
+      selectSession: async () => {},
+      attachToRunningSession: async () => {},
+    },
     event: {
       on: () => {
         if (count) count.event_add += 1
@@ -181,6 +195,7 @@ export function createTuiPluginApi(opts: Opts = {}): HostPluginApi {
           count.event_drop += 1
         }
       },
+      publish: async () => {},
     },
     renderer,
     slots: {
@@ -299,6 +314,7 @@ export function createTuiPluginApi(opts: Opts = {}): HostPluginApi {
         count: opts.state?.session?.count ?? (() => 0),
         diff: opts.state?.session?.diff ?? (() => []),
         todo: opts.state?.session?.todo ?? (() => []),
+        exbash: opts.state?.session?.exbash ?? (() => []),
         messages: opts.state?.session?.messages ?? (() => []),
         status: opts.state?.session?.status ?? (() => undefined),
         permission: opts.state?.session?.permission ?? (() => []),

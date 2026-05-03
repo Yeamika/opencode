@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test"
 import fs from "fs/promises"
 import path from "path"
+import type { Tool } from "ai"
 import { MCP } from "../../src/mcp"
 import { Instance } from "../../src/project/instance"
 import { Reload } from "../../src/project/reload"
@@ -167,7 +168,7 @@ describe("project.reload", () => {
         } as any)
 
         let count = 0
-        const tools = spyOn(MCP, "tools").mockImplementation(async () => {
+        const tools = spyOn(MCP, "tools").mockImplementation(async (): Promise<Record<string, Tool>> => {
           count += 1
           if (count === 1) {
             return {

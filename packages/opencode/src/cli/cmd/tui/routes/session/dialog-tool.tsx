@@ -1,4 +1,5 @@
 import { createMemo } from "solid-js"
+import type { DialogContext } from "@tui/ui/dialog"
 import { DialogSelect } from "@tui/ui/dialog-select"
 import { DialogToolOutput } from "./dialog-tool-output"
 
@@ -17,7 +18,7 @@ export function DialogTool(props: {
         title: "Input details",
         value: "tool.input",
         description: "show full tool input parameters",
-        onSelect: (dialog) => {
+        onSelect: (dialog: DialogContext) => {
           DialogToolOutput.show(dialog, `${props.tool} Input`, input)
         },
       },
@@ -27,7 +28,7 @@ export function DialogTool(props: {
               title: "Output details",
               value: "tool.output",
               description: "show full tool output",
-              onSelect: (dialog) => {
+              onSelect: (dialog: DialogContext) => {
                 DialogToolOutput.show(dialog, `${props.tool} Output`, out)
               },
             },
@@ -39,7 +40,7 @@ export function DialogTool(props: {
               title: "Error details",
               value: "tool.error",
               description: "show full tool error",
-              onSelect: (dialog) => {
+              onSelect: (dialog: DialogContext) => {
                 DialogToolOutput.show(dialog, `${props.tool} Error`, err)
               },
             },

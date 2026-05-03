@@ -31,6 +31,14 @@ export const WorkspaceOverviewTool = Tool.define("workspaceOverview", {
     scope: z.enum(["local", "global"]).default("local").describe("Which workspace scope to inspect."),
   }),
   async execute(args, ctx) {
+    await ctx.ask({
+      permission: "workspaceOverview",
+      patterns: [args.scope],
+      always: ["*"],
+      metadata: {
+        scope: args.scope,
+      },
+    })
     const directory = String(ctx.directory ?? "")
     const base = args.scope === "global" ? Global.Path.config : path.join(directory, ".opencode")
     const configFile = path.join(base, "opencode.json")

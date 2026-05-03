@@ -16,8 +16,10 @@ import { Plugin } from "../../src/plugin"
 import { tmpdir } from "../fixture/fixture"
 import { Session } from "../../src/session"
 import { MessageV2 } from "../../src/session/message-v2"
+import { SessionRetry } from "../../src/session/retry"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { SessionStatus } from "../../src/session/status"
+import { SessionSummary } from "../../src/session/summary"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import type { Provider } from "../../src/provider/provider"
 import * as SessionProcessorModule from "../../src/session/processor"
@@ -25,6 +27,15 @@ import { Snapshot } from "../../src/snapshot"
 import { ProviderTest } from "../fake/provider"
 
 Log.init({ print: false })
+
+const summary = Layer.succeed(
+  SessionSummary.Service,
+  SessionSummary.Service.of({
+    summarize: () => Effect.void,
+    diff: () => Effect.succeed([]),
+    computeDiff: () => Effect.succeed([]),
+  }),
+)
 
 const ref = {
   providerID: ProviderID.make("test"),
@@ -204,12 +215,13 @@ function llm() {
 function liveRuntime(layer: Layer.Layer<LLM.Service>, provider = ProviderTest.fake()) {
   const bus = Bus.layer
   const status = SessionStatus.layer.pipe(Layer.provide(bus))
-  const processor = SessionProcessorModule.SessionProcessor.layer
+  const processor = SessionProcessorModule.SessionProcessor.layer.pipe(Layer.provide(summary))
   return ManagedRuntime.make(
     Layer.mergeAll(SessionCompaction.layer.pipe(Layer.provide(processor)), processor, bus, status).pipe(
       Layer.provide(provider.layer),
       Layer.provide(Session.defaultLayer),
       Layer.provide(Snapshot.defaultLayer),
+      Layer.provide(SessionRetry.layer),
       Layer.provide(layer),
       Layer.provide(Permission.defaultLayer),
       Layer.provide(Agent.defaultLayer),
@@ -217,7 +229,7 @@ function liveRuntime(layer: Layer.Layer<LLM.Service>, provider = ProviderTest.fa
       Layer.provide(status),
       Layer.provide(bus),
       Layer.provide(Config.defaultLayer),
-    ),
+    ) as Layer.Layer<Bus.Service | SessionStatus.Service | SessionProcessorModule.SessionProcessor.Service | SessionCompaction.Service>,
   )
 }
 

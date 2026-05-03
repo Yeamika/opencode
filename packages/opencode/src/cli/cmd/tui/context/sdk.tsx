@@ -43,6 +43,9 @@ type ProjectReloadUpdatedEvent = {
   properties: {
     directory: string
     status: "idle" | "pending" | "running"
+    totalSessions: number
+    readySessions: number
+    waitingSessions: number
   }
 }
 

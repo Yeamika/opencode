@@ -66,7 +66,7 @@ export namespace ExBashTask {
       const wid = new Set<string>()
       const ses = new Map<string, Map<string, Info>>()
       const ws = new Map<string, Map<string, Info>>()
-      const idx = new Map<string, { sessionID: string; workspace: string; scope: Scope }>()
+      const idx = new Map<string, { sessionID: SessionID; workspace: string; scope: Scope }>()
 
       const file = (asyncID: string) => path.join(ROOT, `${asyncID}.log`)
 
@@ -86,7 +86,7 @@ export namespace ExBashTask {
         idx.delete(asyncID)
       }
 
-      const note = (sessionID: string, workspace: string) => bus.publish(Event.Updated, { sessionID, workspace })
+      const note = (sessionID: SessionID, workspace: string) => bus.publish(Event.Updated, { sessionID, workspace })
 
       const row = (r: typeof ExBashTaskTable.$inferSelect): Info => ({
         asyncID: r.async_id,

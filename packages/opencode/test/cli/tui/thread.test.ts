@@ -59,6 +59,7 @@ describe("tui thread", () => {
     const args: Parameters<NonNullable<typeof TuiThreadCommand.handler>>[0] = {
       _: [],
       $0: "opencode",
+      dir: undefined,
       project,
       prompt: "hi",
       model: undefined,

@@ -195,9 +195,19 @@ export function Prompt(props: PromptProps) {
     }, 0)
   })
 
-  createEffect(() => {
-    if (props.disabled) input.cursorColor = theme.backgroundElement
-    if (!props.disabled) input.cursorColor = theme.text
+  const load = createMemo(() => {
+    const dir = sync.data.path.directory || sdk.directory || ""
+    if (!dir) return
+    const next = sync.data.reload[dir]
+    if (!next || next.status === "idle") return
+    return next
+  })
+
+  const loadText = createMemo(() => {
+    const next = load()
+    if (!next) return ""
+    if (next.totalSessions <= 0) return "reloading wait"
+    return `reloading wait (${next.readySessions}/${next.totalSessions})`
   })
 
   const lastUserMessage = createMemo(() => {
@@ -215,6 +225,7 @@ export function Prompt(props: PromptProps) {
 
   const resumable = createMemo(() => {
     if (!props.sessionID) return false
+    if (load()) return false
     if (status().type !== "idle") return false
     const msg = last()
     if (!msg) return false
@@ -245,6 +256,13 @@ export function Prompt(props: PromptProps) {
     const left = formatDuration(delta)
     const right = formatDuration(wait)
     return [left ? `retrying in ${left}` : "retrying now", right ? `waiting ${right}` : ""].filter(Boolean).join(" · ")
+  })
+
+  const lock = createMemo(() => !!props.disabled || !!load() || status().type === "retry" || resumable())
+
+  createEffect(() => {
+    if (lock()) input.cursorColor = theme.backgroundElement
+    if (!lock()) input.cursorColor = theme.text
   })
 
   const usage = createMemo(() => {
@@ -570,7 +588,7 @@ export function Prompt(props: PromptProps) {
     if (!input || input.isDestroyed) return
     input.traits = {
       capture: auto()?.visible ? ["escape", "navigate", "submit", "tab"] : undefined,
-      suspend: !!props.disabled || store.mode === "shell",
+      suspend: lock() || store.mode === "shell",
       status: store.mode === "shell" ? "SHELL" : undefined,
     }
   })
@@ -709,7 +727,7 @@ export function Prompt(props: PromptProps) {
   ])
 
   async function submit() {
-    if (props.disabled) return
+    if (lock()) return
     if (autocomplete?.visible) return
     if (!store.prompt.input) return
     const trimmed = store.prompt.input.trim()
@@ -976,6 +994,19 @@ export function Prompt(props: PromptProps) {
   })
 
   const stateSlot = createMemo<JSX.Element>(() => {
+    if (load()) {
+      return (
+        <box flexDirection="row" gap={1} minWidth={0}>
+          <Show when={kv.get("animations_enabled", true)} fallback={<text fg={theme.textMuted}>[⋯]</text>}>
+            <spinner color={spinnerDef().color} frames={spinnerDef().frames} interval={40} />
+          </Show>
+          <text fg={theme.textMuted} wrapMode="none" overflow="hidden">
+            {loadText()}
+          </text>
+        </box>
+      )
+    }
+
     if (status().type === "busy") {
       return (
         <box flexDirection="row" gap={1} minWidth={0}>
@@ -1029,6 +1060,8 @@ export function Prompt(props: PromptProps) {
   })
 
   const leftSlot = createMemo<JSX.Element>(() => {
+    if (load()) return <text />
+
     if (status().type === "busy") {
       return (
         <text fg={store.interrupt > 0 ? theme.primary : theme.text} wrapMode="none" overflow="hidden">
@@ -1196,7 +1229,7 @@ export function Prompt(props: PromptProps) {
               }}
               keyBindings={textareaKeybindings()}
               onKeyDown={async (e) => {
-                if (props.disabled) {
+                if (lock()) {
                   e.preventDefault()
                   return
                 }
@@ -1275,7 +1308,7 @@ export function Prompt(props: PromptProps) {
               }}
               onSubmit={submit}
               onPaste={async (event: PasteEvent) => {
-                if (props.disabled) {
+                if (lock()) {
                   event.preventDefault()
                   return
                 }
