@@ -1607,6 +1607,11 @@ test("permission config accepts workspace tool permissions", async () => {
             workspaceSkill: "ask",
             workspaceOverview: "allow",
             exbash: "deny",
+            exbash_executor: {
+              "*": "deny",
+              node: "allow",
+              python: "allow",
+            },
           },
         }),
       )
@@ -1622,6 +1627,11 @@ test("permission config accepts workspace tool permissions", async () => {
       expect(config.permission?.workspaceSkill).toBe("ask")
       expect(config.permission?.workspaceOverview).toBe("allow")
       expect(config.permission?.exbash).toBe("deny")
+      expect(config.permission?.exbash_executor).toEqual({
+        "*": "deny",
+        node: "allow",
+        python: "allow",
+      })
     },
   })
 })

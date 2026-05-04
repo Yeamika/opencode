@@ -523,6 +523,7 @@ export namespace Config {
           list: PermissionRule.optional(),
           bash: PermissionRule.optional(),
           exbash: PermissionRule.optional(),
+          exbash_executor: PermissionRule.optional(),
           reload: PermissionRule.optional(),
           workspaceMcp: PermissionRule.optional(),
           workspaceTool: PermissionRule.optional(),

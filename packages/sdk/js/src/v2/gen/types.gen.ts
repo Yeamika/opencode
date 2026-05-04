@@ -1251,6 +1251,7 @@ export type PermissionConfig =
       list?: PermissionRuleConfig
       bash?: PermissionRuleConfig
       exbash?: PermissionRuleConfig
+      exbash_executor?: PermissionRuleConfig
       reload?: PermissionRuleConfig
       workspaceMcp?: PermissionRuleConfig
       workspaceTool?: PermissionRuleConfig

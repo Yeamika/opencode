@@ -240,6 +240,28 @@ function raw(text?: string): Exec {
   return prefix(next)
 }
 
+function perm(exec: Exec) {
+  const hit = key(exec.name.toLowerCase())
+  if (hit) return hit
+  const low = exec.name.toLowerCase()
+  if (low.startsWith("python")) return "python"
+  if (low.startsWith("node")) return "node"
+  return exec.name
+}
+
+async function gate(ctx: Tool.Context, exec: Exec) {
+  const hit = perm(exec)
+  await ctx.ask({
+    permission: "exbash_executor",
+    patterns: [hit],
+    always: [hit],
+    metadata: {
+      executor: hit,
+      file: exec.file,
+    },
+  })
+}
+
 async function pick(text: string | undefined, root: string): Promise<Exec> {
   const cfg = (await Config.get()).experimental?.exbash?.executors
   const next = text?.trim()
@@ -490,6 +512,7 @@ async function queue(
   },
   ctx: Tool.Context,
 ) {
+  await gate(ctx, input.exec)
   const ps = ["powershell", "pwsh"].includes(input.exec.name)
   const root = await parse(input.command, ps)
   const scan = await collect(root, input.cwd, ps, input.exec.file)

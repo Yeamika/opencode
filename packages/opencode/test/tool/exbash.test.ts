@@ -7,6 +7,7 @@ import { Project } from "../../src/project/project"
 import { Session } from "../../src/session"
 import { MessageID } from "../../src/session/schema"
 import { Shell } from "../../src/shell/shell"
+import { Permission } from "../../src/permission"
 import { ExBashTool } from "../../src/tool/exbash"
 import { Instance } from "../../src/project/instance"
 import { Filesystem } from "../../src/util/filesystem"
@@ -46,6 +47,19 @@ const mkctx = async (title: string, directory = root) => {
     ...base,
     sessionID: session.id,
     directory,
+  }
+}
+
+const mkperm = async (title: string, rules: Permission.Ruleset, directory = root) => {
+  const ctx = await mkctx(title, directory)
+  return {
+    ...ctx,
+    ask: async (req: Omit<Permission.Request, "id" | "sessionID" | "tool">) => {
+      for (const item of req.patterns) {
+        const rule = Permission.evaluate(req.permission, item, rules)
+        if (rule.action === "deny") throw new Permission.DeniedError({ ruleset: rules })
+      }
+    },
   }
 }
 
@@ -89,7 +103,15 @@ describe("tool.exbash", () => {
       directory: tmp.extra,
       fn: async () => {
         const exbash = await ExBashTool.init()
-        const ctx = await mkctx("config exec", tmp.extra)
+        const ctx = await mkperm(
+          "config exec",
+          [
+            { permission: "bash", pattern: "*", action: "allow" },
+            { permission: "exbash_executor", pattern: "*", action: "deny" },
+            { permission: "exbash_executor", pattern: "python", action: "allow" },
+          ],
+          tmp.extra,
+        )
         const result = await exbash.execute(
           {
             mode: "exec_timeout_async",
@@ -101,6 +123,60 @@ describe("tool.exbash", () => {
         )
         expect(result.metadata.exit).toBe(0)
         expect(result.output).toContain("config-python")
+      },
+    })
+  })
+
+  test.serial("allows node executor when exbash_executor only allows node and python", async () => {
+    await Instance.provide({
+      directory: root,
+      fn: async () => {
+        const exbash = await ExBashTool.init()
+        const ctx = await mkperm("node only exec", [
+          { permission: "bash", pattern: "*", action: "allow" },
+          { permission: "exbash_executor", pattern: "*", action: "deny" },
+          { permission: "exbash_executor", pattern: "node", action: "allow" },
+          { permission: "exbash_executor", pattern: "python", action: "allow" },
+        ])
+        const result = await exbash.execute(
+          {
+            mode: "exec_timeout_async",
+            executor: "node",
+            command: 'process.stdout.write("node-only")',
+            description: "Run node only exec",
+          },
+          ctx,
+        )
+
+        expect(result.metadata.exit).toBe(0)
+        expect(result.output).toContain("node-only")
+      },
+    })
+  })
+
+  test.serial("denies bash executor when exbash_executor only allows node and python", async () => {
+    await Instance.provide({
+      directory: root,
+      fn: async () => {
+        const exbash = await ExBashTool.init()
+        const ctx = await mkperm("deny bash exec", [
+          { permission: "bash", pattern: "*", action: "allow" },
+          { permission: "exbash_executor", pattern: "*", action: "deny" },
+          { permission: "exbash_executor", pattern: "node", action: "allow" },
+          { permission: "exbash_executor", pattern: "python", action: "allow" },
+        ])
+
+        await expect(
+          exbash.execute(
+            {
+              mode: "exec_timeout_async",
+              executor: "bash",
+              command: "echo blocked",
+              description: "Run blocked bash exec",
+            },
+            ctx,
+          ),
+        ).rejects.toThrow("The user has specified a rule")
       },
     })
   })
