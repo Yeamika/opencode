@@ -2443,7 +2443,9 @@ function input(input: Record<string, any>, omit?: string[]): string {
     return typeof value === "string" || typeof value === "number" || typeof value === "boolean"
   })
   if (primitives.length === 0) return ""
-  return `[${primitives.map(([key, value]) => `${key}=${value}`).join(", ")}]`
+  const text = `[${primitives.map(([key, value]) => `${key}=${value}`).join(", ")}]`
+  if (text.split(/\r?\n/).length > 2) return "[args=...]"
+  return text
 }
 
 function filetype(input?: string) {
