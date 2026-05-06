@@ -5,6 +5,7 @@
 ## 堵塞中
 
 ## 已完成
+- [✅] 收口 opencode 家族记忆层级——已将共享发布规则上提到 `../AGENTS.md`，本 worktree 保留 repo 级规则[ses_hr]
 - [✅] 收紧 workspace 工具权限——已完成并通过定向测试与 typecheck[ses_gpt54]
 - [✅] 补 exbash_executor 权限与兼容测试——已完成并通过定向测试与 typecheck[ses_gpt54]
 - [✅] 在 system env 中加入当前会话id——已完成并通过测试与 typecheck[ses_gpt54]
