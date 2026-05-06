@@ -4,6 +4,13 @@
 - Local `main` ref may not exist; use `dev` or `origin/dev` for diffs.
 - Prefer automation: execute requested actions without confirmation unless blocked by missing info or safety/irreversibility.
 
+## Local Publish / Registry
+
+- The local Verdaccio server for workspace publishing is `http://host.docker.internal:4873`; it stores only a small set of locally published packages, not a full npm mirror.
+- Do not treat GET / PUT requests to `4873` as automatic evidence of failure, and do not treat `401` from that endpoint as automatic credential failure; requests may have been routed to a local registry that does not host the target package.
+- For local opencode package publishing, prefer `verdaccio-publish-opencode`; for end-to-end release flow, prefer `release-local`.
+- Credentials must come from `~/.npmrc`, `~/.config/npm-local-uploader.md`, or runtime environment variables, never from committed repo files.
+
 ## Style Guide
 
 ### General Principles
