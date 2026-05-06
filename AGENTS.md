@@ -4,11 +4,6 @@
 - Local `main` ref may not exist; use `dev` or `origin/dev` for diffs.
 - Prefer automation: execute requested actions without confirmation unless blocked by missing info or safety/irreversibility.
 
-## Local Publish / Registry
-
-- Shared Verdaccio / registry conventions live in workspace root `docs/workspace-publish-registry.md`.
-- For local opencode package publishing, prefer `verdaccio-publish-opencode`; for end-to-end release flow, prefer `release-local`.
-
 ## Style Guide
 
 ### General Principles
