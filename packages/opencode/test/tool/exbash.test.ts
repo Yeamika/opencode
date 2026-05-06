@@ -784,4 +784,98 @@ describe("tool.exbash", () => {
       },
     })
   })
+
+  test.serial("uses directory semantics for workspace scoped runs even if worktree differs", async () => {
+    await using a = await tmpdir()
+    await using b = await tmpdir()
+
+    await Instance.provide({
+      directory: a.path,
+      fn: async () => {
+        const exbash = await ExBashTool.init()
+        const one = { ...(await mkctx("dir scoped one", a.path)), worktree: b.path }
+        const two = { ...(await mkctx("dir scoped two", a.path)), worktree: a.path }
+
+        const shared = JSON.parse(
+          (
+            await exbash.execute(
+              {
+                mode: "exec_async",
+                command: `${bin} -e ${evalarg('setInterval(() => console.log("workspace"), 25)')}`,
+                description: "Directory scoped run",
+                scope: "workspace",
+              },
+              one,
+            )
+          ).output,
+        ) as {
+          asyncID: string
+          scope: string
+        }
+
+        const listed = JSON.parse(
+          (
+            await exbash.execute(
+              {
+                mode: "list",
+                asyncID: shared.asyncID,
+              },
+              two,
+            )
+          ).output,
+        ) as {
+          runs: Array<{ asyncID: string }>
+        }
+
+        expect(shared.scope).toBe("workspace")
+        expect(listed.runs.map((item) => item.asyncID)).toContain(shared.asyncID)
+
+        await exbash.execute({ mode: "control", asyncID: shared.asyncID, action: "stop" }, one)
+        await exbash.execute({ mode: "control", asyncID: shared.asyncID, action: "remove" }, one)
+      },
+    })
+  })
+
+  test.serial("adds a private cleanup hint when local runs exceed five", async () => {
+    await Instance.provide({
+      directory: root,
+      fn: async () => {
+        const exbash = await ExBashTool.init()
+        const ctx = await mkctx("private hint")
+        const ids: string[] = []
+
+        for (let i = 0; i < 6; i++) {
+          const started = JSON.parse(
+            (
+              await exbash.execute(
+                {
+                  mode: "exec_async",
+                  command: `${bin} -e ${evalarg('setInterval(() => {}, 25)')}`,
+                  description: `Private async run ${i + 1}`,
+                  scope: "local",
+                },
+                ctx,
+              )
+            ).output,
+          ) as {
+            asyncID: string
+          }
+          ids.push(started.asyncID)
+        }
+
+        const listed = JSON.parse((await exbash.execute({ mode: "list" }, ctx)).output) as {
+          runs: Array<{ asyncID: string; scope: string }>
+          hint?: string
+        }
+
+        expect(listed.runs.filter((item) => item.scope === "local")).toHaveLength(6)
+        expect(listed.hint).toContain("private exbash runs")
+
+        for (const id of ids) {
+          await exbash.execute({ mode: "control", asyncID: id, action: "stop" }, ctx)
+          await exbash.execute({ mode: "control", asyncID: id, action: "remove" }, ctx)
+        }
+      },
+    })
+  })
 })

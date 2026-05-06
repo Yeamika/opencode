@@ -66,6 +66,7 @@ export function Home() {
           <TuiPluginRuntime.Slot name="home_prompt" mode="replace" workspace_id={route.workspaceID} ref={bind}>
             <Prompt
               ref={bind}
+              tips
               workspaceID={route.workspaceID}
               right={<TuiPluginRuntime.Slot name="home_prompt_right" workspace_id={route.workspaceID} />}
               placeholders={placeholder}

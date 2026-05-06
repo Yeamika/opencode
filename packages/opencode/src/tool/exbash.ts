@@ -286,9 +286,13 @@ async function inputfile(file: string, ctx: Tool.Context) {
   return next
 }
 
-function workspace(ctx: Tool.Context) {
+function root(ctx: Tool.Context) {
   const dir = ctx.worktree && ctx.worktree !== "/" ? ctx.worktree : Instance.worktree !== "/" ? Instance.worktree : ctx.directory ?? Instance.directory
   return Filesystem.resolve(dir)
+}
+
+function workspace(ctx: Tool.Context) {
+  return Filesystem.resolve(ctx.directory ?? Instance.directory)
 }
 
 function label(input: { status: "running" | "stopped"; exitCode?: number }) {
@@ -573,8 +577,12 @@ export const ExBashTool = Tool.define("exbash", {
       const runs = (await ExBashTask.get({ sessionID: ctx.sessionID, workspace: workspace(ctx) }))
         .filter((item) => (!input.asyncID || item.asyncID === input.asyncID) && (!input.scope || item.scope === input.scope))
         .map(detail)
-      const output = JSON.stringify({ runs }, null, 2)
-      return { title: "Async runs listed", metadata: { runs }, output }
+      const count = runs.filter((item) => item.scope === "local").length
+      const hint = !input.asyncID && input.scope !== "workspace" && count > 5
+        ? `You have ${count} private exbash runs. Consider removing stopped private runs with mode=control and action=remove.`
+        : undefined
+      const output = JSON.stringify({ runs, ...(hint ? { hint } : {}) }, null, 2)
+      return { title: "Async runs listed", metadata: { runs, ...(hint ? { hint } : {}) }, output }
     }
 
     if (arg.mode === "input") {
@@ -666,7 +674,7 @@ export const ExBashTool = Tool.define("exbash", {
       }
       const shell = raw(input.executor).file
       const cwd = input.workdir ? await resolvePath(input.workdir, Instance.directory, shell) : Instance.directory
-      const exec = await pick(input.executor, workspace(ctx))
+      const exec = await pick(input.executor, root(ctx))
       const state = await queue(
         {
           exec,
@@ -716,7 +724,7 @@ export const ExBashTool = Tool.define("exbash", {
 
     const shell = raw(input.executor).file
     const cwd = input.workdir ? await resolvePath(input.workdir, Instance.directory, shell) : Instance.directory
-    const exec = await pick(input.executor, workspace(ctx))
+    const exec = await pick(input.executor, root(ctx))
     if (input.timeout !== undefined && input.timeout < 0) {
       throw new Error(`Invalid timeout value: ${input.timeout}. Timeout must be a positive number.`)
     }

@@ -42,6 +42,7 @@ export type PromptProps = {
   workspaceID?: string
   visible?: boolean
   disabled?: boolean
+  tips?: boolean
   onSubmit?: () => void
   ref?: (ref: PromptRef | undefined) => void
   hint?: JSX.Element
@@ -135,6 +136,23 @@ export function Prompt(props: PromptProps) {
     parts.push(current.action ?? "Running")
     return parts.join(" · ")
   })
+
+  function busy(sessionID: string, action = "Preparing response") {
+    const now = Date.now()
+    sync.set("session_status", sessionID, {
+      type: "busy",
+      startedAt: now,
+      updatedAt: now,
+      action,
+    })
+  }
+
+  function idle(sessionID: string) {
+    sync.set("session_status", sessionID, {
+      type: "idle",
+      updatedAt: Date.now(),
+    })
+  }
 
   async function resume() {
     if (!props.sessionID) return false
@@ -788,7 +806,8 @@ export function Prompt(props: PromptProps) {
     const variant = local.model.variant.current()
 
     if (store.mode === "shell") {
-      sdk.client.session.shell({
+      busy(sessionID)
+      void sdk.client.session.shell({
         sessionID,
         agent: local.agent.current().name,
         model: {
@@ -797,6 +816,7 @@ export function Prompt(props: PromptProps) {
         },
         command: inputText,
       })
+        .catch(() => idle(sessionID))
       setStore("mode", "normal")
     } else if (
       inputText.startsWith("/") &&
@@ -813,7 +833,8 @@ export function Prompt(props: PromptProps) {
       const restOfInput = firstLineEnd === -1 ? "" : inputText.slice(firstLineEnd + 1)
       const args = firstLineArgs.join(" ") + (restOfInput ? "\n" + restOfInput : "")
 
-      sdk.client.session.command({
+      busy(sessionID)
+      void sdk.client.session.command({
         sessionID,
         command: command.slice(1),
         arguments: args,
@@ -828,7 +849,9 @@ export function Prompt(props: PromptProps) {
             ...x,
           })),
       })
+        .catch(() => idle(sessionID))
     } else {
+      busy(sessionID)
       sdk.client.session
         .prompt({
           sessionID,
@@ -846,7 +869,7 @@ export function Prompt(props: PromptProps) {
             ...nonTextParts.map(assign),
           ],
         })
-        .catch(() => {})
+        .catch(() => idle(sessionID))
     }
     history.append({
       ...store.prompt,
@@ -1142,6 +1165,7 @@ export function Prompt(props: PromptProps) {
         </text>
       )
     }
+    if (!props.tips) return <text />
     return (
       <text fg={theme.text} wrapMode="none" overflow="hidden">
         {keybind.print("agent_cycle")} <span style={{ fg: theme.textMuted }}>agents</span>
@@ -1150,24 +1174,24 @@ export function Prompt(props: PromptProps) {
   })
 
   const rightSlot = createMemo<JSX.Element>(() => {
-    const body = store.mode === "shell"
-      ? (
-          <text fg={theme.text} wrapMode="none" overflow="hidden">
-            esc <span style={{ fg: theme.textMuted }}>exit shell mode</span>
-          </text>
-        )
-      : (
-          <text fg={theme.text} wrapMode="none" overflow="hidden">
-            {keybind.print("command_list")} <span style={{ fg: theme.textMuted }}>commands</span>
-          </text>
-        )
-    if (args.transport !== "attach") return body
-    return (
-      <box flexDirection="row" gap={1}>
-        <text fg={theme.textMuted} wrapMode="none">
-          [Remote]
+    if (store.mode === "shell") {
+      return (
+        <text fg={theme.text} wrapMode="none" overflow="hidden">
+          esc <span style={{ fg: theme.textMuted }}>exit shell mode</span>
         </text>
-        {body}
+      )
+    }
+    if (!props.tips) return <text />
+    return (
+      <box flexDirection="row" gap={2} minWidth={0}>
+        <text fg={theme.text} wrapMode="none" overflow="hidden">
+          {keybind.print("command_list")} <span style={{ fg: theme.textMuted }}>commands</span>
+        </text>
+        <Show when={local.model.variant.list().length > 0}>
+          <text fg={theme.text} wrapMode="none" overflow="hidden">
+            {keybind.print("variant_cycle")} <span style={{ fg: theme.textMuted }}>variants</span>
+          </text>
+        </Show>
       </box>
     )
   })
@@ -1415,7 +1439,14 @@ export function Prompt(props: PromptProps) {
                   </box>
                 </Show>
               </box>
-              {props.right}
+              <box flexDirection="row" gap={1}>
+                <Show when={args.transport === "attach"}>
+                  <text fg={theme.textMuted} wrapMode="none">
+                    [Remote]
+                  </text>
+                </Show>
+                {props.right}
+              </box>
             </box>
           </box>
         </box>
