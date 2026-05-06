@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import path from "path"
 import { Agent } from "../../src/agent/agent"
 import { Instance } from "../../src/project/instance"
+import type { Provider } from "../../src/provider/provider"
 import { SystemPrompt } from "../../src/session/system"
 import { tmpdir } from "../fixture/fixture"
 
@@ -55,5 +56,23 @@ description: ${description}
     } finally {
       process.env.OPENCODE_TEST_HOME = home
     }
+  })
+
+  test("environment output includes current session id", async () => {
+    await using tmp = await tmpdir({ git: true })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const model = {
+          api: { id: "gpt-5.4" },
+          providerID: "openai",
+        } as Provider.Model
+        const env = await SystemPrompt.environment(model, "ses_test_current")
+
+        expect(env[0]).toContain("Current session ID: ses_test_current")
+        expect(env[0]).toContain(`Working directory: ${tmp.path}`)
+      },
+    })
   })
 })
