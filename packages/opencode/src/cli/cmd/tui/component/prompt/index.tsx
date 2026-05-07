@@ -249,7 +249,6 @@ export function Prompt(props: PromptProps) {
     if (!msg) return false
     if (msg.role === "user") return true
     if (msg.role !== "assistant") return false
-    if (msg.error?.name === "MessageAbortedError") return false
     if (msg.error) return true
     return !msg.finish || ["tool-calls", "unknown"].includes(msg.finish)
   })
@@ -277,7 +276,7 @@ export function Prompt(props: PromptProps) {
     return [left ? `retrying in ${left}` : "retrying now", right ? `waiting ${right}` : ""].filter(Boolean).join(" · ")
   })
 
-  const lock = createMemo(() => !!props.disabled || !!load() || status().type === "retry" || resumable())
+  const lock = createMemo(() => !!props.disabled || !!load())
 
   createEffect(() => {
     if (lock()) input.cursorColor = theme.backgroundElement
@@ -415,10 +414,11 @@ export function Prompt(props: PromptProps) {
           }, 5000)
 
           if (store.interrupt >= 2) {
+            idle(props.sessionID)
             void sdk.client.session.abort({
               sessionID: props.sessionID,
             })
-              .then(() => idle(props.sessionID!))
+              .catch(() => idle(props.sessionID!))
             setStore("interrupt", 0)
           }
           dialog.clear()
