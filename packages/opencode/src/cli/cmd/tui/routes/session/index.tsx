@@ -1710,7 +1710,19 @@ function GenericTool(props: ToolProps<any>) {
   const fold = createMemo(() => row().length > 3 || out().length > 240 || row().some((x) => x.length > 120))
   const error = createMemo(() => (props.part.state.status === "error" ? props.part.state.error : undefined))
   const action = () => {
-    dialog.replace(() => <DialogTool tool={props.tool} input={props.input} output={props.output} error={error()} />)
+    dialog.replace(() => (
+      <DialogTool
+        tool={props.tool}
+        sessionID={props.part.sessionID}
+        messageID={props.part.messageID}
+        partID={props.part.id}
+        input={props.input}
+        output={props.output}
+        metadata={props.metadata}
+        attachments={props.part.state.status === "completed" ? props.part.state.attachments : undefined}
+        error={error()}
+      />
+    ))
   }
 
   if (ctx.showGenericToolOutput() && out()) {
@@ -1808,7 +1820,19 @@ function InlineTool(props: {
         }
         if (!props.tool) return
         dialog.replace(
-          () => <DialogTool tool={props.tool!} input={props.input} output={props.output} error={error()} />,
+          () => (
+            <DialogTool
+              tool={props.tool!}
+              sessionID={props.part.sessionID}
+              messageID={props.part.messageID}
+              partID={props.part.id}
+              input={props.input}
+              output={props.output}
+              metadata={props.part.state.status === "pending" ? {} : (props.part.state.metadata ?? {})}
+              attachments={props.part.state.status === "completed" ? props.part.state.attachments : undefined}
+              error={error()}
+            />
+          ),
         )
       }}
       renderBefore={function () {
@@ -1856,7 +1880,17 @@ function InlineTool(props: {
             if (renderer.getSelection()?.getSelectedText()) return
             dialog.replace(
               () => (
-                <DialogTool tool={props.tool ?? props.label ?? "Tool"} input={props.input} output={props.output} error={error()} />
+                <DialogTool
+                  tool={props.tool ?? props.label ?? "Tool"}
+                  sessionID={props.part.sessionID}
+                  messageID={props.part.messageID}
+                  partID={props.part.id}
+                  input={props.input}
+                  output={props.output}
+                  metadata={props.part.state.status === "pending" ? {} : (props.part.state.metadata ?? {})}
+                  attachments={props.part.state.status === "completed" ? props.part.state.attachments : undefined}
+                  error={error()}
+                />
               ),
             )
           }}
@@ -1919,7 +1953,17 @@ function BlockTool(props: {
           onMouseUp={(evt) => {
             evt.stopPropagation()
             if (renderer.getSelection()?.getSelectedText()) return
-            dialog.replace(() => <DialogTool tool={props.label ?? "Tool"} error={error()} />)
+            dialog.replace(() => (
+              <DialogTool
+                tool={props.label ?? "Tool"}
+                sessionID={props.part?.sessionID}
+                messageID={props.part?.messageID}
+                partID={props.part?.id}
+                metadata={props.part?.state.status === "pending" ? {} : props.part?.state.metadata}
+                attachments={props.part?.state.status === "completed" ? props.part.state.attachments : undefined}
+                error={error()}
+              />
+            ))
           }}
         >
           <text fg={theme.error}>error</text>
@@ -1983,7 +2027,18 @@ function Bash(props: ToolProps<typeof BashTool | typeof ExBashTool>) {
           spinner={isRunning()}
           onClick={() =>
             dialog.replace(
-              () => <DialogTool tool={info().description ?? "Shell"} input={props.input} output={output()} />,
+              () => (
+                <DialogTool
+                  tool={info().description ?? "Shell"}
+                  sessionID={props.part.sessionID}
+                  messageID={props.part.messageID}
+                  partID={props.part.id}
+                  input={props.input}
+                  output={output()}
+                  metadata={props.metadata}
+                  attachments={props.part.state.status === "completed" ? props.part.state.attachments : undefined}
+                />
+              ),
             )
           }
         >

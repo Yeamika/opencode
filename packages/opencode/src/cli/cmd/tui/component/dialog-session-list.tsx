@@ -104,22 +104,21 @@ export function DialogSessionList() {
   })
 
   createEffect(() => {
-    const items = sessions()
-    for (const item of items) {
-      if (meta[item.id]) continue
-      if (pend.has(item.id)) continue
-      pend.add(item.id)
-      void agent(item.id, item.directory)
-        .then((value) => {
-          setMeta(item.id, { agent: value })
-        })
-        .catch(() => {
-          setMeta(item.id, { agent: null })
-        })
-        .finally(() => {
-          pend.delete(item.id)
-        })
-    }
+    const item = pick(hover())
+    if (!item) return
+    if (meta[item.id]) return
+    if (pend.has(item.id)) return
+    pend.add(item.id)
+    void agent(item.id, item.directory)
+      .then((value) => {
+        setMeta(item.id, { agent: value })
+      })
+      .catch(() => {
+        setMeta(item.id, { agent: null })
+      })
+      .finally(() => {
+        pend.delete(item.id)
+      })
   })
 
   const toggle = () => {

@@ -5,6 +5,7 @@ import { SessionID, MessageID, PartID } from "@/session/schema"
 import z from "zod"
 import { Session } from "../../session"
 import { MessageV2 } from "../../session/message-v2"
+import { Preview } from "../../session/preview"
 import { SessionPrompt } from "../../session/prompt"
 import { SessionCompaction } from "../../session/compaction"
 import { SessionRevert } from "../../session/revert"
@@ -697,6 +698,7 @@ export const SessionRoutes = lazy(() =>
                 },
                 { message: "Invalid cursor" },
               ),
+            preview: z.coerce.boolean().optional().meta({ description: "Return preview-safe parts" }),
           })
           .refine((value) => !value.before || value.limit !== undefined, {
             message: "before requires limit",
@@ -709,13 +711,13 @@ export const SessionRoutes = lazy(() =>
         if (query.limit === undefined) {
           await Session.get(sessionID)
           const messages = await Session.messages({ sessionID })
-          return c.json(messages)
+          return c.json(query.preview ? messages.map(Preview.message) : messages)
         }
 
         if (query.limit === 0) {
           await Session.get(sessionID)
           const messages = await Session.messages({ sessionID })
-          return c.json(messages)
+          return c.json(query.preview ? messages.map(Preview.message) : messages)
         }
 
         const page = await MessageV2.page({
@@ -731,7 +733,7 @@ export const SessionRoutes = lazy(() =>
           c.header("Link", `<${url.toString()}>; rel=\"next\"`)
           c.header("X-Next-Cursor", page.cursor)
         }
-        return c.json(page.items)
+        return c.json(query.preview ? page.items.map(Preview.message) : page.items)
       },
     )
     .get(

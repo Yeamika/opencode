@@ -249,6 +249,7 @@ export function Prompt(props: PromptProps) {
     if (!msg) return false
     if (msg.role === "user") return true
     if (msg.role !== "assistant") return false
+    if (msg.error?.name === "MessageAbortedError") return false
     if (msg.error) return true
     return !msg.finish || ["tool-calls", "unknown"].includes(msg.finish)
   })
@@ -294,15 +295,10 @@ export function Prompt(props: PromptProps) {
       !!last?.time.completed && !!last.finish && !["tool-calls", "unknown"].includes(last.finish) && status().type !== "busy" && status().type !== "retry"
     const end = done ? last?.time.completed ?? statusNow() : statusNow()
     const span = Math.max(0, end - user.time.created)
-    const tokens = last?.tokens.total ?? 0
-    const cost = last?.cost ?? 0
     const time = `${Math.floor(span / 60000)} min ${Math.floor((span % 60000) / 1000)
       .toString()
       .padStart(2, "0")} s`
-    const usage = tokens > 0 ? `${short(tokens)}(${usd(cost)})` : undefined
-    return {
-      value: usage ? `${time}   ${usage}` : time,
-    }
+    return { value: time }
   })
 
   const [store, setStore] = createStore<{
@@ -419,9 +415,10 @@ export function Prompt(props: PromptProps) {
           }, 5000)
 
           if (store.interrupt >= 2) {
-            sdk.client.session.abort({
+            void sdk.client.session.abort({
               sessionID: props.sessionID,
             })
+              .then(() => idle(props.sessionID!))
             setStore("interrupt", 0)
           }
           dialog.clear()

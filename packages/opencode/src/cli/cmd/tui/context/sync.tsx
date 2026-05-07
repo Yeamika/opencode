@@ -27,6 +27,7 @@ import { useExit } from "./exit"
 import { useArgs } from "./args"
 import { batch, onMount } from "solid-js"
 import { Log } from "@/util/log"
+import { MessageV2 } from "@/session/message-v2"
 import type { Path } from "@opencode-ai/sdk"
 import type { Workspace } from "@opencode-ai/sdk/v2"
 
@@ -178,12 +179,21 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       return data
     }
 
+    async function syncMessages(sessionID: string) {
+      const url = new URL(`/session/${sessionID}/message`, sdk.url)
+      url.searchParams.set("limit", "100")
+      url.searchParams.set("preview", "true")
+      const response = await sdk.fetch(url, { headers: sdk.headers })
+      if (!response.ok) throw new Error(`session messages failed (${response.status})`)
+      return MessageV2.WithParts.array().parse(await response.json())
+    }
+
     async function syncSession(sessionID: string, options?: { force?: boolean }) {
       if (!options?.force && fullSyncedSessions.has(sessionID)) return
 
       const [session, messages, todo, diff, exbash] = await Promise.all([
         sdk.client.session.get({ sessionID }, { throwOnError: true }),
-        sdk.client.session.messages({ sessionID, limit: 100 }),
+        syncMessages(sessionID),
         sdk.client.session.todo({ sessionID }),
         sdk.client.session.diff({ sessionID }),
         syncExbash(sessionID),
@@ -196,8 +206,8 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           if (!match.found) draft.session.splice(match.index, 0, session.data!)
           draft.todo[sessionID] = todo.data ?? []
           draft.exbash[sessionID] = exbash ?? []
-          draft.message[sessionID] = messages.data!.map((x) => x.info)
-          for (const message of messages.data!) {
+          draft.message[sessionID] = messages.map((x) => x.info)
+          for (const message of messages) {
             draft.part[message.info.id] = message.parts
           }
           draft.session_diff[sessionID] = diff.data ?? []
