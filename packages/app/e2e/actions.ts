@@ -530,34 +530,6 @@ export async function confirmDialog(page: Page, buttonName: string | RegExp) {
   await button.click()
 }
 
-export async function openSharePopover(page: Page) {
-  const scroller = page.locator(".scroll-view__viewport").first()
-  await expect(scroller).toBeVisible()
-  await expect(scroller.getByRole("heading", { level: 1 }).first()).toBeVisible({ timeout: 30_000 })
-
-  const menuTrigger = scroller.getByRole("button", { name: /more options/i }).first()
-  await expect(menuTrigger).toBeVisible({ timeout: 30_000 })
-
-  const popoverBody = page
-    .locator('[data-component="popover-content"]')
-    .filter({ has: page.getByRole("button", { name: /^(Publish|Unpublish)$/ }) })
-    .first()
-
-  const opened = await popoverBody
-    .isVisible()
-    .then((x) => x)
-    .catch(() => false)
-
-  if (!opened) {
-    const menu = page.locator(dropdownMenuContentSelector).first()
-    await menuTrigger.click()
-    await clickMenuItem(menu, /share/i)
-    await expect(menu).toHaveCount(0)
-    await expect(popoverBody).toBeVisible({ timeout: 30_000 })
-  }
-  return { rightSection: scroller, popoverBody }
-}
-
 export async function clickListItem(
   container: Locator | Page,
   filter: string | RegExp | { key?: string; text?: string | RegExp; keyStartsWith?: string },

@@ -455,7 +455,6 @@ export const GithubRunCommand = cmd({
       const { providerID, modelID } = normalizeModel()
       const variant = process.env["VARIANT"] || undefined
       const runId = normalizeRunId()
-      const share = normalizeShare()
       const oidcBaseUrl = normalizeOidcBaseUrl()
       const { owner, repo } = context.repo
       // For repo events (schedule, workflow_dispatch), payload has no issue/comment data
@@ -476,14 +475,12 @@ export const GithubRunCommand = cmd({
           ? (payload as IssueCommentEvent | IssuesEvent).issue.number
           : (payload as PullRequestEvent | PullRequestReviewCommentEvent).pull_request.number
       const runUrl = `/${owner}/${repo}/actions/runs/${runId}`
-      const shareBaseUrl = isMock ? "https://dev.opencode.ai" : "https://opencode.ai"
 
       let appToken: string
       let octoRest: Octokit
       let octoGraph: typeof graphql
       let gitConfig: string
       let session: { id: SessionID; title: string; version: string }
-      let shareId: string | undefined
       let exitCode = 0
       type PromptFiles = Awaited<ReturnType<typeof getUserPrompt>>["promptFiles"]
       const triggerCommentId = isCommentEvent
@@ -556,12 +553,6 @@ export const GithubRunCommand = cmd({
           ],
         })
         subscribeSessionEvents()
-        shareId = await (async () => {
-          if (share === false) return
-          if (!share && repoData.data.private) return
-          await Session.share(session.id)
-          return session.id.slice(-8)
-        })()
         console.log("opencode session", session.id)
 
         // Handle event types:
@@ -620,8 +611,7 @@ export const GithubRunCommand = cmd({
               const summary = await summarize(response)
               await pushToLocalBranch(summary, uncommittedChanges)
             }
-            const hasShared = prData.comments.nodes.some((c) => c.body.includes(`${shareBaseUrl}/s/${shareId}`))
-            await createComment(`${response}${footer({ image: !hasShared })}`)
+            await createComment(`${response}${footer()}`)
             await removeReaction(commentType)
           }
           // Fork PR
@@ -638,8 +628,7 @@ export const GithubRunCommand = cmd({
               const summary = await summarize(response)
               await pushToForkBranch(summary, prData, uncommittedChanges)
             }
-            const hasShared = prData.comments.nodes.some((c) => c.body.includes(`${shareBaseUrl}/s/${shareId}`))
-            await createComment(`${response}${footer({ image: !hasShared })}`)
+            await createComment(`${response}${footer()}`)
             await removeReaction(commentType)
           }
         }
@@ -715,14 +704,6 @@ export const GithubRunCommand = cmd({
         const value = process.env["GITHUB_RUN_ID"]
         if (!value) throw new Error(`Environment variable "GITHUB_RUN_ID" is not set`)
         return value
-      }
-
-      function normalizeShare() {
-        const value = process.env["SHARE"]
-        if (!value) return undefined
-        if (value === "true") return true
-        if (value === "false") return false
-        throw new Error(`Invalid share value: ${value}. Share must be a boolean.`)
       }
 
       function normalizeUseGithubToken() {
@@ -1394,18 +1375,8 @@ export const GithubRunCommand = cmd({
         }
       }
 
-      function footer(opts?: { image?: boolean }) {
-        const image = (() => {
-          if (!shareId) return ""
-          if (!opts?.image) return ""
-
-          const titleAlt = encodeURIComponent(session.title.substring(0, 50))
-          const title64 = Buffer.from(session.title.substring(0, 700), "utf8").toString("base64")
-
-          return `<a href="${shareBaseUrl}/s/${shareId}"><img width="200" alt="${titleAlt}" src="https://social-cards.sst.dev/opencode-share/${title64}.png?model=${providerID}/${modelID}&version=${session.version}&id=${shareId}" /></a>\n`
-        })()
-        const shareUrl = shareId ? `[opencode session](${shareBaseUrl}/s/${shareId})&nbsp;&nbsp;|&nbsp;&nbsp;` : ""
-        return `\n\n${image}${shareUrl}[github run](${runUrl})`
+      function footer(_opts?: { image?: boolean }) {
+        return `\n\n[github run](${runUrl})`
       }
 
       async function fetchRepo() {

@@ -475,7 +475,7 @@ test("handles command configuration", async () => {
   })
 })
 
-test("migrates autoshare to share field", async () => {
+test("ignores legacy autoshare because sharing is removed", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
       await Filesystem.write(
@@ -491,7 +491,7 @@ test("migrates autoshare to share field", async () => {
     directory: tmp.path,
     fn: async () => {
       const config = await Config.get()
-      expect(config.share).toBe("auto")
+      expect(config.share).toBe("disabled")
       expect(config.autoshare).toBe(true)
     },
   })

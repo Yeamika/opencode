@@ -11,7 +11,6 @@ function falsy(key: string) {
 }
 
 export namespace Flag {
-  export const OPENCODE_AUTO_SHARE = truthy("OPENCODE_AUTO_SHARE")
   export const OPENCODE_AUTO_HEAP_SNAPSHOT = truthy("OPENCODE_AUTO_HEAP_SNAPSHOT")
   export const OPENCODE_GIT_BASH_PATH = process.env["OPENCODE_GIT_BASH_PATH"]
   export const OPENCODE_CONFIG = process.env["OPENCODE_CONFIG"]
@@ -27,7 +26,10 @@ export namespace Flag {
   export const OPENCODE_SHOW_TTFD = truthy("OPENCODE_SHOW_TTFD")
   export const OPENCODE_PERMISSION = process.env["OPENCODE_PERMISSION"]
   export const OPENCODE_DISABLE_DEFAULT_PLUGINS = truthy("OPENCODE_DISABLE_DEFAULT_PLUGINS")
-  export const OPENCODE_DISABLE_VCS = truthy("OPENCODE_DISABLE_VCS")
+  // VCS/Git integration is disabled by default in this fork because repo
+  // discovery, status, snapshots, and .git watchers can be expensive in large
+  // workspaces. Set OPENCODE_DISABLE_VCS=false (or 0) to opt back in.
+  export const OPENCODE_DISABLE_VCS = !falsy("OPENCODE_DISABLE_VCS")
   export const OPENCODE_DISABLE_LSP_DOWNLOAD = truthy("OPENCODE_DISABLE_LSP_DOWNLOAD")
   export const OPENCODE_ENABLE_EXPERIMENTAL_MODELS = truthy("OPENCODE_ENABLE_EXPERIMENTAL_MODELS")
   export const OPENCODE_DISABLE_AUTOCOMPACT = truthy("OPENCODE_DISABLE_AUTOCOMPACT")

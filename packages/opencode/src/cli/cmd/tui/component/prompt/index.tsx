@@ -276,13 +276,6 @@ export function Prompt(props: PromptProps) {
     return [left ? `retrying in ${left}` : "retrying now", right ? `waiting ${right}` : ""].filter(Boolean).join(" · ")
   })
 
-  const lock = createMemo(() => !!props.disabled || !!load())
-
-  createEffect(() => {
-    if (lock()) input.cursorColor = theme.backgroundElement
-    if (!lock()) input.cursorColor = theme.text
-  })
-
   const usage = createMemo(() => {
     if (!props.sessionID) return
     const msg = sync.data.message[props.sessionID] ?? []
@@ -603,7 +596,7 @@ export function Prompt(props: PromptProps) {
     if (!input || input.isDestroyed) return
     input.traits = {
       capture: auto()?.visible ? ["escape", "navigate", "submit", "tab"] : undefined,
-      suspend: lock() || store.mode === "shell",
+      suspend: store.mode === "shell",
       status: store.mode === "shell" ? "SHELL" : undefined,
     }
   })
@@ -742,7 +735,6 @@ export function Prompt(props: PromptProps) {
   ])
 
   async function submit() {
-    if (lock()) return
     if (autocomplete?.visible) return
     if (!store.prompt.input) return
     const trimmed = store.prompt.input.trim()
@@ -1250,10 +1242,6 @@ export function Prompt(props: PromptProps) {
               }}
               keyBindings={textareaKeybindings()}
               onKeyDown={async (e) => {
-                if (lock()) {
-                  e.preventDefault()
-                  return
-                }
                 // Check clipboard for images before terminal-handled paste runs.
                 // This helps terminals that forward Ctrl+V to the app; Windows
                 // Terminal 1.25+ usually handles Ctrl+V before this path.
@@ -1329,11 +1317,6 @@ export function Prompt(props: PromptProps) {
               }}
               onSubmit={submit}
               onPaste={async (event: PasteEvent) => {
-                if (lock()) {
-                  event.preventDefault()
-                  return
-                }
-
                 // Normalize line endings at the boundary
                 // Windows ConPTY/Terminal often sends CR-only newlines in bracketed paste
                 // Replace CRLF first, then any remaining CR

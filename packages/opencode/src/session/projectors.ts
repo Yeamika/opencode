@@ -45,7 +45,6 @@ export function toPartialRow(info: DeepPartial<Session.Info>) {
     directory: grab(info, "directory"),
     title: grab(info, "title"),
     version: grab(info, "version"),
-    share_url: grab(info, "share", (v) => grab(v, "url")),
     summary_additions: grab(info, "summary", (v) => grab(v, "additions")),
     summary_deletions: grab(info, "summary", (v) => grab(v, "deletions")),
     summary_files: grab(info, "summary", (v) => grab(v, "files")),

@@ -40,7 +40,7 @@ export const PrCommand = cmd({
           process.exit(1)
         }
 
-        // Fetch PR info for fork handling and session link detection
+        // Fetch PR info for fork handling
         const prInfoResult = await Process.text(
           [
             "gh",
@@ -48,12 +48,10 @@ export const PrCommand = cmd({
             "view",
             `${prNumber}`,
             "--json",
-            "headRepository,headRepositoryOwner,isCrossRepository,headRefName,body",
+            "headRepository,headRepositoryOwner,isCrossRepository,headRefName",
           ],
           { nothrow: true },
         )
-
-        let sessionId: string | undefined
 
         if (prInfoResult.code === 0) {
           const prInfoText = prInfoResult.text
@@ -81,29 +79,6 @@ export const PrCommand = cmd({
                 cwd: Instance.worktree,
               })
             }
-
-            // Check for opencode session link in PR body
-            if (prInfo && prInfo.body) {
-              const sessionMatch = prInfo.body.match(/https:\/\/opncd\.ai\/s\/([a-zA-Z0-9_-]+)/)
-              if (sessionMatch) {
-                const sessionUrl = sessionMatch[0]
-                UI.println(`Found opencode session: ${sessionUrl}`)
-                UI.println(`Importing session...`)
-
-                const importResult = await Process.text(["opencode", "import", sessionUrl], {
-                  nothrow: true,
-                })
-                if (importResult.code === 0) {
-                  const importOutput = importResult.text.trim()
-                  // Extract session ID from the output (format: "Imported session: <session-id>")
-                  const sessionIdMatch = importOutput.match(/Imported session: ([a-zA-Z0-9_-]+)/)
-                  if (sessionIdMatch) {
-                    sessionId = sessionIdMatch[1]
-                    UI.println(`Session imported: ${sessionId}`)
-                  }
-                }
-              }
-            }
           }
         }
 
@@ -112,8 +87,7 @@ export const PrCommand = cmd({
         UI.println("Starting opencode...")
         UI.println()
 
-        const opencodeArgs = sessionId ? ["-s", sessionId] : []
-        const opencodeProcess = Process.spawn(["opencode", ...opencodeArgs], {
+        const opencodeProcess = Process.spawn(["opencode"], {
           stdin: "inherit",
           stdout: "inherit",
           stderr: "inherit",

@@ -223,7 +223,6 @@ Fully migrated (single namespace, InstanceState where needed, flattened facade):
 Still open:
 
 - [ ] `SessionTodo` — `session/todo.ts`
-- [ ] `ShareNext` — `share/share-next.ts`
 - [ ] `SyncEvent` — `sync/index.ts`
 - [ ] `Workspace` — `control-plane/workspace.ts`
 

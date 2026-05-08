@@ -9,10 +9,12 @@ import { Global } from "@/global"
 
 export namespace ConfigPaths {
   export async function projectFiles(name: string, directory: string, worktree: string) {
-    return Filesystem.findUp([`${name}.json`, `${name}.jsonc`], directory, worktree, { rootFirst: true })
+    const stop = Flag.OPENCODE_DISABLE_VCS ? path.parse(directory).root : worktree
+    return Filesystem.findUp([`${name}.json`, `${name}.jsonc`], directory, stop, { rootFirst: true })
   }
 
   export async function directories(directory: string, worktree: string) {
+    const stop = Flag.OPENCODE_DISABLE_VCS ? path.parse(directory).root : worktree
     return [
       Global.Path.config,
       ...(!Flag.OPENCODE_DISABLE_PROJECT_CONFIG
@@ -20,7 +22,7 @@ export namespace ConfigPaths {
             Filesystem.up({
               targets: [".opencode"],
               start: directory,
-              stop: worktree,
+              stop,
             }),
           )
         : []),
