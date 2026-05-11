@@ -111,6 +111,26 @@ test("loads JSON config file", async () => {
   })
 })
 
+test("loads enabled-only MCP entries", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await writeConfig(dir, {
+        $schema: "https://opencode.ai/config.json",
+        mcp: {
+          session_bridge: { enabled: true },
+        },
+      })
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await Config.get()
+      expect(config.mcp?.session_bridge).toEqual({ enabled: true })
+    },
+  })
+})
+
 test("loads project config from Git Bash and MSYS2 paths on Windows", async () => {
   // Git Bash and MSYS2 both use /<drive>/... paths on Windows.
   await check((dir) => {

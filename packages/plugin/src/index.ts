@@ -39,6 +39,13 @@ export type PluginInput = {
   directory: string
   worktree: string
   serverUrl: URL
+  plugin?: {
+    id?: string
+    spec: string
+    target: string
+    source: string
+    scope: "global" | "local"
+  }
   event: {
     publish: (type: string, properties?: Record<string, unknown>) => Promise<void>
   }

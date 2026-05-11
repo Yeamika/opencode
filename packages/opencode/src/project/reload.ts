@@ -6,6 +6,7 @@ import { disposeInstance } from "@/effect/instance-registry"
 import { Instance } from "@/project/instance"
 import { Filesystem } from "@/util/filesystem"
 import { Log } from "@/util/log"
+import { InstanceBootstrap } from "./bootstrap"
 import { State } from "./state"
 
 type Entry = {
@@ -122,7 +123,21 @@ export namespace Reload {
     })
 
     void publish(key, "running", entry)
-    entry.running = Promise.all([State.dispose(key, { soft: true }), disposeInstance(key, { soft: true })])
+    entry.running = (async () => {
+      await Promise.all([State.dispose(key, { soft: true }), disposeInstance(key, { soft: true })])
+      Instance.forget(key)
+      await Instance.provide({
+        directory: key,
+        init: InstanceBootstrap,
+        fn: async () => {},
+      })
+      log.info("reload completed", {
+        directory: key,
+        duration: Date.now() - startedAt,
+        totalDuration: Date.now() - entry.requestedAt,
+      })
+      entry.resolve()
+    })()
       .catch((error) => {
         log.error("reload failed", {
           directory: key,
@@ -132,15 +147,6 @@ export namespace Reload {
         })
         entry.reject(error)
         throw error
-      })
-      .then(() => {
-        Instance.forget(key)
-        log.info("reload completed", {
-          directory: key,
-          duration: Date.now() - startedAt,
-          totalDuration: Date.now() - entry.requestedAt,
-        })
-        entry.resolve()
       })
       .finally(() => {
         if (pending.get(key) === entry) pending.delete(key)

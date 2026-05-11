@@ -52,6 +52,43 @@ describe("workspaceMcp", () => {
     })
   })
 
+  test("allows plugin-managed enabled-only entries", async () => {
+    await using tmp = await tmpdir()
+    process.env.OPENCODE_TEST_HOME = tmp.path
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const tool = await WorkspaceMcpTool.init()
+        const result = await tool.execute(
+          {
+            mode: "write",
+            scope: "local",
+            name: "session_bridge",
+            value: '{"enabled":true}',
+          },
+          {
+            sessionID: "ses_test_workspace_mcp" as any,
+            messageID: "msg_test_workspace_mcp" as any,
+            agent: "build",
+            abort: AbortSignal.any([]),
+            directory: tmp.path,
+            worktree: tmp.path,
+            messages: [],
+            metadata() {},
+            ask: async () => {},
+          },
+        )
+
+        const file = path.join(Global.Path.home, ".opencode", "opencode.json")
+        const json = JSON.parse(await fs.readFile(file, "utf-8"))
+
+        expect(result.metadata.file).toBe(file)
+        expect(json.mcp.session_bridge).toEqual({ enabled: true })
+      },
+    })
+  })
+
   test("rejects invalid MCP entries before writing config", async () => {
     await using tmp = await tmpdir()
     process.env.OPENCODE_TEST_HOME = tmp.path

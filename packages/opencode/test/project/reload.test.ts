@@ -4,6 +4,7 @@ import path from "path"
 import type { Tool } from "ai"
 import { MCP } from "../../src/mcp"
 import { Instance } from "../../src/project/instance"
+import { InstanceBootstrap } from "../../src/project/bootstrap"
 import { Reload } from "../../src/project/reload"
 import { MessageID, SessionID } from "../../src/session/schema"
 import { ReloadTool } from "../../src/tool/reload"
@@ -41,6 +42,56 @@ describe("project.reload", () => {
           Reload.leave(Instance.directory, a)
           Reload.leave(Instance.directory, b)
         }
+      },
+    })
+  })
+
+  test("reload resolves after workspace bootstrap reruns plugin config", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        const root = path.join(dir, ".opencode", "plugin")
+        const cfg = path.join(dir, ".opencode")
+        const file = path.join(dir, "plugin-config-count.txt")
+        await fs.mkdir(root, { recursive: true })
+        await fs.mkdir(path.join(cfg, "node_modules", "@opencode-ai", "plugin"), { recursive: true })
+        await Bun.write(file, "")
+        await Bun.write(
+          path.join(cfg, "package.json"),
+          JSON.stringify({
+            dependencies: {
+              "@opencode-ai/plugin": "*",
+            },
+          }),
+        )
+        await Bun.write(path.join(cfg, ".gitignore"), "node_modules\npackage.json\npackage-lock.json\nbun.lock\n.gitignore\n")
+        await Bun.write(
+          path.join(cfg, "node_modules", "@opencode-ai", "plugin", "package.json"),
+          JSON.stringify({ name: "@opencode-ai/plugin", version: "1.0.0" }),
+        )
+        await Bun.write(
+          path.join(root, "sync.ts"),
+          [
+            "export default async () => ({",
+            "  config: async () => {",
+            `    const file = Bun.file(${JSON.stringify(file)})`,
+            '    const text = await file.text().catch(() => "")',
+            `    await Bun.write(${JSON.stringify(file)}, text + "1")`,
+            "  },",
+            "})",
+            "",
+          ].join("\n"),
+        )
+        return { file }
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      init: InstanceBootstrap,
+      fn: async () => {
+        expect(await Bun.file(tmp.extra.file).text()).toBe("1")
+        await Reload.request(Instance.directory)
+        expect(await Bun.file(tmp.extra.file).text()).toBe("11")
       },
     })
   })

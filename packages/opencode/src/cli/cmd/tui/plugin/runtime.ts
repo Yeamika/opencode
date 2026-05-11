@@ -238,12 +238,15 @@ function createMeta(
   spec: string,
   target: string,
   meta: { state: PluginMeta.State; entry: PluginMeta.Entry } | undefined,
+  origin: Config.PluginOrigin,
   id?: string,
 ): TuiPluginMeta {
   if (meta) {
     return {
       state: meta.state,
       ...meta.entry,
+      scope: origin.scope,
+      configSource: origin.source,
     }
   }
 
@@ -259,6 +262,8 @@ function createMeta(
     time_changed: now,
     load_count: 1,
     fingerprint: target,
+    scope: origin.scope,
+    configSource: origin.source,
   }
 }
 
@@ -731,7 +736,7 @@ async function addExternalPluginEntries(state: RuntimeState, ready: PluginLoad[]
       })
     }
 
-    const info = createMeta(entry.source, entry.spec, entry.target, hit, entry.id)
+    const info = createMeta(entry.source, entry.spec, entry.target, hit, entry.origin, entry.id)
     const themes = hit?.entry.themes ? { ...hit.entry.themes } : {}
     const plugin: PluginEntry = {
       id: entry.id,
@@ -1006,7 +1011,7 @@ export namespace TuiPluginRuntime {
         for (const item of INTERNAL_TUI_PLUGINS) {
           log.info("loading internal tui plugin", { id: item.id })
           const entry = loadInternalPlugin(item)
-          const meta = createMeta(entry.source, entry.spec, entry.target, undefined, entry.id)
+          const meta = createMeta(entry.source, entry.spec, entry.target, undefined, entry.origin, entry.id)
           addPluginEntry(next, {
             id: entry.id,
             load: entry,

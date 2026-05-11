@@ -475,6 +475,21 @@ export namespace Config {
   export const Mcp = z.discriminatedUnion("type", [McpLocal, McpRemote])
   export type Mcp = z.infer<typeof Mcp>
 
+  export const McpEnabledOnly = z
+    .object({
+      enabled: z.boolean(),
+    })
+    .strict()
+    .meta({
+      ref: "McpEnabledOnlyConfig",
+    })
+  export type McpEnabledOnly = z.infer<typeof McpEnabledOnly>
+
+  export const McpEntry = z.union([Mcp, McpEnabledOnly]).meta({
+    ref: "McpEntryConfig",
+  })
+  export type McpEntry = z.infer<typeof McpEntry>
+
   export const PermissionAction = z.enum(["ask", "allow", "deny"]).meta({
     ref: "PermissionActionConfig",
   })
@@ -981,14 +996,7 @@ export namespace Config {
       mcp: z
         .record(
           z.string(),
-          z.union([
-            Mcp,
-            z
-              .object({
-                enabled: z.boolean(),
-              })
-              .strict(),
-          ]),
+          McpEntry,
         )
         .optional()
         .describe("MCP (Model Context Protocol) server configurations"),

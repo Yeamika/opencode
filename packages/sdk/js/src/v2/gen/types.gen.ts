@@ -1494,6 +1494,12 @@ export type McpRemoteConfig = {
   timeout?: number
 }
 
+export type McpEnabledOnlyConfig = {
+  enabled: boolean
+}
+
+export type McpEntryConfig = McpLocalConfig | McpRemoteConfig | McpEnabledOnlyConfig
+
 /**
  * @deprecated Always uses stretch layout.
  */
@@ -1614,12 +1620,7 @@ export type Config = {
    * MCP (Model Context Protocol) server configurations
    */
   mcp?: {
-    [key: string]:
-      | McpLocalConfig
-      | McpRemoteConfig
-      | {
-          enabled: boolean
-        }
+    [key: string]: McpEntryConfig
   }
   formatter?:
     | false

@@ -20,6 +20,8 @@ const ASYNC_TIMEOUT = 10_000
 const INPUT_TIMEOUT = 10_000
 const INPUT_WINDOW = 100
 const OUTPUT = 30_000
+const RUNNING_LIMIT = 10
+const ENDED_LIMIT = 10
 
 type Job = {
   proc?: ChildProcess
@@ -320,6 +322,24 @@ function detail(state: Awaited<ReturnType<typeof ExBashTask.start>> | Awaited<Re
   }
 }
 
+function notice(runs: ExBashTask.Info[], scope: "local" | "workspace") {
+  const kind = scope === "local" ? "private" : "workspace"
+  return `You have ${runs.length} completed or failed ${kind} exbash runs, reaching the ended-run limit of ${ENDED_LIMIT}. You must remove ended runs before starting more async runs: ${runs.map((item) => item.asyncID).join(", ")}. Use mode=control and action=remove for each asyncID.`
+}
+
+function busy(runs: ExBashTask.Info[], scope: "local" | "workspace") {
+  const kind = scope === "local" ? "private" : "workspace"
+  return `You have ${runs.length} running ${kind} exbash runs, reaching the running-run limit of ${RUNNING_LIMIT}. Wait for a run to finish or stop one before starting more async runs.`
+}
+
+async function cap(ctx: Tool.Context, scope: "local" | "workspace") {
+  const runs = (await ExBashTask.get({ sessionID: ctx.sessionID, workspace: workspace(ctx) })).filter((item) => item.scope === scope)
+  const running = runs.filter((item) => item.status === "running")
+  if (running.length >= RUNNING_LIMIT) throw new Error(busy(running, scope))
+  const ended = runs.filter((item) => item.status === "stopped")
+  if (ended.length >= ENDED_LIMIT) throw new Error(notice(ended, scope))
+}
+
 async function finish(job: Job, reason: { type: "exit"; code: number | null } | { type: "timeout" } | { type: "stopped" }, extra?: { error?: string }) {
   if (job.state.status === "stopped") return job.state
   if (job.timer) clearTimeout(job.timer)
@@ -516,6 +536,7 @@ async function queue(
   },
   ctx: Tool.Context,
 ) {
+  await cap(ctx, input.scope)
   await gate(ctx, input.exec)
   const ps = ["powershell", "pwsh"].includes(input.exec.name)
   const root = await parse(input.command, ps)
@@ -550,6 +571,7 @@ export const ExBashTool = Tool.define("exbash", {
     "- exec_async scope=local keeps the task visible only in the current session.",
     "- exec_async scope=workspace keeps the task visible in the same workspace.",
     "- exec_async and detached exec_timeout_async calls return asyncID and resultPath immediately.",
+    `- async runs are limited per scope: at most ${RUNNING_LIMIT} running and ${ENDED_LIMIT} completed/failed; when ended runs reach the limit, remove them with mode=control and action=remove before starting more.`,
     "- mode=list: show async runs with status, result file path, and current line pointer.",
     "- mode=control: stop a running async run or remove a stopped run from the list.",
     "- mode=input: write text or file bytes into a running async task stdin.",
@@ -574,12 +596,20 @@ export const ExBashTool = Tool.define("exbash", {
         always: ["exbash list *"],
         metadata: {},
       })
-      const runs = (await ExBashTask.get({ sessionID: ctx.sessionID, workspace: workspace(ctx) }))
+      const raw = (await ExBashTask.get({ sessionID: ctx.sessionID, workspace: workspace(ctx) }))
         .filter((item) => (!input.asyncID || item.asyncID === input.asyncID) && (!input.scope || item.scope === input.scope))
-        .map(detail)
-      const count = runs.filter((item) => item.scope === "local").length
-      const hint = !input.asyncID && input.scope !== "workspace" && count > 5
-        ? `You have ${count} private exbash runs. Consider removing stopped private runs with mode=control and action=remove.`
+      const runs = raw.map(detail)
+      const local = raw.filter((item) => item.scope === "local")
+      const shared = raw.filter((item) => item.scope === "workspace")
+      const hint = !input.asyncID
+        ? [
+            input.scope !== "workspace" && local.filter((item) => item.status === "stopped").length >= ENDED_LIMIT
+              ? notice(local.filter((item) => item.status === "stopped"), "local")
+              : undefined,
+            input.scope !== "local" && shared.filter((item) => item.status === "stopped").length >= ENDED_LIMIT
+              ? notice(shared.filter((item) => item.status === "stopped"), "workspace")
+              : undefined,
+          ].filter((item) => item).join("\n") || undefined
         : undefined
       const output = JSON.stringify({ runs, ...(hint ? { hint } : {}) }, null, 2)
       return { title: "Async runs listed", metadata: { runs, ...(hint ? { hint } : {}) }, output }

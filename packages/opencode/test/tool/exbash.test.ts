@@ -836,22 +836,106 @@ describe("tool.exbash", () => {
     })
   })
 
-  test.serial("adds a private cleanup hint when local runs exceed five", async () => {
+  test.serial("requires removing ended private runs at local limit", async () => {
     await Instance.provide({
       directory: root,
       fn: async () => {
         const exbash = await ExBashTool.init()
-        const ctx = await mkctx("private hint")
+        const ctx = await mkctx("private ended limit")
         const ids: string[] = []
 
-        for (let i = 0; i < 6; i++) {
+        for (let i = 0; i < 10; i++) {
+          const started = JSON.parse(
+            (
+              await exbash.execute(
+                {
+                  mode: "exec_async",
+                  command: `${bin} -e ${evalarg('console.log("done")')}`,
+                  description: `Completed async run ${i + 1}`,
+                  scope: "local",
+                },
+                ctx,
+              )
+            ).output,
+          ) as {
+            asyncID: string
+          }
+          ids.push(started.asyncID)
+          await poll(async () => {
+            const listed = JSON.parse((await exbash.execute({ mode: "list", asyncID: started.asyncID }, ctx)).output) as {
+              runs: Array<{ state: string }>
+            }
+            return listed.runs[0]?.state === "stopped" ? listed : undefined
+          })
+        }
+
+        const listed = JSON.parse((await exbash.execute({ mode: "list" }, ctx)).output) as {
+          runs: Array<{ asyncID: string; scope: string }>
+          hint?: string
+        }
+
+        expect(listed.runs.filter((item) => item.scope === "local")).toHaveLength(10)
+        expect(listed.hint).toContain("ended-run limit of 10")
+        expect(listed.hint).toContain("must remove ended runs")
+
+        await expect(
+          exbash.execute(
+            {
+              mode: "exec_async",
+              command: `${bin} -e ${evalarg('console.log("blocked")')}`,
+              description: "Blocked async run",
+              scope: "local",
+            },
+            ctx,
+          ),
+        ).rejects.toThrow("must remove ended runs")
+
+        for (const id of ids) {
+          await exbash.execute({ mode: "control", asyncID: id, action: "remove" }, ctx)
+        }
+
+        const started = JSON.parse(
+          (
+            await exbash.execute(
+              {
+                mode: "exec_async",
+                command: `${bin} -e ${evalarg('console.log("after")')}`,
+                description: "Async run after cleanup",
+                scope: "local",
+              },
+              ctx,
+            )
+          ).output,
+        ) as {
+          asyncID: string
+        }
+        await poll(async () => {
+          const listed = JSON.parse((await exbash.execute({ mode: "list", asyncID: started.asyncID }, ctx)).output) as {
+            runs: Array<{ state: string }>
+          }
+          return listed.runs[0]?.state === "stopped" ? listed : undefined
+        })
+        await exbash.execute({ mode: "control", asyncID: started.asyncID, action: "remove" }, ctx)
+      },
+    })
+  })
+
+  test.serial("limits running private runs separately from ended runs", async () => {
+    await Instance.provide({
+      directory: root,
+      fn: async () => {
+        const exbash = await ExBashTool.init()
+        const ctx = await mkctx("private running limit")
+        const ids: string[] = []
+
+        for (let i = 0; i < 10; i++) {
           const started = JSON.parse(
             (
               await exbash.execute(
                 {
                   mode: "exec_async",
                   command: `${bin} -e ${evalarg('setInterval(() => {}, 25)')}`,
-                  description: `Private async run ${i + 1}`,
+                  description: `Running async run ${i + 1}`,
                   scope: "local",
                 },
                 ctx,
@@ -863,13 +947,17 @@ describe("tool.exbash", () => {
           ids.push(started.asyncID)
         }
 
-        const listed = JSON.parse((await exbash.execute({ mode: "list" }, ctx)).output) as {
-          runs: Array<{ asyncID: string; scope: string }>
-          hint?: string
-        }
-
-        expect(listed.runs.filter((item) => item.scope === "local")).toHaveLength(6)
-        expect(listed.hint).toContain("private exbash runs")
+        await expect(
+          exbash.execute(
+            {
+              mode: "exec_async",
+              command: `${bin} -e ${evalarg('setInterval(() => {}, 25)')}`,
+              description: "Blocked running async run",
+              scope: "local",
+            },
+            ctx,
+          ),
+        ).rejects.toThrow("running-run limit of 10")
 
         for (const id of ids) {
           await exbash.execute({ mode: "control", asyncID: id, action: "stop" }, ctx)

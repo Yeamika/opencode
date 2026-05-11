@@ -78,16 +78,29 @@ export namespace Plugin {
     Effect.runFork(bus.publish(Session.Event.Error, { error: new NamedError.Unknown({ message }).toObject() }))
   }
 
+  function withPlugin(input: PluginInput, load: PluginLoader.Loaded, id?: string): PluginInput {
+    return {
+      ...input,
+      plugin: {
+        id,
+        spec: load.spec,
+        target: load.target,
+        source: load.origin.source,
+        scope: load.origin.scope,
+      },
+    }
+  }
+
   async function applyPlugin(load: PluginLoader.Loaded, input: PluginInput, hooks: Hooks[]) {
     const plugin = readV1Plugin(load.mod, load.spec, "server", "detect")
     if (plugin) {
-      await resolvePluginId(load.source, load.spec, load.target, readPluginId(plugin.id, load.spec), load.pkg)
-      hooks.push(await (plugin as PluginModule).server(input, load.options))
+      const id = await resolvePluginId(load.source, load.spec, load.target, readPluginId(plugin.id, load.spec), load.pkg)
+      hooks.push(await (plugin as PluginModule).server(withPlugin(input, load, id), load.options))
       return
     }
 
     for (const server of getLegacyPlugins(load.mod)) {
-      hooks.push(await server(input, load.options))
+      hooks.push(await server(withPlugin(input, load), load.options))
     }
   }
 

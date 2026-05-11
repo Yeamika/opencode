@@ -31,6 +31,10 @@ export namespace PluginLoader {
   }
   export type Loaded = Resolved & {
     mod: Record<string, unknown>
+    origin: Config.PluginOrigin
+  }
+  type LoadedModule = Resolved & {
+    mod: Record<string, unknown>
   }
 
   type Candidate = { origin: Config.PluginOrigin; plan: Plan }
@@ -96,7 +100,7 @@ export namespace PluginLoader {
     return { ok: true, value: { ...plan, source: base.source, target: base.target, entry: base.entry, pkg: base.pkg } }
   }
 
-  export async function load(row: Resolved): Promise<{ ok: true; value: Loaded } | { ok: false; error: unknown }> {
+  export async function load(row: Resolved): Promise<{ ok: true; value: LoadedModule } | { ok: false; error: unknown }> {
     let mod
     try {
       mod = await import(row.entry)
@@ -136,8 +140,9 @@ export namespace PluginLoader {
       report?.error?.(candidate, retry, "load", loaded.error, resolved.value)
       return
     }
-    if (!finish) return loaded.value as R
-    return finish(loaded.value, candidate.origin, retry)
+    const value = { ...loaded.value, origin: candidate.origin }
+    if (!finish) return value as R
+    return finish(value, candidate.origin, retry)
   }
 
   type Input<R> = {

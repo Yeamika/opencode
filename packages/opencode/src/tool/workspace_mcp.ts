@@ -29,7 +29,7 @@ export const WorkspaceMcpTool = Tool.define("workspaceMcp", {
       .string()
       .optional()
       .describe(
-        "JSON object string for one entry value. Example: {\"type\":\"remote\",\"url\":\"http://host.docker.internal:8811/mcp\"}.",
+        "JSON object string for one entry value. Example: {\"type\":\"remote\",\"url\":\"http://host.docker.internal:8811/mcp\"} or {\"enabled\":true} for plugin-managed entries.",
       ),
   }),
   async execute(args, ctx) {
@@ -65,7 +65,7 @@ export const WorkspaceMcpTool = Tool.define("workspaceMcp", {
       if (!value || typeof value !== "object" || Array.isArray(value)) {
         throw new Error("value must be a JSON object string")
       }
-      const parsed = Config.Mcp.safeParse(value)
+      const parsed = Config.McpEntry.safeParse(value)
       if (!parsed.success) {
         const msg = parsed.error.issues.map((item) => item.message).join("; ") || "Invalid MCP configuration"
         throw new Error(`Invalid MCP configuration: ${msg}`)

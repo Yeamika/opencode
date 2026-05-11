@@ -458,6 +458,8 @@ export type TuiPluginEntry = {
 
 export type TuiPluginMeta = TuiPluginEntry & {
   state: TuiPluginState
+  scope: "global" | "local"
+  configSource: string
 }
 
 export type TuiPluginStatus = {
