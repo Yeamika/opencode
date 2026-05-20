@@ -18,6 +18,36 @@ async function writeJson(file: string, data: unknown) {
   await fs.writeFile(file, JSON.stringify(data, null, 2))
 }
 
+function addr(issue: z.ZodIssue) {
+  if (!issue.path.length) return "$"
+  return issue.path.map((part) => String(part)).join(".")
+}
+
+function text(issue: z.ZodIssue) {
+  return issue.message.replace(/^Invalid input: /, "")
+}
+
+function score(issues: z.ZodIssue[], value: unknown) {
+  const obj = value && typeof value === "object" && !Array.isArray(value) ? value : {}
+  return issues.reduce((sum, issue) => {
+    const key = typeof issue.path[0] === "string" ? issue.path[0] : undefined
+    if (key && Object.hasOwn(obj, key)) return sum
+    return sum + 1
+  }, issues.length)
+}
+
+function flatten(issue: z.ZodIssue, value: unknown): z.ZodIssue[] {
+  if (issue.code !== "invalid_union") return [issue]
+  const lists = issue.errors.map((list) => list.flatMap((item) => flatten(item, value)))
+  return lists.toSorted((a, b) => score(a, value) - score(b, value))[0] ?? [issue]
+}
+
+function invalid(value: unknown, error: z.ZodError) {
+  const input = JSON.stringify(value, null, 2)
+  const errors = error.issues.flatMap((issue) => flatten(issue, value)).map((issue) => `=> ${addr(issue)}: ${text(issue)}`)
+  return [input, ...errors].join("\n")
+}
+
 export const WorkspaceMcpTool = Tool.define("workspaceMcp", {
   description:
     "Authoritative control surface for workspace MCP.",
@@ -67,8 +97,8 @@ export const WorkspaceMcpTool = Tool.define("workspaceMcp", {
       }
       const parsed = Config.McpEntry.safeParse(value)
       if (!parsed.success) {
-        const msg = parsed.error.issues.map((item) => item.message).join("; ") || "Invalid MCP configuration"
-        throw new Error(`Invalid MCP configuration: ${msg}`)
+        const msg = invalid(value, parsed.error)
+        throw new Error(`Invalid MCP configuration:\n${msg}`)
       }
       json.mcp[args.name] = parsed.data
     }
