@@ -20,11 +20,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-24.04
+          - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             package: remote-executor-linux-x86_64
             cross: false
-          - os: ubuntu-24.04
+          - os: ubuntu-22.04
             target: aarch64-unknown-linux-gnu
             package: remote-executor-linux-aarch64
             cross: true
