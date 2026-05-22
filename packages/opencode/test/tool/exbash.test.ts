@@ -244,6 +244,24 @@ describe("tool.exbash", () => {
     }
   })
 
+  test.serial("rejects when a scope has too many running tasks and allows remove", async () => {
+    const call = mock()
+    try {
+      await repo(async (dir) => {
+        const tool = await ExBashTool.init()
+        const c = await ctx("task limit", dir)
+        for (let i = 0; i < 10; i++) await tool.execute({ command: `sleep ${i}`, read_timeout: 0 }, c)
+
+        await expect(tool.execute({ command: "sleep 10", read_timeout: 0 }, c)).rejects.toThrow("Too many running exbash tasks in local scope")
+        const listed = JSON.parse((await tool.execute({ mode: "list" }, c)).output) as { note: string; runs: Array<{ asyncID: string }> }
+        expect(listed.note).toContain("unknown tasks are stale records")
+        await tool.execute({ mode: "control", action: "remove", asyncID: listed.runs[0]!.asyncID }, c)
+      })
+    } finally {
+      call.mockRestore()
+    }
+  })
+
   test.serial("attach requires a known opencode run and forwards to REC", async () => {
     const call = mock()
     try {

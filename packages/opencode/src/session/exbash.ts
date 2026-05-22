@@ -22,6 +22,7 @@ export namespace ExBashTask {
       command: z.string(),
       cwd: z.string(),
       pid: z.number().optional(),
+      totalOutput: z.number().optional(),
       startedAt: z.number(),
       endedAt: z.number().optional(),
       exitCode: z.number().optional(),
@@ -47,7 +48,7 @@ export namespace ExBashTask {
     readonly get: (input: { sessionID: SessionID; workspace: string }) => Effect.Effect<Info[]>
     readonly one: (input: { sessionID: SessionID; workspace: string; executor: string; asyncID: string }) => Effect.Effect<Info | undefined>
     readonly start: (input: Omit<Entry, "state" | "exitCode" | "endedAt">) => Effect.Effect<Info>
-    readonly finish: (input: { executor: string; asyncID: string; exitCode: number; endedAt: number; error?: string }) => Effect.Effect<Info | undefined>
+    readonly finish: (input: { executor: string; asyncID: string; exitCode: number; endedAt: number; totalOutput?: number; error?: string }) => Effect.Effect<Info | undefined>
     readonly lost: (input: { executor: string; asyncID: string }) => Effect.Effect<Info | undefined>
     readonly remove: (input: { sessionID: SessionID; workspace: string; executor: string; asyncID: string }) => Effect.Effect<void>
   }
@@ -85,7 +86,7 @@ export namespace ExBashTask {
 
       const note = (sessionID: SessionID, workspace: string) => bus.publish(Event.Updated, { sessionID, workspace })
 
-      const state = (r: typeof ExBashTaskTable.$inferSelect) => (r.time_end === null ? "running" : "stopped") as State
+      const state = (r: typeof ExBashTaskTable.$inferSelect) => (r.time_end === null ? "unknown" : "stopped") as State
 
       const row = (r: typeof ExBashTaskTable.$inferSelect): Entry => ({
         asyncID: r.async_id,
@@ -118,6 +119,7 @@ export namespace ExBashTask {
         command: task.command,
         cwd: task.cwd,
         ...(task.pid === undefined ? {} : { pid: task.pid }),
+        ...(task.totalOutput === undefined ? {} : { totalOutput: task.totalOutput }),
         startedAt: task.startedAt,
         ...(task.endedAt === undefined ? {} : { endedAt: task.endedAt }),
         ...(task.exitCode === undefined ? {} : { exitCode: task.exitCode }),
@@ -203,7 +205,7 @@ export namespace ExBashTask {
       )
 
       const finish = Effect.fn("ExBashTask.finish")(
-        function* (input: { executor: string; asyncID: string; exitCode: number; endedAt: number; error?: string }) {
+        function* (input: { executor: string; asyncID: string; exitCode: number; endedAt: number; totalOutput?: number; error?: string }) {
           const ref = idx.get(key(input))
           if (!ref) return undefined
           const map = ref.scope === "workspace" ? ws.get(ref.workspace) : ses.get(ref.sessionID)
@@ -214,6 +216,7 @@ export namespace ExBashTask {
             state: "stopped" as const,
             exitCode: input.exitCode,
             endedAt: input.endedAt,
+            ...(input.totalOutput === undefined ? {} : { totalOutput: input.totalOutput }),
             ...(input.error ? { error: input.error } : {}),
           }
           mark(task)
@@ -306,7 +309,7 @@ export namespace ExBashTask {
     return runPromise((svc) => svc.start(input))
   }
 
-  export async function finish(input: { executor: string; asyncID: string; exitCode: number; endedAt: number; error?: string }) {
+  export async function finish(input: { executor: string; asyncID: string; exitCode: number; endedAt: number; totalOutput?: number; error?: string }) {
     return runPromise((svc) => svc.finish(input))
   }
 

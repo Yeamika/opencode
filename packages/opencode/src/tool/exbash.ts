@@ -8,6 +8,7 @@ import { assertExternalDirectory } from "./external-directory"
 import { RemoteExecutor } from "./remote_executor"
 
 const EXECUTOR = "local"
+const LIMIT = 10
 
 const parameters = z.object({
   mode: z
@@ -21,16 +22,16 @@ const parameters = z.object({
   description: z.string().optional().describe("Use for run mode. Clear, concise description of what this command does."),
   workdir: z.string().optional().describe("Use for run mode. Working directory. Defaults to the current opencode directory."),
   executor: z.string().optional().describe("RemoteExecutor executor id. Defaults to local."),
-  timeout: z.number().optional().describe("Use for run mode. Passed through to REC. Omit to use REC default."),
+  timeout: z.number().optional().describe("Use for run mode. Optional total runtime limit in milliseconds. Leave empty to use REC's default behavior: no total runtime limit."),
   scope: z.enum(["local", "workspace"]).optional().describe("Use for run and list modes. Defaults to local."),
   read_timeout: z
     .number()
     .optional()
-    .describe("Use for run and attach modes. Passed through to REC. Use 0 to detach immediately. Omit to use REC default."),
+    .describe("Use for run and attach modes. Optional read wait in milliseconds. Leave empty to use REC's default read wait. Use 0 to detach/read immediately."),
   asyncID: z.string().optional().describe("Use for list, attach, and control modes."),
   action: z.enum(["stop", "remove"]).optional().describe("Use for control mode."),
-  text: z.string().optional().describe("Use for attach mode. Text to write to the running PTY before reading a snapshot."),
-  filePath: z.string().optional().describe("Use for attach mode. File bytes to write to the running PTY before reading a snapshot."),
+  text: z.string().optional().describe("Use for attach mode. Text to write to the running PTY before reading a snapshot. REC parses escape sequences in text; if escaping is awkward or fails, put the input in a text file and use filePath instead."),
+  filePath: z.string().optional().describe("Use for attach mode. Text file path whose bytes are written to the running PTY before reading a snapshot. Prefer this when text input needs exact bytes or would require difficult escaping."),
 })
 
 function clean(input: unknown): unknown {
@@ -72,12 +73,29 @@ function arr(value: unknown): Record<string, unknown>[] {
   })
 }
 
+function kind(item: ExBashTask.Info) {
+  if (item.state === "running") return "running"
+  if (item.state === "unknown") return "unknown"
+  return (item.exitCode ?? -1) === 0 ? "completed" : "failed"
+}
+
+function reason(items: ExBashTask.Info[], next?: { scope?: ExBashTask.Scope; kind: ReturnType<typeof kind> }) {
+  const counts = new Map<string, number>()
+  for (const item of items) counts.set(`${item.scope}\0${kind(item)}`, (counts.get(`${item.scope}\0${kind(item)}`) ?? 0) + 1)
+  if (next) counts.set(`${next.scope ?? "local"}\0${next.kind}`, (counts.get(`${next.scope ?? "local"}\0${next.kind}`) ?? 0) + 1)
+  const hit = [...counts.entries()].find(([, count]) => count > LIMIT)
+  if (!hit) return
+  const [scope, type] = hit[0].split("\0")
+  return `Too many ${type} exbash tasks in ${scope} scope (${hit[1]}/${LIMIT}). Remove stopped or stale tasks with {"mode":"control","action":"remove","asyncID":"..."}. Unknown tasks are stale records from tasks that were not shut down normally; remove them, or restart/re-run the task if needed.`
+}
+
 function merge(base: ExBashTask.Info, hit?: Record<string, unknown>): ExBashTask.Info {
   if (!hit) return base
   const state = ExBashTask.State.safeParse(hit.state).success ? (hit.state as ExBashTask.State) : base.state
   return {
     ...base,
     pid: num(hit.pid),
+    totalOutput: num(hit.totalOutput) ?? base.totalOutput,
     state,
     exitCode: num(hit.exitCode) ?? base.exitCode,
     command: text(hit.command) ?? base.command,
@@ -102,6 +120,7 @@ async function save(ctx: Tool.Context, result: { metadata: Record<string, unknow
     command: text(result.metadata.command) ?? input.command,
     cwd: text(result.metadata.cwd) ?? input.cwd,
     ...(num(result.metadata.pid) === undefined ? {} : { pid: num(result.metadata.pid) }),
+    ...(num(result.metadata.totalOutput) === undefined ? {} : { totalOutput: num(result.metadata.totalOutput) }),
     startedAt: num(result.metadata.startedAt) ?? Date.now(),
   })
 }
@@ -115,6 +134,7 @@ async function sync(item: ExBashTask.Info, hit?: Record<string, unknown>) {
       executor: next.executor,
       exitCode: next.exitCode ?? -1,
       endedAt: next.endedAt ?? Date.now(),
+      totalOutput: next.totalOutput,
       error: next.error,
     })
   }
@@ -128,6 +148,12 @@ async function known(ctx: Tool.Context, input?: { asyncID?: string; scope?: ExBa
       (!input?.scope || item.scope === input.scope) &&
       item.executor === (input?.executor ?? EXECUTOR),
   )
+}
+
+async function guard(ctx: Tool.Context, input: { executor?: string; scope?: ExBashTask.Scope; kind?: ReturnType<typeof kind> }) {
+  const items = (await ExBashTask.get({ sessionID: ctx.sessionID, workspace: workspace(ctx) })).filter((item) => item.executor === (input.executor ?? EXECUTOR))
+  const msg = reason(items, input.kind ? { scope: input.scope, kind: input.kind } : undefined)
+  if (msg) throw new Error(msg)
 }
 
 async function gate(ctx: Tool.Context) {
@@ -172,10 +198,10 @@ export const ExBashTool = Tool.define("exbash", {
     "- mode omitted or mode=run: start a command and read output for read_timeout ms before returning. Use read_timeout=0 to detach immediately.",
     "- run commands are parsed by REC as argv and are not wrapped in an implicit shell. For shell syntax like pipes, redirects, variables, cd, or compound commands, explicitly run a shell, for example: bash -lc 'echo hi | cat'.",
     "- mode=list: list REC exbash runs known to this opencode session/workspace, optionally filtered by asyncID or scope.",
-    "- mode=attach: write text or file bytes to a running PTY, wait read_timeout ms, and return a plain-text PTY snapshot.",
+    "- mode=attach: write text or text-file bytes to a running PTY, wait read_timeout ms, and return a plain-text PTY snapshot. text is escape-parsed by REC; if text escaping is problematic, write the input to a text file and pass filePath.",
     "- mode=control: stop or remove a run with action=stop or action=remove; remove also clears stale unknown records locally.",
     "- executor selects a configured RemoteExecutor executor. Omit it to use local.",
-    "- timeout and read_timeout are passed through to REC; opencode does not default or reinterpret them.",
+    "- timeout and read_timeout are optional. Leave them empty for REC defaults. Use read_timeout=0 to return immediately after starting or attaching.",
     "Examples:",
     '- run foreground-ish: {"command":"echo hello","description":"Print hello"}',
     '- run shell syntax explicitly: {"command":"bash -lc \'echo hello | cat\'","description":"Print through a shell pipe"}',
@@ -201,6 +227,7 @@ export const ExBashTool = Tool.define("exbash", {
           scope: z.enum(["local", "workspace"]).optional(),
         })
         .parse(arg)
+      await guard(ctx, { executor: data.executor, scope: data.scope, kind: "running" })
       const dir = await command(ctx, data)
       const result = await RemoteExecutor.call(
         "exbash",
@@ -237,7 +264,8 @@ export const ExBashTool = Tool.define("exbash", {
       )
       const map = new Map(arr(result.metadata.runs).map((item) => [text(item.asyncID), item]))
       const runs = await Promise.all((await known(ctx, data)).map((item) => sync(item, map.get(item.asyncID))))
-      return { title: "Async runs listed", metadata: { runs }, output: JSON.stringify({ runs }, null, 2) }
+      const note = "unknown tasks are stale records from tasks that were not shut down normally; remove them, or restart/re-run the task if needed. Each local/workspace scope keeps at most 10 running, completed, failed, and unknown tasks per executor."
+      return { title: "Async runs listed", metadata: { runs, note }, output: JSON.stringify({ note, runs }, null, 2) }
     }
 
     if (mode === "attach") {
@@ -253,6 +281,7 @@ export const ExBashTool = Tool.define("exbash", {
         .parse(arg)
       if (data.timeout !== undefined) throw new Error("read_timeout is required instead of timeout for attach mode")
       if (data.text !== undefined && data.filePath !== undefined) throw new Error("Provide only one of text or filePath for attach mode")
+      await guard(ctx, { executor: data.executor })
       await ctx.ask({
         permission: "bash",
         patterns: [`exbash attach ${data.asyncID}`],
@@ -287,6 +316,7 @@ export const ExBashTool = Tool.define("exbash", {
       metadata: {},
     })
     const exec = data.executor ?? EXECUTOR
+    if (data.action !== "remove") await guard(ctx, { executor: data.executor })
     const task = await ExBashTask.one({ sessionID: ctx.sessionID, workspace: workspace(ctx), executor: exec, asyncID: data.asyncID })
     if (!task) throw new Error(`Async run not found: ${data.asyncID}`)
     if (data.action === "remove" && task.state === "unknown") {
