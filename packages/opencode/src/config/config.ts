@@ -1093,6 +1093,16 @@ export namespace Config {
             .positive()
             .optional()
             .describe("Timeout in milliseconds for model context protocol (MCP) requests"),
+          remote_executor: z
+            .object({
+              enabled: z.boolean().optional().describe("Enable the private RemoteExecutor MCP backend. Defaults to true."),
+              command: z.array(z.string()).min(1).optional().describe("Command and arguments used to start remote-caller-mcp"),
+              cwd: z.string().optional().describe("Working directory used to start remote-caller-mcp"),
+              environment: z.record(z.string(), z.string()).optional().describe("Environment variables for remote-caller-mcp"),
+              timeout: z.number().int().positive().optional().describe("Timeout in milliseconds for RemoteExecutor MCP calls"),
+            })
+            .strict()
+            .optional(),
           exbash: z
             .object({
               executors: z

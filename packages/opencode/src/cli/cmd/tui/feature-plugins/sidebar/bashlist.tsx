@@ -10,12 +10,13 @@ const id = "internal:sidebar-bashlist"
 type Job = ReturnType<TuiPluginApi["state"]["session"]["exbash"]>[number]
 
 function status(job: Job) {
-  if (job.status === "running") return "running"
+  if (job.state === "running") return "running"
+  if (job.state === "unknown") return "unknown"
   return `exitcode: ${job.exitCode ?? -1}`
 }
 
 function subtitle(job: Job) {
-  return `${job.asyncID} · ${job.cwd} [${job.scope}]`
+  return `${job.asyncID} · ${job.cwd} [${job.scope}/${job.executor}]`
 }
 
 function time(job: Job) {
@@ -62,18 +63,12 @@ function Detail(props: { api: TuiPluginApi; job: Job }) {
             <text fg={theme().textMuted}>Command</text>
             <text fg={theme().text}>{props.job.command}</text>
           </box>
-          <box flexDirection="column">
-            <text fg={theme().textMuted}>timeout</text>
-            <text fg={theme().text}>{props.job.timeout ?? "-"}</text>
-          </box>
-          <box flexDirection="column">
-            <text fg={theme().textMuted}>Line Pointer</text>
-            <text fg={theme().text}>{props.job.linePointer}</text>
-          </box>
-          <box flexDirection="column">
-            <text fg={theme().textMuted}>Result Path</text>
-            <text fg={theme().text}>{props.job.resultPath}</text>
-          </box>
+          <Show when={props.job.pid}>
+            <box flexDirection="column">
+              <text fg={theme().textMuted}>pid</text>
+              <text fg={theme().text}>{props.job.pid}</text>
+            </box>
+          </Show>
           <box flexDirection="column">
             <text fg={theme().textMuted}>time</text>
             <text fg={theme().text}>{time(props.job)}</text>
@@ -97,7 +92,8 @@ function Detail(props: { api: TuiPluginApi; job: Job }) {
 
 function icon(props: { api: TuiPluginApi; job: Job }) {
   const theme = () => props.api.theme.current
-  if (props.job.status === "running") return <Spinner color={theme().info} />
+  if (props.job.state === "running") return <Spinner color={theme().info} />
+  if (props.job.state === "unknown") return <text fg={theme().warning}>[?]</text>
   if ((props.job.exitCode ?? -1) === 0) return <text fg={theme().success}>[✓]</text>
   return <text fg={theme().error}>[E]</text>
 }

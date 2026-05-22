@@ -27,7 +27,7 @@ export function shellinput(input: Input, norm: (value?: string) => string) {
     }
   }
 
-  if (input.mode === "exec_async" || input.mode === "exec_timeout_async") {
+  if (input.mode === undefined || input.mode === "run") {
     return {
       icon: "$",
       mode: input.mode,
@@ -41,7 +41,7 @@ export function shellinput(input: Input, norm: (value?: string) => string) {
     return {
       icon: "≡",
       mode: input.mode,
-      command: [input.scope, input.asyncID].filter(Boolean).join(" · ") || "all",
+      command: input.asyncID ?? "all",
       description: "List async runs",
     }
   }
@@ -62,6 +62,6 @@ export function shellinput(input: Input, norm: (value?: string) => string) {
     icon: "<==",
     mode: input.mode,
     command: next ?? (path ? `[file] ${path}` : "[attach]"),
-    description: next ? "Send async text input" : path ? "Send async file input" : "Send async input",
+    description: next ? "Attach async text input" : path ? "Attach async file input" : "Attach async run",
   }
 }

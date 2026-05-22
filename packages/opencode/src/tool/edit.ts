@@ -12,12 +12,12 @@ import DESCRIPTION from "./edit.txt"
 import { File } from "../file"
 import { FileWatcher } from "../file/watcher"
 import { Bus } from "../bus"
-import { Format } from "../format"
 import { FileTime } from "../file/time"
 import { Filesystem } from "../util/filesystem"
 import { Instance } from "../project/instance"
 import { Snapshot } from "@/snapshot"
 import { assertExternalDirectory } from "./external-directory"
+import { RemoteExecutor } from "./remote_executor"
 
 const MAX_DIAGNOSTICS_PER_FILE = 20
 
@@ -41,6 +41,7 @@ export const EditTool = Tool.define("edit", {
     oldString: z.string().describe("The text to replace"),
     newString: z.string().describe("The text to replace it with (must be different from oldString)"),
     replaceAll: z.boolean().optional().describe("Replace all occurrences of oldString (default false)"),
+    executor: z.string().optional().describe("RemoteExecutor executor id. Defaults to local."),
   }),
   async execute(params, ctx) {
     if (!params.filePath) {
@@ -60,6 +61,7 @@ export const EditTool = Tool.define("edit", {
     await FileTime.withLock(filePath, async () => {
       if (params.oldString === "") {
         const existed = await Filesystem.exists(filePath)
+        contentOld = existed ? await Filesystem.readText(filePath).catch(() => "") : ""
         contentNew = params.newString
         diff = trimDiff(createTwoFilesPatch(filePath, filePath, contentOld, contentNew))
         await ctx.ask({
@@ -71,8 +73,14 @@ export const EditTool = Tool.define("edit", {
             diff,
           },
         })
-        await Filesystem.write(filePath, params.newString)
-        await Format.file(filePath)
+        await RemoteExecutor.call(
+          "apply_patch",
+          {
+            patchText: RemoteExecutor.patch(filePath, contentOld, contentNew, existed),
+            ...(params.executor === undefined ? {} : { executor: params.executor }),
+          },
+          { signal: ctx.abort },
+        )
         Bus.publish(File.Event.Edited, { file: filePath })
         await Bus.publish(FileWatcher.Event.Updated, {
           file: filePath,
@@ -107,17 +115,19 @@ export const EditTool = Tool.define("edit", {
         },
       })
 
-      await Filesystem.write(filePath, contentNew)
-      await Format.file(filePath)
+      await RemoteExecutor.call(
+        "apply_patch",
+        {
+          patchText: RemoteExecutor.patch(filePath, contentOld, contentNew, true),
+          ...(params.executor === undefined ? {} : { executor: params.executor }),
+        },
+        { signal: ctx.abort },
+      )
       Bus.publish(File.Event.Edited, { file: filePath })
       await Bus.publish(FileWatcher.Event.Updated, {
         file: filePath,
         event: "change",
       })
-      contentNew = await Filesystem.readText(filePath)
-      diff = trimDiff(
-        createTwoFilesPatch(filePath, filePath, normalizeLineEndings(contentOld), normalizeLineEndings(contentNew)),
-      )
       await FileTime.read(ctx.sessionID, filePath)
     })
 

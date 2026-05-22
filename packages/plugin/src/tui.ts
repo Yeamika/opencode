@@ -320,19 +320,16 @@ export type TuiSidebarTodoItem = Pick<Todo, "content" | "status">
 
 export type TuiSidebarBashTaskItem = {
   asyncID: string
-  sessionID: string
-  workspace: string
   scope: "local" | "workspace"
+  executor: string
   description: string
   command: string
   cwd: string
-  timeout?: number
-  linePointer: number
-  resultPath: string
+  pid?: number
   startedAt: number
   endedAt?: number
   exitCode?: number
-  status: "running" | "stopped"
+  state: "running" | "stopped" | "unknown"
   error?: string
 }
 

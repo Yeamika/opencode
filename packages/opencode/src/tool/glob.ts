@@ -1,11 +1,10 @@
 import z from "zod"
 import path from "path"
 import { Tool } from "./tool"
-import { Filesystem } from "../util/filesystem"
 import DESCRIPTION from "./glob.txt"
-import { Ripgrep } from "../file/ripgrep"
 import { Instance } from "../project/instance"
 import { assertExternalDirectory } from "./external-directory"
+import { RemoteExecutor } from "./remote_executor"
 
 export const GlobTool = Tool.define("glob", {
   description: DESCRIPTION,
@@ -17,6 +16,7 @@ export const GlobTool = Tool.define("glob", {
       .describe(
         `The directory to search in. If not specified, the current working directory will be used. IMPORTANT: Omit this field to use the default directory. DO NOT enter "undefined" or "null" - simply omit it for the default behavior. Must be a valid directory path if provided.`,
       ),
+    executor: z.string().optional().describe("RemoteExecutor executor id. Defaults to local."),
   }),
   async execute(params, ctx) {
     await ctx.ask({
@@ -29,50 +29,26 @@ export const GlobTool = Tool.define("glob", {
       },
     })
 
-    let search = params.path ?? Instance.directory
-    search = path.isAbsolute(search) ? search : path.resolve(Instance.directory, search)
+    const search = path.isAbsolute(params.path ?? Instance.directory)
+      ? (params.path ?? Instance.directory)
+      : path.resolve(Instance.directory, params.path!)
     await assertExternalDirectory(ctx, search, { kind: "directory" })
 
-    const limit = 100
-    const files = []
-    let truncated = false
-    for await (const file of Ripgrep.files({
-      cwd: search,
-      glob: [params.pattern],
-      signal: ctx.abort,
-    })) {
-      if (files.length >= limit) {
-        truncated = true
-        break
-      }
-      const full = path.resolve(search, file)
-      const stats = Filesystem.stat(full)?.mtime.getTime() ?? 0
-      files.push({
-        path: full,
-        mtime: stats,
-      })
-    }
-    files.sort((a, b) => b.mtime - a.mtime)
-
-    const output = []
-    if (files.length === 0) output.push("No files found")
-    if (files.length > 0) {
-      output.push(...files.map((f) => f.path))
-      if (truncated) {
-        output.push("")
-        output.push(
-          `(Results are truncated: showing first ${limit} results. Consider using a more specific path or pattern.)`,
-        )
-      }
-    }
-
-    return {
-      title: path.relative(Instance.worktree, search),
-      metadata: {
-        count: files.length,
-        truncated,
+    const result = await RemoteExecutor.call(
+      "glob",
+      {
+        pattern: params.pattern,
+        path: search,
+        ...(params.executor === undefined ? {} : { executor: params.executor }),
       },
-      output: output.join("\n"),
+      { signal: ctx.abort },
+    )
+    return {
+      ...result,
+      metadata: {
+        count: typeof result.metadata.count === "number" ? result.metadata.count : 0,
+        truncated: result.metadata.truncated === true,
+      },
     }
   },
 })

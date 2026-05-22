@@ -13,7 +13,73 @@ permissions:
   contents: read
 
 jobs:
+  build-rec:
+    name: build-rec-${{ matrix.package }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            package: remote-executor-linux-x86_64
+            cross: false
+          - os: ubuntu-24.04
+            target: aarch64-unknown-linux-gnu
+            package: remote-executor-linux-aarch64
+            cross: true
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            package: remote-executor-windows-x86_64
+            cross: false
+    steps:
+      - name: Checkout RemoteExecutor
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ vars.REMOTE_EXECUTOR_REPOSITORY || 'Yeamika/RemoteExecutor' }}
+          ref: ${{ vars.REMOTE_EXECUTOR_REF || 'main' }}
+          token: ${{ secrets.REMOTE_EXECUTOR_TOKEN || github.token }}
+          submodules: recursive
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust
+        if: runner.os != 'Windows'
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cross
+        if: matrix.cross
+        run: cargo install cross --locked
+
+      - name: Build with cargo
+        if: ${{ !matrix.cross }}
+        run: cargo build --release --workspace --target ${{ matrix.target }}
+
+      - name: Build with cross
+        if: matrix.cross
+        run: cross build --release --workspace --target ${{ matrix.target }}
+
+      - name: Stage RemoteExecutor binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "rec/${{ matrix.package }}"
+          ext=""
+          if [[ "${{ runner.os }}" == "Windows" ]]; then ext=".exe"; fi
+          cp "target/${{ matrix.target }}/release/remote-caller-mcp${ext}" "rec/${{ matrix.package }}/"
+
+      - name: Upload RemoteExecutor artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.package }}
+          path: rec/${{ matrix.package }}
+          if-no-files-found: error
+
   build:
+    needs: build-rec
     runs-on: ubuntu-24.04
     env:
       OPENCODE_CHANNEL: local-yes
@@ -32,10 +98,18 @@ jobs:
           echo "LOCAL_VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "LOCAL_VERSION=$VERSION"
 
+      - name: Download RemoteExecutor artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: remote-executor-*
+          path: packages/opencode/.remote-executor
+
       - name: Build CLI targets
         run: ./packages/opencode/script/build.ts
         env:
           OPENCODE_VERSION: ${{ env.LOCAL_VERSION }}
+          OPENCODE_REMOTE_EXECUTOR_DIST: ${{ github.workspace }}/packages/opencode/.remote-executor
+          OPENCODE_REMOTE_EXECUTOR_REQUIRED: "0"
 
       - name: Build SDK package
         run: |

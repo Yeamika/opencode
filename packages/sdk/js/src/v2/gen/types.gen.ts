@@ -1704,6 +1704,30 @@ export type Config = {
      * Timeout in milliseconds for model context protocol (MCP) requests
      */
     mcp_timeout?: number
+    remote_executor?: {
+      /**
+       * Enable the private RemoteExecutor MCP backend. Defaults to true.
+       */
+      enabled?: boolean
+      /**
+       * Command and arguments used to start remote-caller-mcp
+       */
+      command?: Array<string>
+      /**
+       * Working directory used to start remote-caller-mcp
+       */
+      cwd?: string
+      /**
+       * Environment variables for remote-caller-mcp
+       */
+      environment?: {
+        [key: string]: string
+      }
+      /**
+       * Timeout in milliseconds for RemoteExecutor MCP calls
+       */
+      timeout?: number
+    }
     exbash?: {
       executors?: {
         /**
@@ -1948,19 +1972,16 @@ export type McpResource = {
 
 export type ExBashTask = {
   asyncID: string
-  sessionID: string
-  workspace: string
   scope: "local" | "workspace"
+  executor: string
   description: string
   command: string
   cwd: string
-  timeout?: number
-  linePointer: number
-  resultPath: string
+  pid?: number
   startedAt: number
   endedAt?: number
   exitCode?: number
-  status: "running" | "stopped"
+  state: "running" | "stopped" | "unknown"
   error?: string
 }
 

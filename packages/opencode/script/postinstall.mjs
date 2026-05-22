@@ -117,6 +117,17 @@ async function main() {
       fs.copyFileSync(binaryPath, target)
     }
     fs.chmodSync(target, 0o755)
+
+    const rec = path.join(path.dirname(binaryPath), "remote-caller-mcp")
+    const recTarget = path.join(__dirname, "bin", "remote-caller-mcp")
+    if (!fs.existsSync(rec)) throw new Error(`RemoteExecutor binary not found at ${rec}`)
+    if (fs.existsSync(recTarget)) fs.unlinkSync(recTarget)
+    try {
+      fs.linkSync(rec, recTarget)
+    } catch {
+      fs.copyFileSync(rec, recTarget)
+    }
+    fs.chmodSync(recTarget, 0o755)
   } catch (error) {
     console.error("Failed to setup opencode binary:", error.message)
     process.exit(1)

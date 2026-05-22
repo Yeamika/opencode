@@ -175,6 +175,44 @@ const targets = singleFlag
     })
   : allTargets
 
+type Target = (typeof allTargets)[number]
+
+const recRoot = process.env.OPENCODE_REMOTE_EXECUTOR_DIST
+  ? path.resolve(process.env.OPENCODE_REMOTE_EXECUTOR_DIST)
+  : undefined
+const recRequired = process.env.OPENCODE_REMOTE_EXECUTOR_REQUIRED === "1"
+
+function recPackage(item: Target) {
+  if (item.os === "linux") {
+    const libc = item.abi === "musl" ? "linux-musl" : "linux"
+    return `remote-executor-${libc}-${item.arch === "arm64" ? "aarch64" : "x86_64"}`
+  }
+  if (item.os === "darwin") return `remote-executor-darwin-${item.arch === "arm64" ? "aarch64" : "x86_64"}`
+  if (item.os === "win32") return `remote-executor-windows-${item.arch === "arm64" ? "aarch64" : "x86_64"}`
+}
+
+async function bundleRec(item: Target, bin: string) {
+  if (process.env.OPENCODE_SKIP_REMOTE_EXECUTOR_BUNDLE === "1") return
+  const pkg = recPackage(item)
+  if (!pkg) return
+  if (!recRoot) {
+    console.log(`RemoteExecutor bundle skipped for ${pkg}: OPENCODE_REMOTE_EXECUTOR_DIST is not set`)
+    return
+  }
+  const exe = item.os === "win32" ? "remote-caller-mcp.exe" : "remote-caller-mcp"
+  const src = [path.join(recRoot, pkg, exe), path.join(recRoot, pkg, "bin", exe)].find((file) => fs.existsSync(file))
+  if (!src) {
+    const msg = `RemoteExecutor binary not found for ${pkg} in ${recRoot}`
+    if (recRequired) throw new Error(msg)
+    console.warn(msg)
+    return
+  }
+  const dest = path.join(bin, exe)
+  await fs.promises.copyFile(src, dest)
+  if (item.os !== "win32") await fs.promises.chmod(dest, 0o755)
+  console.log(`bundled RemoteExecutor ${pkg}: ${dest}`)
+}
+
 await $`rm -rf dist`
 
 const binaries: Record<string, string> = {}
@@ -232,6 +270,8 @@ for (const item of targets) {
       OPENCODE_LIBC: item.os === "linux" ? `'${item.abi ?? "glibc"}'` : "",
     },
   })
+
+  await bundleRec(item, `dist/${name}/bin`)
 
   // Smoke test: only run if binary is for current platform
   if (item.os === process.platform && item.arch === process.arch && !item.abi) {

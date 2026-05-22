@@ -2,11 +2,11 @@ import { describe, expect, test } from "bun:test"
 import { shellinput } from "../../../src/cli/cmd/tui/routes/session/shellinput"
 
 describe("shellinput", () => {
-  test("keeps exec_timeout_async command details", () => {
+  test("keeps run command details", () => {
     expect(
       shellinput(
         {
-          mode: "exec_timeout_async",
+          mode: "run",
           command: "python script.py",
           description: "Wait and detach",
           workdir: "packages/opencode",
@@ -15,18 +15,18 @@ describe("shellinput", () => {
       ),
     ).toEqual({
       icon: "$",
-      mode: "exec_timeout_async",
+      mode: "run",
       command: "python script.py",
       description: "Wait and detach",
       workdir: "packages/opencode",
     })
   })
 
-  test("formats async input details", () => {
+  test("formats async attach details", () => {
     expect(
       shellinput(
         {
-          mode: "input",
+          mode: "attach",
           asyncID: "run_123",
           filePath: "/tmp/input.txt",
         },
@@ -34,9 +34,9 @@ describe("shellinput", () => {
       ),
     ).toEqual({
       icon: "<==",
-      mode: "input",
+      mode: "attach",
       command: "[file] tmp/input.txt",
-      description: "Send async file input",
+      description: "Attach async file input",
     })
   })
 
@@ -45,7 +45,6 @@ describe("shellinput", () => {
       shellinput(
         {
           mode: "list",
-          scope: "workspace",
           asyncID: "run_123",
         },
         (value) => value ?? "",
@@ -53,7 +52,7 @@ describe("shellinput", () => {
     ).toEqual({
       icon: "≡",
       mode: "list",
-      command: "workspace · run_123",
+      command: "run_123",
       description: "List async runs",
     })
   })
@@ -80,7 +79,7 @@ describe("shellinput", () => {
     expect(
       shellinput(
         {
-          mode: "input",
+          mode: "attach",
           asyncID: "run_123",
           text: "hello   world",
         },
@@ -88,9 +87,9 @@ describe("shellinput", () => {
       ),
     ).toEqual({
       icon: "<==",
-      mode: "input",
+      mode: "attach",
       command: "hello world",
-      description: "Send async text input",
+      description: "Attach async text input",
     })
   })
 })

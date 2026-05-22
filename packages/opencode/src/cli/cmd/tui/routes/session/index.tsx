@@ -1947,7 +1947,7 @@ function Bash(props: ToolProps<typeof BashTool | typeof ExBashTool>) {
 
   const inline = createMemo(() => info().command)
   const pending = createMemo(() => {
-    if (info().mode === "input") return "Sending input..."
+    if (info().mode === "attach") return "Attaching to async run..."
     if (info().mode === "list") return "Listing async runs..."
     if (info().mode === "control") return "Updating async run..."
     return "Running command..."

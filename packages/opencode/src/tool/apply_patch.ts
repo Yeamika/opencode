@@ -10,13 +10,13 @@ import { createTwoFilesPatch, diffLines } from "diff"
 import { assertExternalDirectory } from "./external-directory"
 import { trimDiff } from "./edit"
 import { LSP } from "../lsp"
-import { Filesystem } from "../util/filesystem"
 import DESCRIPTION from "./apply_patch.txt"
 import { File } from "../file"
-import { Format } from "../format"
+import { RemoteExecutor } from "./remote_executor"
 
 const PatchParams = z.object({
   patchText: z.string().describe("The full patch text that describes all changes to be made"),
+  executor: z.string().optional().describe("RemoteExecutor executor id. Defaults to local."),
 })
 
 export const ApplyPatchTool = Tool.define("apply_patch", {
@@ -185,97 +185,42 @@ export const ApplyPatchTool = Tool.define("apply_patch", {
       },
     })
 
-    // Apply the changes
-    const updates: Array<{ file: string; event: "add" | "change" | "unlink" }> = []
+    const result = await RemoteExecutor.call(
+      "apply_patch",
+      {
+        patchText: params.patchText,
+        ...(params.executor === undefined ? {} : { executor: params.executor }),
+      },
+      { signal: ctx.abort },
+    )
 
-    for (const change of fileChanges) {
-      const edited = change.type === "delete" ? undefined : (change.movePath ?? change.filePath)
-      switch (change.type) {
-        case "add":
-          // Create parent directories (recursive: true is safe on existing/root dirs)
-          await fs.mkdir(path.dirname(change.filePath), { recursive: true })
-          await fs.writeFile(change.filePath, change.newContent, "utf-8")
-          updates.push({ file: change.filePath, event: "add" })
-          break
-
-        case "update":
-          await fs.writeFile(change.filePath, change.newContent, "utf-8")
-          updates.push({ file: change.filePath, event: "change" })
-          break
-
-        case "move":
-          if (change.movePath) {
-            // Create parent directories (recursive: true is safe on existing/root dirs)
-            await fs.mkdir(path.dirname(change.movePath), { recursive: true })
-            await fs.writeFile(change.movePath, change.newContent, "utf-8")
-            await fs.unlink(change.filePath)
-            updates.push({ file: change.filePath, event: "unlink" })
-            updates.push({ file: change.movePath, event: "add" })
-          }
-          break
-
-        case "delete":
-          await fs.unlink(change.filePath)
-          updates.push({ file: change.filePath, event: "unlink" })
-          break
-      }
-
-      if (edited) {
-        await Format.file(edited)
-        Bus.publish(File.Event.Edited, { file: edited })
-      }
-    }
-
-    // Publish file change events
-    for (const update of updates) {
-      await Bus.publish(FileWatcher.Event.Updated, update)
-    }
-
-    // Notify LSP of file changes and collect diagnostics
     for (const change of fileChanges) {
       if (change.type === "delete") continue
       const target = change.movePath ?? change.filePath
+      Bus.publish(File.Event.Edited, { file: target })
       await LSP.touchFile(target, true)
     }
-    const diagnostics = await LSP.diagnostics()
 
-    // Generate output summary
-    const summaryLines = fileChanges.map((change) => {
-      if (change.type === "add") {
-        return `A ${path.relative(Instance.worktree, change.filePath).replaceAll("\\", "/")}`
-      }
-      if (change.type === "delete") {
-        return `D ${path.relative(Instance.worktree, change.filePath).replaceAll("\\", "/")}`
-      }
-      const target = change.movePath ?? change.filePath
-      return `M ${path.relative(Instance.worktree, target).replaceAll("\\", "/")}`
-    })
-    let output = `Success. Updated the following files:\n${summaryLines.join("\n")}`
-
-    // Report LSP errors for changed files
-    const MAX_DIAGNOSTICS_PER_FILE = 20
     for (const change of fileChanges) {
-      if (change.type === "delete") continue
-      const target = change.movePath ?? change.filePath
-      const normalized = Filesystem.normalizePath(target)
-      const issues = diagnostics[normalized] ?? []
-      const errors = issues.filter((item) => item.severity === 1)
-      if (errors.length > 0) {
-        const limited = errors.slice(0, MAX_DIAGNOSTICS_PER_FILE)
-        const suffix =
-          errors.length > MAX_DIAGNOSTICS_PER_FILE ? `\n... and ${errors.length - MAX_DIAGNOSTICS_PER_FILE} more` : ""
-        output += `\n\nLSP errors detected in ${path.relative(Instance.worktree, target).replaceAll("\\", "/")}, please fix:\n<diagnostics file="${target}">\n${limited.map(LSP.Diagnostic.pretty).join("\n")}${suffix}\n</diagnostics>`
+      if (change.type === "add") await Bus.publish(FileWatcher.Event.Updated, { file: change.filePath, event: "add" })
+      if (change.type === "update") await Bus.publish(FileWatcher.Event.Updated, { file: change.filePath, event: "change" })
+      if (change.type === "move" && change.movePath) {
+        await Bus.publish(FileWatcher.Event.Updated, { file: change.filePath, event: "unlink" })
+        await Bus.publish(FileWatcher.Event.Updated, { file: change.movePath, event: "add" })
       }
+      if (change.type === "delete") await Bus.publish(FileWatcher.Event.Updated, { file: change.filePath, event: "unlink" })
     }
 
+    const diagnostics = await LSP.diagnostics()
+
     return {
-      title: output,
+      ...result,
       metadata: {
+        ...result.metadata,
         diff: totalDiff,
         files,
         diagnostics,
       },
-      output,
     }
   },
 })

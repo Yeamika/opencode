@@ -438,6 +438,33 @@ describe("tool.read truncation", () => {
     })
   })
 
+  test("image and PDF reads require local executor, and PDF is rejected", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "image.png"),
+          Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==", "base64"),
+        )
+        await Bun.write(path.join(dir, "file.pdf"), "%PDF-1.4\n")
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const read = await ReadTool.init()
+        await expect(read.execute({ filePath: path.join(tmp.path, "image.png"), executor: "box" }, ctx)).rejects.toThrow(
+          "Image reads require executor=local",
+        )
+        await expect(read.execute({ filePath: path.join(tmp.path, "file.pdf") }, ctx)).rejects.toThrow(
+          "PDF read is not supported yet",
+        )
+        await expect(read.execute({ filePath: path.join(tmp.path, "file.pdf"), executor: "box" }, ctx)).rejects.toThrow(
+          "PDF reads require executor=local",
+        )
+      },
+    })
+  })
+
   test("large image files are properly attached without error", async () => {
     await Instance.provide({
       directory: FIXTURES_DIR,
