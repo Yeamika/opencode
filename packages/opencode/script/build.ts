@@ -184,8 +184,9 @@ const recRequired = process.env.OPENCODE_REMOTE_EXECUTOR_REQUIRED === "1"
 
 function recPackage(item: Target) {
   if (item.os === "linux") {
-    const libc = item.abi === "musl" ? "linux-musl" : "linux"
-    return `remote-executor-${libc}-${item.arch === "arm64" ? "aarch64" : "x86_64"}`
+    const arch = item.arch === "arm64" ? "aarch64" : "x86_64"
+    if (item.abi === "musl") return `remote-executor-linux-${arch}-musl-static`
+    return `remote-executor-linux-${arch}`
   }
   if (item.os === "darwin") return `remote-executor-darwin-${item.arch === "arm64" ? "aarch64" : "x86_64"}`
   if (item.os === "win32") return `remote-executor-windows-${item.arch === "arm64" ? "aarch64" : "x86_64"}`

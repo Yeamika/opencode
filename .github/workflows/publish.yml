@@ -86,11 +86,11 @@ jobs:
             cross: true
           - os: blacksmith-4vcpu-ubuntu-2404
             target: x86_64-unknown-linux-musl
-            package: remote-executor-linux-musl-x86_64
+            package: remote-executor-linux-x86_64-musl-static
             cross: true
           - os: blacksmith-4vcpu-ubuntu-2404
             target: aarch64-unknown-linux-musl
-            package: remote-executor-linux-musl-aarch64
+            package: remote-executor-linux-aarch64-musl-static
             cross: true
           - os: macos-latest
             target: x86_64-apple-darwin

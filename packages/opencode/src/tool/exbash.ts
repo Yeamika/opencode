@@ -14,7 +14,10 @@ const parameters = z.object({
     .enum(["run", "list", "attach", "control"])
     .optional()
     .describe("Operation mode. Omit or use run to start a command; use attach to send input/read a PTY snapshot."),
-  command: z.string().optional().describe("Use for run mode. The shell command to execute."),
+  command: z
+    .string()
+    .optional()
+    .describe("Use for run mode. Command argv string parsed by REC without an implicit shell. Use an explicit shell such as bash -lc '...' for pipes, redirects, variables, or other shell syntax."),
   description: z.string().optional().describe("Use for run mode. Clear, concise description of what this command does."),
   workdir: z.string().optional().describe("Use for run mode. Working directory. Defaults to the current opencode directory."),
   executor: z.string().optional().describe("RemoteExecutor executor id. Defaults to local."),
@@ -167,6 +170,7 @@ export const ExBashTool = Tool.define("exbash", {
   description: [
     "Extended PTY command control surface backed by RemoteExecutor.",
     "- mode omitted or mode=run: start a command and read output for read_timeout ms before returning. Use read_timeout=0 to detach immediately.",
+    "- run commands are parsed by REC as argv and are not wrapped in an implicit shell. For shell syntax like pipes, redirects, variables, cd, or compound commands, explicitly run a shell, for example: bash -lc 'echo hi | cat'.",
     "- mode=list: list REC exbash runs known to this opencode session/workspace, optionally filtered by asyncID or scope.",
     "- mode=attach: write text or file bytes to a running PTY, wait read_timeout ms, and return a plain-text PTY snapshot.",
     "- mode=control: stop or remove a run with action=stop or action=remove; remove also clears stale unknown records locally.",
@@ -174,6 +178,7 @@ export const ExBashTool = Tool.define("exbash", {
     "- timeout and read_timeout are passed through to REC; opencode does not default or reinterpret them.",
     "Examples:",
     '- run foreground-ish: {"command":"echo hello","description":"Print hello"}',
+    '- run shell syntax explicitly: {"command":"bash -lc \'echo hello | cat\'","description":"Print through a shell pipe"}',
     '- detach immediately: {"command":"sleep 20","description":"Wait in PTY","read_timeout":0}',
     '- list: {"mode":"list"}',
     '- attach: {"mode":"attach","asyncID":"<asyncID>","text":"hello\\n","read_timeout":1000}',
