@@ -9,6 +9,7 @@ import { RemoteExecutor } from "./remote_executor"
 
 const EXECUTOR = "local"
 const LIMIT = 10
+const ms = z.preprocess((value) => (value === "" ? undefined : value), z.number().optional())
 
 const parameters = z.object({
   mode: z
@@ -22,12 +23,9 @@ const parameters = z.object({
   description: z.string().optional().describe("Use for run mode. Clear, concise description of what this command does."),
   workdir: z.string().optional().describe("Use for run mode. Working directory. Defaults to the current opencode directory."),
   executor: z.string().optional().describe("RemoteExecutor executor id. Defaults to local."),
-  timeout: z.number().optional().describe("Use for run mode. Optional total runtime limit in milliseconds. Leave empty to use REC's default behavior: no total runtime limit."),
+  timeout: ms.describe("Use for run mode. Optional total runtime limit in milliseconds. Leave empty to use REC's default behavior: no total runtime limit."),
   scope: z.enum(["local", "workspace"]).optional().describe("Use for run and list modes. Defaults to local."),
-  read_timeout: z
-    .number()
-    .optional()
-    .describe("Use for run and attach modes. Optional read wait in milliseconds. Leave empty to use REC's default read wait. Use 0 to detach/read immediately."),
+  read_timeout: ms.describe("Use for run and attach modes. Optional read wait in milliseconds. Leave empty to use REC's default read wait. Use 0 to detach/read immediately."),
   asyncID: z.string().optional().describe("Use for list, attach, and control modes."),
   action: z.enum(["stop", "remove"]).optional().describe("Use for control mode."),
   text: z.string().optional().describe("Use for attach mode. Text to write to the running PTY before reading a snapshot. REC parses escape sequences in text; if escaping is awkward or fails, put the input in a text file and use filePath instead."),
@@ -58,6 +56,13 @@ function text(value: unknown) {
 
 function num(value: unknown) {
   return typeof value === "number" ? value : undefined
+}
+
+function wait(input: { read_timeout?: number; timeout?: number }) {
+  if (input.read_timeout !== undefined && input.read_timeout !== 0) return input.read_timeout
+  if (input.timeout !== undefined && input.timeout !== 0) return input.timeout
+  if (input.read_timeout !== undefined) return input.read_timeout
+  return input.timeout
 }
 
 function rec(value: unknown) {
@@ -98,11 +103,11 @@ function merge(base: ExBashTask.Info, hit?: Record<string, unknown>): ExBashTask
     totalOutput: num(hit.totalOutput) ?? base.totalOutput,
     state,
     exitCode: num(hit.exitCode) ?? base.exitCode,
-    command: text(hit.command) ?? base.command,
-    description: text(hit.description) ?? base.description,
-    cwd: text(hit.cwd) ?? base.cwd,
-    startedAt: num(hit.startedAt) ?? base.startedAt,
-    endedAt: num(hit.endedAt) ?? base.endedAt,
+    command: base.command,
+    description: base.description,
+    cwd: base.cwd,
+    startedAt: base.startedAt,
+    endedAt: base.endedAt ?? num(hit.endedAt),
     error: text(hit.error) ?? base.error,
   } as ExBashTask.Info
 }
@@ -129,14 +134,14 @@ async function sync(item: ExBashTask.Info, hit?: Record<string, unknown>) {
   if (!hit) return ExBashTask.lost({ executor: item.executor, asyncID: item.asyncID }).then((next) => next ?? item)
   const next = merge(item, hit)
   if (next.state === "stopped") {
-    await ExBashTask.finish({
+    return (await ExBashTask.finish({
       asyncID: next.asyncID,
       executor: next.executor,
       exitCode: next.exitCode ?? -1,
       endedAt: next.endedAt ?? Date.now(),
       totalOutput: next.totalOutput,
       error: next.error,
-    })
+    })) ?? next
   }
   return next
 }
@@ -279,8 +284,8 @@ export const ExBashTool = Tool.define("exbash", {
           timeout: z.number().optional(),
         })
         .parse(arg)
-      if (data.timeout !== undefined) throw new Error("read_timeout is required instead of timeout for attach mode")
       if (data.text !== undefined && data.filePath !== undefined) throw new Error("Provide only one of text or filePath for attach mode")
+      const read_timeout = wait(data)
       await guard(ctx, { executor: data.executor })
       await ctx.ask({
         permission: "bash",
@@ -299,7 +304,7 @@ export const ExBashTool = Tool.define("exbash", {
           ...(data.executor === undefined ? {} : { executor: data.executor }),
           ...(data.text === undefined ? {} : { text: data.text }),
           ...(data.filePath === undefined ? {} : { filePath: await input(ctx, data.filePath) }),
-          ...(data.read_timeout === undefined ? {} : { read_timeout: data.read_timeout }),
+          ...(read_timeout === undefined ? {} : { read_timeout }),
           directory: workspace(ctx),
         },
         { signal: ctx.abort },
@@ -333,8 +338,20 @@ export const ExBashTool = Tool.define("exbash", {
       { asyncID: data.asyncID, ...(data.executor === undefined ? {} : { executor: data.executor }) },
       { signal: ctx.abort },
     )
-    if (data.action === "remove") await ExBashTask.remove({ sessionID: ctx.sessionID, workspace: workspace(ctx), executor: exec, asyncID: data.asyncID })
-    else await sync(task, result.metadata)
-    return result
+    if (data.action === "remove") {
+      await ExBashTask.remove({ sessionID: ctx.sessionID, workspace: workspace(ctx), executor: exec, asyncID: data.asyncID })
+      const next = { asyncID: data.asyncID, executor: exec, removed: true }
+      return {
+        title: "Async run removed",
+        metadata: next,
+        output: JSON.stringify(next, null, 2),
+      }
+    }
+    const next = await sync(task, result.metadata)
+    return {
+      title: "Async run stopped",
+      metadata: next,
+      output: JSON.stringify(next, null, 2),
+    }
   },
 })

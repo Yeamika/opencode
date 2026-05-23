@@ -215,7 +215,7 @@ export namespace ExBashTask {
             ...prev,
             state: "stopped" as const,
             exitCode: input.exitCode,
-            endedAt: input.endedAt,
+            endedAt: prev.endedAt ?? input.endedAt,
             ...(input.totalOutput === undefined ? {} : { totalOutput: input.totalOutput }),
             ...(input.error ? { error: input.error } : {}),
           }
@@ -224,7 +224,7 @@ export namespace ExBashTask {
             Database.use((db) =>
               db
                 .update(ExBashTaskTable)
-                .set({ time_end: input.endedAt, exit_code: input.exitCode })
+                .set({ time_end: task.endedAt, exit_code: input.exitCode })
                 .where(
                   and(
                     eq(ExBashTaskTable.async_id, input.asyncID),

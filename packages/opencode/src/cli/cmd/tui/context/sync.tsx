@@ -96,6 +96,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           command: string
           cwd: string
           pid?: number
+          totalOutput?: number
           startedAt: number
           endedAt?: number
           exitCode?: number

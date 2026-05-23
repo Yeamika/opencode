@@ -129,7 +129,8 @@ function mapOptionCb<Value>(cb?: (item: TuiDialogSelectOption<Value>) => void) {
   return (item: SelectOption<Value>) => cb(pickOption(item))
 }
 
-function stateApi(sync: ReturnType<typeof useSync>): TuiPluginApi["state"] {
+function stateApi(input: Input): TuiPluginApi["state"] {
+  const sync = input.sync
   return {
     get ready() {
       return sync.ready
@@ -169,6 +170,14 @@ function stateApi(sync: ReturnType<typeof useSync>): TuiPluginApi["state"] {
       },
       exbash(sessionID) {
         return sync.data.exbash[sessionID] ?? []
+      },
+      async exbashSnapshot(sessionID, asyncID, executor) {
+        const url = new URL(`/session/${sessionID}/exbash/${asyncID}/snapshot`, input.sdk.url)
+        if (executor) url.searchParams.set("executor", executor)
+        const response = await input.sdk.fetch(url, { headers: input.sdk.headers })
+        if (!response.ok) throw new Error(`exbash snapshot failed (${response.status})`)
+        const data = (await response.json()) as { snapshot?: string }
+        return data.snapshot ?? ""
       },
       messages(sessionID) {
         return sync.data.message[sessionID] ?? []
@@ -446,7 +455,7 @@ export function createTuiApi(input: Input): TuiHostPluginApi {
         return input.kv.ready
       },
     },
-    state: stateApi(input.sync),
+    state: stateApi(input),
     get client() {
       return input.sdk.client
     },

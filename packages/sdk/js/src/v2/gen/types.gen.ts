@@ -3495,6 +3495,47 @@ export type SessionExbashResponses = {
 
 export type SessionExbashResponse = SessionExbashResponses[keyof SessionExbashResponses]
 
+export type SessionExbashSnapshotData = {
+  body?: never
+  path: {
+    sessionID: string
+    asyncID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    executor?: string
+  }
+  url: "/session/{sessionID}/exbash/{asyncID}/snapshot"
+}
+
+export type SessionExbashSnapshotErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionExbashSnapshotError = SessionExbashSnapshotErrors[keyof SessionExbashSnapshotErrors]
+
+export type SessionExbashSnapshotResponses = {
+  /**
+   * Exbash task snapshot
+   */
+  200: {
+    snapshot: string
+    metadata: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type SessionExbashSnapshotResponse = SessionExbashSnapshotResponses[keyof SessionExbashSnapshotResponses]
+
 export type SessionInitData = {
   body?: {
     modelID: string

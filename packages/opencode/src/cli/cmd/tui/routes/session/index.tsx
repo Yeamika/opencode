@@ -2005,6 +2005,15 @@ function Bash(props: ToolProps<typeof BashTool | typeof ExBashTool>) {
 }
 
 function ExBash(props: ToolProps<typeof ExBashTool>) {
+  const runs = createMemo(() => (Array.isArray(props.metadata.runs) ? props.metadata.runs : []))
+  if (props.input.mode === "list") {
+    return (
+      <InlineTool icon="≡" pending="Listing async tasks..." complete={`${runs().length} tasks`} part={props.part} tool="ExBash" input={props.input}>
+        ExBash tasks <Show when={props.input.asyncID}>for {props.input.asyncID}</Show>
+        <Show when={!props.input.asyncID}>({runs().length} visible)</Show>
+      </InlineTool>
+    )
+  }
   return <Bash {...props} />
 }
 

@@ -77,17 +77,39 @@ function mock() {
         metadata: {
           runs: calls
             .filter((item) => item.tool === "exbash")
-            .map((item, idx) => ({
-              asyncID: `rex-test-${idx + 1}`,
-              command: item.args.command,
-              description: item.args.description ?? item.args.command,
-              cwd: item.args.directory,
-              state: "running",
-              status: "running",
-              startedAt: Date.now(),
-            })),
+            .map((item, idx) => {
+              const id = `rex-test-${idx + 1}`
+              const stopped = calls.find((call) => call.tool === "exbash_stop" && call.args.asyncID === id)
+              return {
+                asyncID: id,
+                command: item.args.command,
+                description: item.args.command,
+                cwd: item.args.directory,
+                state: stopped ? "stopped" : "running",
+                status: stopped ? "stopped (exit 0)" : "running",
+                ...(stopped ? { exitCode: 0, endedAt: Date.now() } : {}),
+                startedAt: Date.now(),
+              }
+            }),
         },
         output: "{}",
+      }
+    }
+    if (tool === "exbash_stop") {
+      return {
+        title: "Async run stopped",
+        metadata: {
+          asyncID: args.asyncID,
+          command: "bad command",
+          description: "bad command",
+          cwd: "bad cwd",
+          timeout: null,
+          state: "stopped",
+          exitCode: 0,
+          endedAt: Date.now(),
+          totalOutput: 5,
+        },
+        output: JSON.stringify({ asyncID: args.asyncID, tool }),
       }
     }
     return {
@@ -272,7 +294,11 @@ describe("tool.exbash", () => {
         const id = result.metadata.asyncID as string
 
         await expect(tool.execute({ mode: "attach", asyncID: "missing", text: "x" }, c)).rejects.toThrow("Async run not found")
-        await tool.execute({ mode: "attach", asyncID: id, text: "hello\n", read_timeout: -1 }, c)
+        await tool.execute({ mode: "attach", asyncID: id, text: "fallback\n", timeout: 123 }, c)
+        expect(calls.at(-1)).toMatchObject({ tool: "exbash_attach", args: { asyncID: id, text: "fallback\n", read_timeout: 123 } })
+        expect(calls.at(-1)?.args.timeout).toBeUndefined()
+
+        await tool.execute({ mode: "attach", asyncID: id, text: "hello\n", read_timeout: -1, timeout: 123 }, c)
 
         expect(calls.at(-1)).toMatchObject({
           tool: "exbash_attach",
@@ -283,6 +309,7 @@ describe("tool.exbash", () => {
             directory: dir,
           },
         })
+        expect(calls.at(-1)?.args.timeout).toBeUndefined()
       })
     } finally {
       call.mockRestore()
@@ -303,6 +330,35 @@ describe("tool.exbash", () => {
 
         expect(calls.at(-2)).toMatchObject({ tool: "exbash_remove", args: { asyncID: id } })
         expect(listed.runs).toHaveLength(0)
+      })
+    } finally {
+      call.mockRestore()
+    }
+  })
+
+  test.serial("control stop returns stable opencode task metadata", async () => {
+    const call = mock()
+    try {
+      await repo(async (dir) => {
+        const tool = await ExBashTool.init()
+        const c = await ctx("stop", dir)
+        const result = await tool.execute({ command: "sleep 1", description: "DESC_QUICK_DONE_TEST", read_timeout: 0, timeout: 10000 }, c)
+        const id = result.metadata.asyncID as string
+
+        const stopped = await tool.execute({ mode: "control", action: "stop", asyncID: id }, c)
+        const first = (JSON.parse((await tool.execute({ mode: "list", asyncID: id }, c)).output) as { runs: Array<{ endedAt?: number }> }).runs[0]
+        const second = (JSON.parse((await tool.execute({ mode: "list", asyncID: id }, c)).output) as { runs: Array<{ endedAt?: number }> }).runs[0]
+
+        expect(stopped.metadata).toMatchObject({
+          asyncID: id,
+          description: "DESC_QUICK_DONE_TEST",
+          command: "sleep 1",
+          cwd: dir,
+          state: "stopped",
+          exitCode: 0,
+        })
+        expect(stopped.metadata.timeout).toBeUndefined()
+        expect(first?.endedAt).toBe(second?.endedAt)
       })
     } finally {
       call.mockRestore()

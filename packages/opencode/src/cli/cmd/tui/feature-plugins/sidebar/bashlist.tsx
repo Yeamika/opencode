@@ -1,5 +1,5 @@
 import type { TuiPlugin, TuiPluginApi, TuiPluginModule } from "@opencode-ai/plugin/tui"
-import { createMemo, createSignal, For, Show } from "solid-js"
+import { createMemo, createSignal, For, onMount, Show } from "solid-js"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { TextAttributes } from "@opentui/core"
 import { Spinner } from "@tui/component/spinner"
@@ -31,12 +31,22 @@ function short(job: Job) {
   return `${text.slice(0, 27)}…`
 }
 
-function Detail(props: { api: TuiPluginApi; job: Job }) {
+function Detail(props: { api: TuiPluginApi; session_id: string; job: Job }) {
   const theme = () => props.api.theme.current
   const term = useTerminalDimensions()
+  const [shot, setShot] = createSignal("")
+  const [err, setErr] = createSignal("")
+  const [loading, setLoading] = createSignal(true)
   const close = () => props.api.ui.dialog.clear()
   useKeyboard((evt) => {
     if (evt.name === "return" || evt.name === "escape") close()
+  })
+  onMount(() => {
+    props.api.state.session
+      .exbashSnapshot(props.session_id, props.job.asyncID, props.job.executor)
+      .then((next) => setShot(next))
+      .catch((error) => setErr(error instanceof Error ? error.message : String(error)))
+      .finally(() => setLoading(false))
   })
 
   return (
@@ -79,6 +89,18 @@ function Detail(props: { api: TuiPluginApi; job: Job }) {
               <text fg={theme().error}>{props.job.error}</text>
             </box>
           </Show>
+          <box flexDirection="column">
+            <text fg={theme().textMuted}>snapshot</text>
+            <Show when={loading()}>
+              <text fg={theme().textMuted}>loading snapshot...</text>
+            </Show>
+            <Show when={!loading() && err()}>
+              <text fg={theme().error}>{err()}</text>
+            </Show>
+            <Show when={!loading() && !err()}>
+              <text fg={shot() ? theme().text : theme().textMuted}>{shot() || "(empty)"}</text>
+            </Show>
+          </box>
         </box>
       </scrollbox>
       <box flexDirection="row" justifyContent="flex-end" paddingBottom={1}>
@@ -124,7 +146,7 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
                   wrapMode="none"
                   onMouseUp={() => {
                     props.api.ui.dialog.setSize("large")
-                    props.api.ui.dialog.replace(() => <Detail api={props.api} job={job} />)
+                    props.api.ui.dialog.replace(() => <Detail api={props.api} session_id={props.session_id} job={job} />)
                   }}
                 >
                   {short(job)}

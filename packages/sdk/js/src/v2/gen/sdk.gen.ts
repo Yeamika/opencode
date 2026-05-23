@@ -127,6 +127,8 @@ import type {
   SessionDiffResponses,
   SessionExbashErrors,
   SessionExbashResponses,
+  SessionExbashSnapshotErrors,
+  SessionExbashSnapshotResponses,
   SessionForkResponses,
   SessionGetErrors,
   SessionGetResponses,
@@ -1816,6 +1818,46 @@ export class Session2 extends HeyApiClient {
     )
     return (options?.client ?? this.client).get<SessionExbashResponses, SessionExbashErrors, ThrowOnError>({
       url: "/session/{sessionID}/exbash",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get session bash task snapshot
+   *
+   * Retrieve the current plain-text PTY snapshot for one exbash task.
+   */
+  public exbashSnapshot<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      asyncID: string
+      directory?: string
+      workspace?: string
+      executor?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "asyncID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "executor" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      SessionExbashSnapshotResponses,
+      SessionExbashSnapshotErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/exbash/{asyncID}/snapshot",
       ...options,
       ...params,
     })

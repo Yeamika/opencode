@@ -14,6 +14,7 @@ import { SessionStatus } from "@/session/status"
 import { SessionSummary } from "@/session/summary"
 import { Todo } from "../../session/todo"
 import { ExBashTask } from "@/session/exbash"
+import { RemoteExecutor } from "@/tool/remote_executor"
 import { Agent } from "../../agent/agent"
 import { Snapshot } from "@/snapshot"
 import { Log } from "../../util/log"
@@ -219,6 +220,64 @@ export const SessionRoutes = lazy(() =>
         const session = await Session.get(sessionID)
         const tasks = await ExBashTask.get({ sessionID, workspace: session.directory })
         return c.json(tasks)
+      },
+    )
+    .get(
+      "/:sessionID/exbash/:asyncID/snapshot",
+      describeRoute({
+        summary: "Get session bash task snapshot",
+        description: "Retrieve the current plain-text PTY snapshot for one exbash task.",
+        operationId: "session.exbashSnapshot",
+        responses: {
+          200: {
+            description: "Exbash task snapshot",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    snapshot: z.string(),
+                    metadata: z.record(z.string(), z.unknown()),
+                  }),
+                ),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+          asyncID: z.string(),
+        }),
+      ),
+      validator(
+        "query",
+        z.object({
+          executor: z.string().optional(),
+        }),
+      ),
+      async (c) => {
+        const param = c.req.valid("param")
+        const query = c.req.valid("query")
+        const session = await Session.get(param.sessionID)
+        const exec = query.executor ?? "local"
+        const task = await ExBashTask.one({
+          sessionID: param.sessionID,
+          workspace: session.directory,
+          executor: exec,
+          asyncID: param.asyncID,
+        })
+        if (!task) throw new Error(`Async run not found: ${param.asyncID}`)
+        if (task.state === "unknown") throw new Error(`Async run state unknown: ${param.asyncID}`)
+        const result = await RemoteExecutor.call("exbash_attach", {
+          asyncID: param.asyncID,
+          ...(query.executor === undefined ? {} : { executor: query.executor }),
+          read_timeout: 0,
+          directory: session.directory,
+        })
+        return c.json({ snapshot: result.output, metadata: result.metadata })
       },
     )
     .post(
