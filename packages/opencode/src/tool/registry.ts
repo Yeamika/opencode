@@ -4,7 +4,6 @@ import { BashTool } from "./bash"
 import { ExBashTool } from "./exbash"
 import { EditTool } from "./edit"
 import { GlobTool } from "./glob"
-import { GrepTool } from "./grep"
 import { RgTool } from "./rg"
 import { ExecutorManagerTool } from "./executor_manager"
 import { BatchTool } from "./batch"
@@ -138,7 +137,6 @@ export namespace ToolRegistry {
       const workspaceOverview = yield* build(WorkspaceOverviewTool)
       const read = yield* build(ReadTool)
       const glob = yield* build(GlobTool)
-      const grep = yield* build(GrepTool)
       const rg = yield* build(RgTool)
       const executor = yield* build(ExecutorManagerTool)
       const edit = yield* build(EditTool)
@@ -170,7 +168,6 @@ export namespace ToolRegistry {
           workspaceSkill,
           read,
           glob,
-          grep,
           ...(cfg.experimental?.remote_executor?.enabled === false ? [] : [rg]),
           ...(cfg.experimental?.remote_executor?.enabled === false ? [] : [executor]),
           edit,

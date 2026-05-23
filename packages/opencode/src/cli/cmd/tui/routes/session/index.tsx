@@ -40,6 +40,7 @@ import { ExBashTool } from "@/tool/exbash"
 import type { GlobTool } from "@/tool/glob"
 import { TodoWriteTool } from "@/tool/todo"
 import type { GrepTool } from "@/tool/grep"
+import type { RgTool } from "@/tool/rg"
 import type { ListTool } from "@/tool/ls"
 import type { EditTool } from "@/tool/edit"
 import type { ApplyPatchTool } from "@/tool/apply_patch"
@@ -1588,6 +1589,9 @@ function ToolPart(props: { last: boolean; part: ToolPart; message: AssistantMess
         <Match when={props.part.tool === "grep"}>
           <Grep {...toolprops} />
         </Match>
+        <Match when={props.part.tool === "rg"}>
+          <Rg {...toolprops} />
+        </Match>
         <Match when={props.part.tool === "list"}>
           <List {...toolprops} />
         </Match>
@@ -2089,6 +2093,19 @@ function Grep(props: ToolProps<typeof GrepTool>) {
       Grep "{props.input.pattern}" <Show when={props.input.path}>in {normalizePath(props.input.path)} </Show>
       <Show when={props.metadata.matches}>
         ({props.metadata.matches} {props.metadata.matches === 1 ? "match" : "matches"})
+      </Show>
+    </InlineTool>
+  )
+}
+
+function Rg(props: ToolProps<typeof RgTool>) {
+  const root = () => props.input.path ?? props.input.root
+  const matches = () => (typeof props.metadata.matches === "number" ? props.metadata.matches : undefined)
+  return (
+    <InlineTool icon="✱" pending="Searching content..." complete={props.input.pattern} part={props.part} tool="Ripgrep" input={props.input}>
+      Ripgrep "{props.input.pattern}" <Show when={root()}>in {normalizePath(root())} </Show>
+      <Show when={matches() !== undefined}>
+        ({matches()} {matches() === 1 ? "match" : "matches"})
       </Show>
     </InlineTool>
   )
