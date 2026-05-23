@@ -18,6 +18,7 @@ import { PermissionID } from "./schema"
 
 export namespace Permission {
   const log = Log.create({ service: "permission" })
+  const timeout = 300_000
 
   export const Action = z.enum(["allow", "deny", "ask"]).meta({
     ref: "PermissionAction",
@@ -86,6 +87,12 @@ export namespace Permission {
     }
   }
 
+  export class TimeoutError extends Schema.TaggedErrorClass<TimeoutError>()("PermissionTimeoutError", {}) {
+    override get message() {
+      return "TimeoutAfter 300s"
+    }
+  }
+
   export class CorrectedError extends Schema.TaggedErrorClass<CorrectedError>()("PermissionCorrectedError", {
     feedback: Schema.String,
   }) {
@@ -102,7 +109,7 @@ export namespace Permission {
     }
   }
 
-  export type Error = DeniedError | RejectedError | CorrectedError
+  export type Error = DeniedError | RejectedError | CorrectedError | TimeoutError
 
   export const AskInput = Request.partial({ id: true }).extend({
     ruleset: Ruleset,
@@ -194,7 +201,10 @@ export namespace Permission {
         pending.set(id, { info, deferred })
         yield* bus.publish(Event.Asked, info)
         return yield* Effect.ensuring(
-          Deferred.await(deferred),
+          Effect.timeoutOrElse(Deferred.await(deferred), {
+            duration: timeout,
+            orElse: () => Effect.fail(new TimeoutError()),
+          }),
           Effect.sync(() => {
             pending.delete(id)
           }),

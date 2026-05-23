@@ -10,6 +10,7 @@ import { QuestionID } from "./schema"
 
 export namespace Question {
   const log = Log.create({ service: "question" })
+  const timeout = 300_000
 
   // Schemas
 
@@ -82,6 +83,12 @@ export namespace Question {
     }
   }
 
+  export class TimeoutError extends Schema.TaggedErrorClass<TimeoutError>()("QuestionTimeoutError", {}) {
+    override get message() {
+      return "TimeoutAfter 300s"
+    }
+  }
+
   interface PendingEntry {
     info: Request
     deferred: Deferred.Deferred<Answer[], RejectedError>
@@ -98,7 +105,7 @@ export namespace Question {
       sessionID: SessionID
       questions: Info[]
       tool?: { messageID: MessageID; callID: string }
-    }) => Effect.Effect<Answer[], RejectedError>
+    }) => Effect.Effect<Answer[], RejectedError | TimeoutError>
     readonly reply: (input: { requestID: QuestionID; answers: Answer[] }) => Effect.Effect<void>
     readonly reject: (requestID: QuestionID) => Effect.Effect<void>
     readonly list: () => Effect.Effect<Request[]>
@@ -149,7 +156,10 @@ export namespace Question {
         yield* bus.publish(Event.Asked, info)
 
         return yield* Effect.ensuring(
-          Deferred.await(deferred),
+          Effect.timeoutOrElse(Deferred.await(deferred), {
+            duration: timeout,
+            orElse: () => Effect.fail(new TimeoutError()),
+          }),
           Effect.sync(() => {
             pending.delete(id)
           }),
