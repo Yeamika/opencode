@@ -3,18 +3,8 @@ import { ExBashTool } from "@/tool/exbash"
 import type { Tool } from "@/tool/tool"
 
 type Input = Partial<Tool.InferParameters<typeof BashTool>> | Partial<Tool.InferParameters<typeof ExBashTool>>
-type Legacy = {
-  mode?: "control"
-  action?: "stop" | "remove"
-  asyncID?: string
-  command?: string
-  description?: string
-  workdir?: string
-  text?: string
-  filePath?: string
-}
 
-export function shellinput(input: Input | Legacy, norm: (value?: string) => string) {
+export function shellinput(input: Input, norm: (value?: string) => string) {
   const text = (value?: string) => {
     if (!value?.trim()) return
     const next = value.replace(/\s+/g, " ").trim()
@@ -62,15 +52,6 @@ export function shellinput(input: Input | Legacy, norm: (value?: string) => stri
       mode: input.mode,
       command: input.asyncID,
       description: input.mode === "remove" ? "Remove async task" : "Stop async task",
-    }
-  }
-
-  if (input.mode === "control") {
-    return {
-      icon: input.action === "remove" ? "✕" : "■",
-      mode: input.mode,
-      command: input.asyncID,
-      description: input.action === "remove" ? "Remove async task" : "Stop async task",
     }
   }
 
