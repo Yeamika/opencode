@@ -97,6 +97,19 @@ function symlinkBinary(sourcePath, binaryName) {
   }
 }
 
+function installBundledBinary(sourceDir, binaryName) {
+  const source = path.join(sourceDir, binaryName)
+  const target = path.join(__dirname, "bin", binaryName)
+  if (!fs.existsSync(source)) throw new Error(`Bundled binary not found at ${source}`)
+  if (fs.existsSync(target)) fs.unlinkSync(target)
+  try {
+    fs.linkSync(source, target)
+  } catch {
+    fs.copyFileSync(source, target)
+  }
+  fs.chmodSync(target, 0o755)
+}
+
 async function main() {
   try {
     if (os.platform() === "win32") {
@@ -118,16 +131,8 @@ async function main() {
     }
     fs.chmodSync(target, 0o755)
 
-    const rec = path.join(path.dirname(binaryPath), "remote-caller-mcp")
-    const recTarget = path.join(__dirname, "bin", "remote-caller-mcp")
-    if (!fs.existsSync(rec)) throw new Error(`RemoteExecutor binary not found at ${rec}`)
-    if (fs.existsSync(recTarget)) fs.unlinkSync(recTarget)
-    try {
-      fs.linkSync(rec, recTarget)
-    } catch {
-      fs.copyFileSync(rec, recTarget)
-    }
-    fs.chmodSync(recTarget, 0o755)
+    installBundledBinary(path.dirname(binaryPath), "remote-caller-mcp")
+    installBundledBinary(path.dirname(binaryPath), "ptyt")
   } catch (error) {
     console.error("Failed to setup opencode binary:", error.message)
     process.exit(1)

@@ -145,7 +145,7 @@ async function sync(item: ExBashTask.Info, hit?: Record<string, unknown>) {
   return next
 }
 
-async function done(item: ExBashTask.Info, hit?: Record<string, unknown>, stoppedByUser?: boolean) {
+async function done(item: ExBashTask.Info, hit?: Record<string, unknown>) {
   const next = merge(item, hit)
   return (await ExBashTask.finish({
     asyncID: next.asyncID,
@@ -153,7 +153,6 @@ async function done(item: ExBashTask.Info, hit?: Record<string, unknown>, stoppe
     exitCode: next.exitCode ?? -1,
     endedAt: next.endedAt ?? Date.now(),
     totalOutput: next.totalOutput,
-    ...(stoppedByUser === undefined ? {} : { stoppedByUser }),
     error: next.error,
   })) ?? next
 }
@@ -361,7 +360,7 @@ export const ExBashTool = Tool.define("exbash", {
         output: JSON.stringify(next, null, 2),
       }
     }
-    const next = await done(task, result.metadata, true)
+    const next = await done(task, result.metadata)
     return {
       title: "Async run stopped",
       metadata: next,

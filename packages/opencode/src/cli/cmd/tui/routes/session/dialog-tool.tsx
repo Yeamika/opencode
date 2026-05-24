@@ -4,6 +4,11 @@ import { DialogSelect } from "@tui/ui/dialog-select"
 import { useSDK } from "../../context/sdk"
 import { DialogToolOutput } from "./dialog-tool-output"
 
+function safe(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value
+  return Object.fromEntries(Object.entries(value).filter(([key]) => key !== "rawPretty"))
+}
+
 export function DialogTool(props: {
   tool: string
   sessionID?: string
@@ -28,7 +33,7 @@ export function DialogTool(props: {
     const out = props.output?.trim()
     const err = props.error?.trim()
     const input = JSON.stringify(props.input ?? {}, null, 2)
-    const metadata = JSON.stringify(props.metadata ?? {}, null, 2)
+    const metadata = JSON.stringify(safe(props.metadata) ?? {}, null, 2)
     const attachments = JSON.stringify(props.attachments ?? [], null, 2)
     return [
       {
@@ -65,7 +70,7 @@ export function DialogTool(props: {
                 const part = await load()
                 const full =
                   part?.state.status === "running" || part?.state.status === "completed" || part?.state.status === "error"
-                    ? JSON.stringify(part.state.metadata ?? {}, null, 2)
+                    ? JSON.stringify(safe(part.state.metadata) ?? {}, null, 2)
                     : metadata
                 DialogToolOutput.show(dialog, `${props.tool} Metadata`, full, { filetype: "json" })
               },

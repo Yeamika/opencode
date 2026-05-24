@@ -13,6 +13,7 @@ import {
   useContext,
 } from "solid-js"
 import { Dynamic } from "solid-js/web"
+import fs from "fs"
 import path from "path"
 import { useRoute, useRouteData } from "@tui/context/route"
 import { useSync } from "@tui/context/sync"
@@ -88,6 +89,7 @@ import { UI } from "@/cli/ui.ts"
 import { useTuiConfig } from "../../context/tui-config"
 import { getScrollAcceleration } from "../../util/scroll"
 import { TuiPluginRuntime } from "../../plugin"
+import { Process } from "@/util/process"
 
 addDefaultParsers(parsers.parsers)
 
@@ -178,6 +180,7 @@ export function Session() {
   const [diffWrapMode] = kv.signal<"word" | "none">("diff_wrap_mode", "word")
   const [animationsEnabled, setAnimationsEnabled] = kv.signal("animations_enabled", true)
   const [showGenericToolOutput, setShowGenericToolOutput] = kv.signal("generic_tool_output_visibility", false)
+  const [autoPtyt, setAutoPtyt] = kv.signal("exbash_ptyt_auto_attach", false)
 
   const wide = createMemo(() => dimensions().width > 120)
   const sidebarVisible = createMemo(() => {
@@ -216,6 +219,66 @@ export function Session() {
 
   const toast = useToast()
   const sdk = useSDK()
+  const keybind = useKeybind()
+  const dialog = useDialog()
+  const renderer = useRenderer()
+  const args = useArgs()
+  const local = useLocal()
+
+  const ptyt = new Set<string>()
+
+  function ptytBin() {
+    const exe = process.platform === "win32" ? "ptyt.exe" : "ptyt"
+    const root = path.dirname(process.execPath)
+    return [exe, `.${exe}`].map((name) => path.join(root, name)).find((file) => fs.existsSync(file)) ?? exe
+  }
+
+  function ptytArgs(cmd: string) {
+    const url = /(?:^|\s)--url\s+(\S+)/.exec(cmd)?.[1]
+    const pty = /(?:^|\s)--pty\s+(\S+)/.exec(cmd)?.[1]
+    if (!url || !pty) throw new Error("ptyt attachurl is missing --url or --pty")
+    return [ptytBin(), "--url", url, "--pty", pty]
+  }
+
+  async function openPtyt(cmd: string) {
+    renderer.suspend()
+    renderer.currentRenderBuffer.clear()
+    try {
+      const proc = Process.spawn(ptytArgs(cmd), {
+        stdin: "inherit",
+        stdout: "inherit",
+        stderr: "inherit",
+      })
+      await proc.exited
+    } finally {
+      renderer.currentRenderBuffer.clear()
+      renderer.resume()
+      renderer.requestRender()
+    }
+  }
+
+  async function attachPtyt(part: ToolPart) {
+    if (!autoPtyt()) return
+    if (part.tool !== "exbash") return
+    if (part.sessionID !== route.sessionID) return
+    if (part.state.status !== "completed") return
+    const mode = typeof part.state.input.mode === "string" ? part.state.input.mode : undefined
+    if (mode && mode !== "run") return
+    const id = typeof part.state.metadata.asyncID === "string" ? part.state.metadata.asyncID : undefined
+    const state = typeof part.state.metadata.state === "string" ? part.state.metadata.state : undefined
+    if (!id || state !== "running") return
+    const exec = typeof part.state.metadata.executor === "string" ? part.state.metadata.executor : undefined
+    const key = `${part.sessionID}\0${exec ?? ""}\0${id}`
+    if (ptyt.has(key)) return
+    ptyt.add(key)
+    const url = new URL(`/session/${part.sessionID}/exbash/${id}/snapshot`, sdk.url)
+    if (exec) url.searchParams.set("executor", exec)
+    const response = await sdk.fetch(url, { headers: sdk.headers })
+    if (!response.ok) throw new Error(`exbash ptyt attach failed (${response.status})`)
+    const data = (await response.json()) as { attachurl?: string }
+    if (!data.attachurl) throw new Error("exbash ptyt attach url unavailable")
+    await openPtyt(data.attachurl)
+  }
 
   async function retrySessionNow() {
     const url = new URL(`/session/${route.sessionID}/retry`, sdk.url)
@@ -255,6 +318,17 @@ export function Session() {
     }
   })
 
+  sdk.event.on("message.part.updated", (evt) => {
+    const part = evt.properties.part
+    if (part.type !== "tool") return
+    void attachPtyt(part).catch((error) => {
+      toast.show({
+        message: error instanceof Error ? error.message : String(error),
+        variant: "error",
+      })
+    })
+  })
+
   let scroll: ScrollBoxRenderable
   let prompt: PromptRef | undefined
   const bind = (r: PromptRef | undefined) => {
@@ -264,11 +338,6 @@ export function Session() {
     seeded = true
     r.set(route.initialPrompt)
   }
-  const keybind = useKeybind()
-  const dialog = useDialog()
-  const renderer = useRenderer()
-  const args = useArgs()
-
   // Allow exit when in child session (prompt is hidden)
   const exit = useExit()
 
@@ -366,8 +435,6 @@ export function Session() {
       scroll.scrollTo(scroll.scrollHeight)
     }, 50)
   }
-
-  const local = useLocal()
 
   function moveFirstChild() {
     if (children().length === 1) return
@@ -659,6 +726,20 @@ export function Session() {
       category: "Session",
       onSelect: (dialog) => {
         setShowGenericToolOutput((prev) => !prev)
+        dialog.clear()
+      },
+    },
+    {
+      title: autoPtyt() ? "Disable exbash ptyt auto attach" : "Enable exbash ptyt auto attach",
+      value: "session.toggle.exbash_ptyt_auto_attach",
+      category: "Session",
+      onSelect: (dialog) => {
+        const next = !autoPtyt()
+        setAutoPtyt(() => next)
+        toast.show({
+          message: next ? "exbash ptyt auto attach enabled" : "exbash ptyt auto attach disabled",
+          variant: "info",
+        })
         dialog.clear()
       },
     },
@@ -1920,7 +2001,11 @@ function Bash(props: ToolProps<typeof BashTool | typeof ExBashTool>) {
   const sync = useSync()
   const info = createMemo(() => shellinput(props.input, normalizePath))
   const isRunning = createMemo(() => props.part.state.status === "running")
-  const output = createMemo(() => stripAnsi(typeof props.metadata.output === "string" ? props.metadata.output.trim() : ""))
+  const output = createMemo(() => {
+    const meta = typeof props.metadata.output === "string" ? props.metadata.output : undefined
+    const text = meta ?? (props.tool === "exbash" && ["attach", "stop"].includes(info().mode ?? "") ? props.output : undefined)
+    return stripAnsi(text?.trim() ?? "")
+  })
   const lines = createMemo(() => output().split("\n"))
   const overflow = createMemo(() => lines().length > 10 || output().length > 600 || lines().some((x) => x.length > 160))
 
@@ -1960,7 +2045,7 @@ function Bash(props: ToolProps<typeof BashTool | typeof ExBashTool>) {
 
   return (
     <Switch>
-      <Match when={props.metadata.output !== undefined}>
+      <Match when={props.metadata.output !== undefined || output()}>
         <BlockTool
           title={title()}
           part={props.part}

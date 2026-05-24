@@ -333,7 +333,6 @@ export type TuiSidebarBashTaskItem = {
   exitCode?: number
   state: "running" | "stopped" | "unknown"
   memory?: boolean
-  stoppedByUser?: boolean
   error?: string
 }
 

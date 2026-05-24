@@ -1984,7 +1984,6 @@ export type ExBashTask = {
   exitCode?: number
   state: "running" | "stopped" | "unknown"
   memory?: boolean
-  stoppedByUser?: boolean
   error?: string
 }
 

@@ -12,9 +12,7 @@ type Job = ReturnType<TuiPluginApi["state"]["session"]["exbash"]>[number]
 function status(job: Job) {
   if (job.state === "running") return "running"
   if (job.state === "unknown") return "unknown"
-  if (job.stoppedByUser) return `stopped${job.exitCode === undefined ? "" : ` (exit ${job.exitCode})`}`
-  if ((job.exitCode ?? -1) === 0) return "completed (exit 0)"
-  return `error (exit ${job.exitCode ?? -1})`
+  return `stopped${job.exitCode === undefined ? "" : ` (exit ${job.exitCode})`}`
 }
 
 function subtitle(job: Job) {
@@ -151,9 +149,7 @@ function icon(props: { api: TuiPluginApi; job: Job }) {
   const theme = () => props.api.theme.current
   if (props.job.state === "running") return <Spinner color={theme().info} />
   if (props.job.state === "unknown") return <text fg={theme().warning}>[?]</text>
-  if (props.job.stoppedByUser) return <text fg={theme().warning}>[■]</text>
-  if ((props.job.exitCode ?? -1) === 0) return <text fg={theme().success}>[✓]</text>
-  return <text fg={theme().error}>[E]</text>
+  return <text fg={(props.job.exitCode ?? -1) === 0 ? theme().success : theme().error}>[■]</text>
 }
 
 function View(props: { api: TuiPluginApi; session_id: string }) {

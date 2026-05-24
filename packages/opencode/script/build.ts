@@ -200,18 +200,20 @@ async function bundleRec(item: Target, bin: string) {
     console.log(`RemoteExecutor bundle skipped for ${pkg}: OPENCODE_REMOTE_EXECUTOR_DIST is not set`)
     return
   }
-  const exe = item.os === "win32" ? "remote-caller-mcp.exe" : "remote-caller-mcp"
-  const src = [path.join(recRoot, pkg, exe), path.join(recRoot, pkg, "bin", exe)].find((file) => fs.existsSync(file))
-  if (!src) {
-    const msg = `RemoteExecutor binary not found for ${pkg} in ${recRoot}`
-    if (recRequired) throw new Error(msg)
-    console.warn(msg)
-    return
+  const bins = item.os === "win32" ? ["remote-caller-mcp.exe", "ptyt.exe"] : ["remote-caller-mcp", "ptyt"]
+  for (const exe of bins) {
+    const src = [path.join(recRoot, pkg, exe), path.join(recRoot, pkg, "bin", exe)].find((file) => fs.existsSync(file))
+    if (!src) {
+      const msg = `RemoteExecutor binary ${exe} not found for ${pkg} in ${recRoot}`
+      if (recRequired) throw new Error(msg)
+      console.warn(msg)
+      continue
+    }
+    const dest = path.join(bin, exe)
+    await fs.promises.copyFile(src, dest)
+    if (item.os !== "win32") await fs.promises.chmod(dest, 0o755)
+    console.log(`bundled RemoteExecutor ${pkg}: ${dest}`)
   }
-  const dest = path.join(bin, exe)
-  await fs.promises.copyFile(src, dest)
-  if (item.os !== "win32") await fs.promises.chmod(dest, 0o755)
-  console.log(`bundled RemoteExecutor ${pkg}: ${dest}`)
 }
 
 await $`rm -rf dist`
