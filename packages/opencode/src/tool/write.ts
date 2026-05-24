@@ -28,9 +28,12 @@ export const WriteTool = Tool.define("write", {
     const filepath = path.isAbsolute(params.filePath) ? params.filePath : path.join(Instance.directory, params.filePath)
     await assertExternalDirectory(ctx, filepath)
 
-    const exists = await Filesystem.exists(filepath)
-    const contentOld = exists ? await Filesystem.readText(filepath) : ""
-    if (exists) await FileTime.assert(ctx.sessionID, filepath)
+    const executor = params.executor?.trim() || "local"
+    const stat = await RemoteExecutor.stat(filepath, executor).catch(() => undefined)
+    const local = await Filesystem.exists(filepath)
+    const exists = stat ? stat.kind !== "missing" : local
+    const contentOld = local ? await Filesystem.readText(filepath) : ""
+    if (exists) await FileTime.assert(ctx.sessionID, filepath, stat ? { executor, file: stat } : undefined)
 
     const diff = trimDiff(createTwoFilesPatch(filepath, filepath, contentOld, params.content))
     await ctx.ask({
@@ -56,7 +59,8 @@ export const WriteTool = Tool.define("write", {
       file: filepath,
       event: exists ? "change" : "add",
     })
-    await FileTime.read(ctx.sessionID, filepath)
+    const next = await RemoteExecutor.stat(filepath, executor).catch(() => undefined)
+    await FileTime.read(ctx.sessionID, filepath, next ? { executor, file: next } : undefined)
 
     let output = "Wrote file successfully."
     await LSP.touchFile(filepath, true)

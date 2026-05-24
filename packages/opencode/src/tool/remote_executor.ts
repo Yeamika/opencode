@@ -53,6 +53,15 @@ export namespace RemoteExecutor {
     output: string
   }
 
+  export const FileStamp = z.object({
+    fileKey: z.string(),
+    canonicalPath: z.string(),
+    kind: z.enum(["file", "directory", "missing", "other"]),
+    size: z.number().optional(),
+    mtimeMs: z.number().optional(),
+  })
+  export type FileStamp = z.infer<typeof FileStamp>
+
   type Pending = {
     resolve(result: unknown): void
     reject(error: Error): void
@@ -107,6 +116,15 @@ export namespace RemoteExecutor {
       opts?.signal,
     )
     return output(tool, result)
+  }
+
+  export async function stat(filePath: string, executor = "local") {
+    return stamp((await call("stat", { filePath, ...(executor === "local" ? {} : { executor }) })).metadata.file)
+  }
+
+  export function stamp(value: unknown) {
+    const result = FileStamp.safeParse(value)
+    return result.success ? result.data : undefined
   }
 
   export async function reload(dir = Instance.directory) {

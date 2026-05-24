@@ -76,7 +76,9 @@ export const ReadTool = Tool.define("read", {
       },
       { signal: ctx.abort },
     )
-    if (stat && !stat.isDirectory()) await FileTime.read(ctx.sessionID, filepath)
+    const stamp = RemoteExecutor.stamp(result.metadata.file)
+    if (stamp?.kind === "file") await FileTime.read(ctx.sessionID, filepath, { executor, file: stamp })
+    else if (stat && !stat.isDirectory()) await FileTime.read(ctx.sessionID, filepath, { executor })
     return result
   },
 })

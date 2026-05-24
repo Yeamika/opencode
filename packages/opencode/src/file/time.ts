@@ -6,6 +6,7 @@ import { Flag } from "@/flag/flag"
 import type { SessionID } from "@/session/schema"
 import { Filesystem } from "@/util/filesystem"
 import { Log } from "../util/log"
+import type { RemoteExecutor } from "../tool/remote_executor"
 
 export namespace FileTime {
   const log = Log.create({ service: "file.time" })
@@ -14,6 +15,20 @@ export namespace FileTime {
     readonly read: Date
     readonly mtime: number | undefined
     readonly size: number | undefined
+    readonly executor?: string
+    readonly fileKey?: string
+    readonly canonicalPath?: string
+    readonly kind?: RemoteExecutor.FileStamp["kind"]
+  }
+
+  export type Input = {
+    executor?: string
+    file?: RemoteExecutor.FileStamp
+  }
+
+  function key(input: { executor?: string; file?: RemoteExecutor.FileStamp }) {
+    if (!input.file) return
+    return `${input.executor?.trim() || "local"}:${input.file.fileKey}`
   }
 
   const session = (reads: Map<SessionID, Map<string, Stamp>>, sessionID: SessionID) => {
@@ -31,9 +46,9 @@ export namespace FileTime {
   }
 
   export interface Interface {
-    readonly read: (sessionID: SessionID, file: string) => Effect.Effect<void>
+    readonly read: (sessionID: SessionID, file: string, input?: Input) => Effect.Effect<void>
     readonly get: (sessionID: SessionID, file: string) => Effect.Effect<Date | undefined>
-    readonly assert: (sessionID: SessionID, filepath: string) => Effect.Effect<void>
+    readonly assert: (sessionID: SessionID, filepath: string, input?: Input) => Effect.Effect<void>
     readonly withLock: <T>(filepath: string, fn: () => Promise<T>) => Effect.Effect<T>
   }
 
@@ -45,7 +60,18 @@ export namespace FileTime {
       const fsys = yield* AppFileSystem.Service
       const disableCheck = yield* Flag.OPENCODE_DISABLE_FILETIME_CHECK
 
-      const stamp = Effect.fnUntraced(function* (file: string) {
+      const stamp = Effect.fnUntraced(function* (file: string, input?: Input) {
+        if (input?.file) {
+          return {
+            read: yield* DateTime.nowAsDate,
+            mtime: input.file.mtimeMs,
+            size: input.file.size,
+            executor: input.executor?.trim() || "local",
+            fileKey: input.file.fileKey,
+            canonicalPath: input.file.canonicalPath,
+            kind: input.file.kind,
+          }
+        }
         const info = yield* fsys.stat(file).pipe(Effect.catch(() => Effect.succeed(undefined)))
         return {
           read: yield* DateTime.nowAsDate,
@@ -73,11 +99,15 @@ export namespace FileTime {
         return next
       })
 
-      const read = Effect.fn("FileTime.read")(function* (sessionID: SessionID, file: string) {
+      const read = Effect.fn("FileTime.read")(function* (sessionID: SessionID, file: string, input?: Input) {
         file = Filesystem.normalizePath(file)
         const reads = (yield* InstanceState.get(state)).reads
-        log.info("read", { sessionID, file })
-        session(reads, sessionID).set(file, yield* stamp(file))
+        const item = yield* stamp(file, input)
+        const map = session(reads, sessionID)
+        log.info("read", { sessionID, file, key: key(input ?? {}) })
+        map.set(file, item)
+        const k = key(input ?? {})
+        if (k) map.set(k, item)
       })
 
       const get = Effect.fn("FileTime.get")(function* (sessionID: SessionID, file: string) {
@@ -86,16 +116,19 @@ export namespace FileTime {
         return reads.get(sessionID)?.get(file)?.read
       })
 
-      const assert = Effect.fn("FileTime.assert")(function* (sessionID: SessionID, filepath: string) {
+      const assert = Effect.fn("FileTime.assert")(function* (sessionID: SessionID, filepath: string, input?: Input) {
         if (disableCheck) return
         filepath = Filesystem.normalizePath(filepath)
 
         const reads = (yield* InstanceState.get(state)).reads
-        const time = reads.get(sessionID)?.get(filepath)
+        const map = reads.get(sessionID)
+        const time = (input ? map?.get(key(input) ?? "") : undefined) ?? map?.get(filepath)
         if (!time) throw new Error(`You must read file ${filepath} before overwriting it. Use the Read tool first`)
 
-        const next = yield* stamp(filepath)
-        const changed = next.mtime !== time.mtime || next.size !== time.size
+        const next = yield* stamp(filepath, input)
+        const changed = input?.file && time.fileKey !== undefined
+          ? next.fileKey !== time.fileKey || next.kind !== time.kind || next.mtime !== time.mtime || next.size !== time.size
+          : next.mtime !== time.mtime || next.size !== time.size
         if (!changed) return
 
         throw new Error(
@@ -115,16 +148,16 @@ export namespace FileTime {
 
   const { runPromise } = makeRuntime(Service, defaultLayer)
 
-  export function read(sessionID: SessionID, file: string) {
-    return runPromise((s) => s.read(sessionID, file))
+  export function read(sessionID: SessionID, file: string, input?: Input) {
+    return runPromise((s) => s.read(sessionID, file, input))
   }
 
   export function get(sessionID: SessionID, file: string) {
     return runPromise((s) => s.get(sessionID, file))
   }
 
-  export async function assert(sessionID: SessionID, filepath: string) {
-    return runPromise((s) => s.assert(sessionID, filepath))
+  export async function assert(sessionID: SessionID, filepath: string, input?: Input) {
+    return runPromise((s) => s.assert(sessionID, filepath, input))
   }
 
   export async function withLock<T>(filepath: string, fn: () => Promise<T>): Promise<T> {

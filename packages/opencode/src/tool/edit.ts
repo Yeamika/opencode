@@ -59,9 +59,12 @@ export const EditTool = Tool.define("edit", {
     let contentOld = ""
     let contentNew = ""
     await FileTime.withLock(filePath, async () => {
+      const executor = params.executor?.trim() || "local"
       if (params.oldString === "") {
-        const existed = await Filesystem.exists(filePath)
-        contentOld = existed ? await Filesystem.readText(filePath).catch(() => "") : ""
+        const stat = await RemoteExecutor.stat(filePath, executor).catch(() => undefined)
+        const local = await Filesystem.exists(filePath)
+        const existed = stat ? stat.kind !== "missing" : local
+        contentOld = local ? await Filesystem.readText(filePath).catch(() => "") : ""
         contentNew = params.newString
         diff = trimDiff(createTwoFilesPatch(filePath, filePath, contentOld, contentNew))
         await ctx.ask({
@@ -86,14 +89,16 @@ export const EditTool = Tool.define("edit", {
           file: filePath,
           event: existed ? "change" : "add",
         })
-        await FileTime.read(ctx.sessionID, filePath)
+        const next = await RemoteExecutor.stat(filePath, executor).catch(() => undefined)
+        await FileTime.read(ctx.sessionID, filePath, next ? { executor, file: next } : undefined)
         return
       }
 
       const stats = Filesystem.stat(filePath)
       if (!stats) throw new Error(`File ${filePath} not found`)
       if (stats.isDirectory()) throw new Error(`Path is a directory, not a file: ${filePath}`)
-      await FileTime.assert(ctx.sessionID, filePath)
+      const stat = await RemoteExecutor.stat(filePath, executor).catch(() => undefined)
+      await FileTime.assert(ctx.sessionID, filePath, stat ? { executor, file: stat } : undefined)
       contentOld = await Filesystem.readText(filePath)
 
       const ending = detectLineEnding(contentOld)
@@ -128,7 +133,8 @@ export const EditTool = Tool.define("edit", {
         file: filePath,
         event: "change",
       })
-      await FileTime.read(ctx.sessionID, filePath)
+      const stamp = await RemoteExecutor.stat(filePath, executor).catch(() => undefined)
+      await FileTime.read(ctx.sessionID, filePath, stamp ? { executor, file: stamp } : undefined)
     })
 
     const filediff: Snapshot.FileDiff = {
