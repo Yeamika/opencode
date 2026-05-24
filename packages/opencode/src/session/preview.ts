@@ -10,11 +10,11 @@ function clip(text: string) {
   return text.slice(0, end) + NOTE
 }
 
-function walk(value: unknown): unknown {
-  if (typeof value === "string") return clip(value)
-  if (Array.isArray(value)) return value.map(walk)
+function walk(value: unknown, key?: string): unknown {
+  if (typeof value === "string") return key === "diff" ? value : clip(value)
+  if (Array.isArray(value)) return value.map((item) => walk(item, key))
   if (!value || typeof value !== "object") return value
-  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, walk(item)]))
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, walk(item, key)]))
 }
 
 function file(part: MessageV2.FilePart): MessageV2.FilePart {

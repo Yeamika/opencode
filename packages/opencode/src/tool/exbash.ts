@@ -157,6 +157,10 @@ async function done(item: ExBashTask.Info, hit?: Record<string, unknown>) {
   })) ?? next
 }
 
+function failure(error: unknown) {
+  return error instanceof Error ? error.message : String(error)
+}
+
 async function known(ctx: Tool.Context, input?: { asyncID?: string; scope?: ExBashTask.Scope; executor?: string }) {
   return (await ExBashTask.get({ sessionID: ctx.sessionID, workspace: workspace(ctx) })).filter(
     (item) =>
@@ -346,11 +350,23 @@ export const ExBashTool = Tool.define("exbash", {
       }
     }
     if (task.state === "unknown") throw new Error(`Async run state unknown: ${data.asyncID}`)
-    const result = await RemoteExecutor.call(
-      data.mode === "stop" ? "exbash_stop" : "exbash_remove",
-      { asyncID: data.asyncID, ...(data.executor === undefined ? {} : { executor: data.executor }) },
-      { signal: ctx.abort },
-    )
+    let result: { title: string; metadata: Record<string, unknown>; output: string } | undefined
+    try {
+      result = await RemoteExecutor.call(
+        data.mode === "stop" ? "exbash_stop" : "exbash_remove",
+        { asyncID: data.asyncID, ...(data.executor === undefined ? {} : { executor: data.executor }) },
+        { signal: ctx.abort },
+      )
+    } catch (error) {
+      if (data.mode !== "remove" || task.state === "running") throw error
+      await ExBashTask.remove({ sessionID: ctx.sessionID, workspace: workspace(ctx), executor: exec, asyncID: data.asyncID })
+      const next = { asyncID: data.asyncID, executor: exec, state: task.state, removed: true, remoteError: failure(error) }
+      return {
+        title: "Async run removed",
+        metadata: next,
+        output: JSON.stringify(next, null, 2),
+      }
+    }
     if (data.mode === "remove") {
       await ExBashTask.remove({ sessionID: ctx.sessionID, workspace: workspace(ctx), executor: exec, asyncID: data.asyncID })
       const next = { asyncID: data.asyncID, executor: exec, removed: true }

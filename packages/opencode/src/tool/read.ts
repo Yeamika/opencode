@@ -7,6 +7,7 @@ import { assertExternalDirectory } from "./external-directory"
 import { Filesystem } from "../util/filesystem"
 import { RemoteExecutor } from "./remote_executor"
 import { Instruction } from "../session/instruction"
+import { FileTime } from "../file/time"
 
 export const ReadTool = Tool.define("read", {
   description: DESCRIPTION,
@@ -65,7 +66,7 @@ export const ReadTool = Tool.define("read", {
       }
     }
 
-    return RemoteExecutor.call(
+    const result = await RemoteExecutor.call(
       "read",
       {
         filePath: filepath,
@@ -75,5 +76,7 @@ export const ReadTool = Tool.define("read", {
       },
       { signal: ctx.abort },
     )
+    if (stat && !stat.isDirectory()) await FileTime.read(ctx.sessionID, filepath)
+    return result
   },
 })

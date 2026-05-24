@@ -336,6 +336,32 @@ describe("tool.exbash", () => {
     }
   })
 
+  test.serial("remove drops stopped opencode task row when REC remove fails", async () => {
+    const call = mock()
+    try {
+      await repo(async (dir) => {
+        const tool = await ExBashTool.init()
+        const c = await ctx("remove stale stopped", dir)
+        const result = await tool.execute({ command: "sleep 1", read_timeout: 0 }, c)
+        const id = result.metadata.asyncID as string
+        await tool.execute({ mode: "stop", asyncID: id }, c)
+        call.mockImplementation(async (tool, args) => {
+          calls.push({ tool, args })
+          if (tool === "exbash_remove") throw new Error("not found in REC")
+          return { title: tool, metadata: { runs: [] }, output: "{}" }
+        })
+
+        const removed = await tool.execute({ mode: "remove", asyncID: id }, c)
+        const listed = JSON.parse((await tool.execute({ mode: "list", asyncID: id }, c)).output) as { runs: Array<unknown> }
+
+        expect(removed.metadata).toMatchObject({ asyncID: id, executor: "local", state: "stopped", removed: true, remoteError: "not found in REC" })
+        expect(listed.runs).toHaveLength(0)
+      })
+    } finally {
+      call.mockRestore()
+    }
+  })
+
   test.serial("stop returns stable opencode task metadata", async () => {
     const call = mock()
     try {
