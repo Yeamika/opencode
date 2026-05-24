@@ -249,6 +249,10 @@ export function Session() {
     return `'${arg.replaceAll("'", "''")}'`
   }
 
+  function psline(args: string[]) {
+    return `& ${args.map(psquote).join(" ")}`
+  }
+
   function exists(cmd: string) {
     return spawnSync(process.platform === "win32" ? "where" : "command", process.platform === "win32" ? [cmd] : ["-v", cmd], {
       shell: process.platform !== "win32",
@@ -259,13 +263,16 @@ export function Session() {
   function windowCommand(args: string[]) {
     if (process.platform === "darwin") return ["osascript", "-e", `tell application "Terminal" to do script ${JSON.stringify(args.map(quote).join(" "))}`]
     if (process.platform === "win32") {
+      const shell = exists("pwsh.exe") ? "pwsh.exe" : "powershell.exe"
+      const line = psline(args)
+      if (exists("wt.exe")) return ["wt.exe", "new-window", "--title", "opencode ptyt", shell, "-NoExit", "-NoProfile", "-Command", line]
       return [
         "powershell.exe",
         "-NoProfile",
         "-ExecutionPolicy",
         "Bypass",
         "-Command",
-        `Start-Process -FilePath ${psquote(args[0])} -ArgumentList @(${args.slice(1).map(psquote).join(",")})`,
+        `Start-Process -FilePath ${psquote(shell)} -ArgumentList @('-NoExit','-NoProfile','-Command',${psquote(line)}) -WindowStyle Normal`,
       ]
     }
     if (process.env.OPENCODE_TERMINAL) return [process.env.OPENCODE_TERMINAL, "-e", ...args]
@@ -2069,6 +2076,9 @@ function Bash(props: ToolProps<typeof BashTool | typeof ExBashTool>) {
   })
 
   const inline = createMemo(() => info().command)
+  const meta = createMemo(() => props.metadata as Record<string, unknown>)
+  const id = createMemo(() => (typeof meta().asyncID === "string" ? meta().asyncID : undefined))
+  const detached = createMemo(() => props.tool === "exbash" && (info().mode === undefined || info().mode === "run") && id() && meta().state === "running")
   const pending = createMemo(() => {
     if (info().mode === "attach") return "Attaching to async run..."
     if (info().mode === "list") return "Listing async runs..."
@@ -2079,7 +2089,7 @@ function Bash(props: ToolProps<typeof BashTool | typeof ExBashTool>) {
 
   return (
     <Switch>
-      <Match when={props.metadata.output !== undefined || output()}>
+      <Match when={props.metadata.output !== undefined || output() || detached()}>
         <BlockTool
           title={title()}
           part={props.part}
@@ -2106,6 +2116,9 @@ function Bash(props: ToolProps<typeof BashTool | typeof ExBashTool>) {
             <text fg={theme.text}>
               {info().icon} {info().command}
             </text>
+            <Show when={detached()}>
+              <text fg={theme.textMuted}>↳ readtimeout had detached — {id()}</text>
+            </Show>
             <Show when={output() && !overflow()}>
               <text fg={theme.text}>{output()}</text>
             </Show>
