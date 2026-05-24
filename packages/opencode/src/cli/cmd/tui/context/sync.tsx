@@ -101,6 +101,8 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           endedAt?: number
           exitCode?: number
           state: "running" | "stopped" | "unknown"
+          memory?: boolean
+          stoppedByUser?: boolean
           error?: string
         }[]
       }

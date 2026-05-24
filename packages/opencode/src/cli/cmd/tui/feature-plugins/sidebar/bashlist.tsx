@@ -12,7 +12,9 @@ type Job = ReturnType<TuiPluginApi["state"]["session"]["exbash"]>[number]
 function status(job: Job) {
   if (job.state === "running") return "running"
   if (job.state === "unknown") return "unknown"
-  return `exitcode: ${job.exitCode ?? -1}`
+  if (job.stoppedByUser) return `stopped${job.exitCode === undefined ? "" : ` (exit ${job.exitCode})`}`
+  if ((job.exitCode ?? -1) === 0) return "completed (exit 0)"
+  return `error (exit ${job.exitCode ?? -1})`
 }
 
 function subtitle(job: Job) {
@@ -35,6 +37,7 @@ function Detail(props: { api: TuiPluginApi; session_id: string; job: Job }) {
   const theme = () => props.api.theme.current
   const term = useTerminalDimensions()
   const [shot, setShot] = createSignal("")
+  const [url, setUrl] = createSignal("")
   const [err, setErr] = createSignal("")
   const [loading, setLoading] = createSignal(true)
   const close = () => props.api.ui.dialog.clear()
@@ -42,9 +45,16 @@ function Detail(props: { api: TuiPluginApi; session_id: string; job: Job }) {
     if (evt.name === "return" || evt.name === "escape") close()
   })
   onMount(() => {
+    if (!props.job.memory || props.job.state === "unknown") {
+      setLoading(false)
+      return
+    }
     props.api.state.session
       .exbashSnapshot(props.session_id, props.job.asyncID, props.job.executor)
-      .then((next) => setShot(next))
+      .then((next) => {
+        setShot(next.snapshot)
+        setUrl(next.attachurl ?? "")
+      })
       .catch((error) => setErr(error instanceof Error ? error.message : String(error)))
       .finally(() => setLoading(false))
   })
@@ -73,6 +83,22 @@ function Detail(props: { api: TuiPluginApi; session_id: string; job: Job }) {
             <text fg={theme().textMuted}>Command</text>
             <text fg={theme().text}>{props.job.command}</text>
           </box>
+          <box flexDirection="column">
+            <text fg={theme().textMuted}>status</text>
+            <text fg={theme().text}>{status(props.job)}</text>
+          </box>
+          <Show when={props.job.exitCode !== undefined}>
+            <box flexDirection="column">
+              <text fg={theme().textMuted}>exit code</text>
+              <text fg={(props.job.exitCode ?? -1) === 0 ? theme().success : theme().error}>{props.job.exitCode}</text>
+            </box>
+          </Show>
+          <Show when={props.job.totalOutput !== undefined}>
+            <box flexDirection="column">
+              <text fg={theme().textMuted}>output bytes</text>
+              <text fg={theme().text}>{props.job.totalOutput}</text>
+            </box>
+          </Show>
           <Show when={props.job.pid}>
             <box flexDirection="column">
               <text fg={theme().textMuted}>pid</text>
@@ -91,16 +117,25 @@ function Detail(props: { api: TuiPluginApi; session_id: string; job: Job }) {
           </Show>
           <box flexDirection="column">
             <text fg={theme().textMuted}>snapshot</text>
-            <Show when={loading()}>
+            <Show when={!props.job.memory}>
+              <text fg={theme().textMuted}>unavailable for stored tasks</text>
+            </Show>
+            <Show when={props.job.memory && loading()}>
               <text fg={theme().textMuted}>loading snapshot...</text>
             </Show>
-            <Show when={!loading() && err()}>
+            <Show when={props.job.memory && !loading() && err()}>
               <text fg={theme().error}>{err()}</text>
             </Show>
-            <Show when={!loading() && !err()}>
+            <Show when={props.job.memory && !loading() && !err()}>
               <text fg={shot() ? theme().text : theme().textMuted}>{shot() || "(empty)"}</text>
             </Show>
           </box>
+          <Show when={url()}>
+            <box flexDirection="column">
+              <text fg={theme().textMuted}>attachurl</text>
+              <text fg={theme().text}>{url()}</text>
+            </box>
+          </Show>
         </box>
       </scrollbox>
       <box flexDirection="row" justifyContent="flex-end" paddingBottom={1}>
@@ -116,6 +151,7 @@ function icon(props: { api: TuiPluginApi; job: Job }) {
   const theme = () => props.api.theme.current
   if (props.job.state === "running") return <Spinner color={theme().info} />
   if (props.job.state === "unknown") return <text fg={theme().warning}>[?]</text>
+  if (props.job.stoppedByUser) return <text fg={theme().warning}>[■]</text>
   if ((props.job.exitCode ?? -1) === 0) return <text fg={theme().success}>[✓]</text>
   return <text fg={theme().error}>[E]</text>
 }

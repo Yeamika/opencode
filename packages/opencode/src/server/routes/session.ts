@@ -236,6 +236,7 @@ export const SessionRoutes = lazy(() =>
                 schema: resolver(
                   z.object({
                     snapshot: z.string(),
+                    attachurl: z.string().optional(),
                     metadata: z.record(z.string(), z.unknown()),
                   }),
                 ),
@@ -270,6 +271,7 @@ export const SessionRoutes = lazy(() =>
           asyncID: param.asyncID,
         })
         if (!task) throw new Error(`Async run not found: ${param.asyncID}`)
+        if (!task.memory) throw new Error(`Async run snapshot unavailable: ${param.asyncID}`)
         if (task.state === "unknown") throw new Error(`Async run state unknown: ${param.asyncID}`)
         const result = await RemoteExecutor.call("exbash_attach", {
           asyncID: param.asyncID,
@@ -277,7 +279,17 @@ export const SessionRoutes = lazy(() =>
           read_timeout: 0,
           directory: session.directory,
         })
-        return c.json({ snapshot: result.output, metadata: result.metadata })
+        const list = await RemoteExecutor.call("list_executor", {}, { signal: c.req.raw.signal })
+        const hit = (Array.isArray(list.metadata.executors) ? list.metadata.executors : []).find((item) => {
+          if (!item || typeof item !== "object" || Array.isArray(item)) return false
+          return (item as { id?: unknown }).id === exec
+        }) as { url?: unknown } | undefined
+        const url = typeof hit?.url === "string" ? hit.url : undefined
+        return c.json({
+          snapshot: result.output,
+          ...(url === undefined ? {} : { attachurl: `ptyt --url ${url} --pty ${param.asyncID}` }),
+          metadata: result.metadata,
+        })
       },
     )
     .post(

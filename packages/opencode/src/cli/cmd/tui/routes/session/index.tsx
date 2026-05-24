@@ -1953,7 +1953,8 @@ function Bash(props: ToolProps<typeof BashTool | typeof ExBashTool>) {
   const pending = createMemo(() => {
     if (info().mode === "attach") return "Attaching to async run..."
     if (info().mode === "list") return "Listing async runs..."
-    if (info().mode === "control") return "Updating async run..."
+    if (info().mode === "stop") return "Stopping async task..."
+    if (info().mode === "remove") return "Removing async task..."
     return "Running command..."
   })
 

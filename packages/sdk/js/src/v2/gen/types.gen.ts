@@ -1983,6 +1983,8 @@ export type ExBashTask = {
   endedAt?: number
   exitCode?: number
   state: "running" | "stopped" | "unknown"
+  memory?: boolean
+  stoppedByUser?: boolean
   error?: string
 }
 
@@ -3528,6 +3530,7 @@ export type SessionExbashSnapshotResponses = {
    */
   200: {
     snapshot: string
+    attachurl?: string
     metadata: {
       [key: string]: unknown
     }

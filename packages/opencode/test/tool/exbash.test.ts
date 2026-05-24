@@ -254,7 +254,7 @@ describe("tool.exbash", () => {
 
         await tool.execute({ mode: "list", asyncID: id }, c)
         calls.length = 0
-        const removed = await tool.execute({ mode: "control", action: "remove", asyncID: id }, c)
+        const removed = await tool.execute({ mode: "remove", asyncID: id }, c)
         const listed = JSON.parse((await tool.execute({ mode: "list", asyncID: id }, c)).output) as { runs: Array<unknown> }
 
         expect(removed.metadata).toMatchObject({ asyncID: id, executor: "local", state: "unknown", removed: true })
@@ -277,7 +277,7 @@ describe("tool.exbash", () => {
         await expect(tool.execute({ command: "sleep 10", read_timeout: 0 }, c)).rejects.toThrow("Too many running exbash tasks in local scope")
         const listed = JSON.parse((await tool.execute({ mode: "list" }, c)).output) as { note: string; runs: Array<{ asyncID: string }> }
         expect(listed.note).toContain("unknown tasks are stale records")
-        await tool.execute({ mode: "control", action: "remove", asyncID: listed.runs[0]!.asyncID }, c)
+        await tool.execute({ mode: "remove", asyncID: listed.runs[0]!.asyncID }, c)
       })
     } finally {
       call.mockRestore()
@@ -316,7 +316,7 @@ describe("tool.exbash", () => {
     }
   })
 
-  test.serial("control remove drops the opencode task row", async () => {
+  test.serial("remove drops the opencode task row", async () => {
     const call = mock()
     try {
       await repo(async (dir) => {
@@ -325,7 +325,7 @@ describe("tool.exbash", () => {
         const result = await tool.execute({ command: "sleep 1", read_timeout: 0 }, c)
         const id = result.metadata.asyncID as string
 
-        await tool.execute({ mode: "control", action: "remove", asyncID: id }, c)
+        await tool.execute({ mode: "remove", asyncID: id }, c)
         const listed = JSON.parse((await tool.execute({ mode: "list", asyncID: id }, c)).output) as { runs: Array<unknown> }
 
         expect(calls.at(-2)).toMatchObject({ tool: "exbash_remove", args: { asyncID: id } })
@@ -336,7 +336,7 @@ describe("tool.exbash", () => {
     }
   })
 
-  test.serial("control stop returns stable opencode task metadata", async () => {
+  test.serial("stop returns stable opencode task metadata", async () => {
     const call = mock()
     try {
       await repo(async (dir) => {
@@ -345,7 +345,7 @@ describe("tool.exbash", () => {
         const result = await tool.execute({ command: "sleep 1", description: "DESC_QUICK_DONE_TEST", read_timeout: 0, timeout: 10000 }, c)
         const id = result.metadata.asyncID as string
 
-        const stopped = await tool.execute({ mode: "control", action: "stop", asyncID: id }, c)
+        const stopped = await tool.execute({ mode: "stop", asyncID: id }, c)
         const first = (JSON.parse((await tool.execute({ mode: "list", asyncID: id }, c)).output) as { runs: Array<{ endedAt?: number }> }).runs[0]
         const second = (JSON.parse((await tool.execute({ mode: "list", asyncID: id }, c)).output) as { runs: Array<{ endedAt?: number }> }).runs[0]
 

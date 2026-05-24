@@ -57,21 +57,37 @@ describe("shellinput", () => {
     })
   })
 
-  test("formats async control details", () => {
+  test("formats async stop details", () => {
     expect(
       shellinput(
         {
-          mode: "control",
-          action: "stop",
+          mode: "stop",
           asyncID: "run_123",
         },
         (value) => value ?? "",
       ),
     ).toEqual({
       icon: "■",
-      mode: "control",
+      mode: "stop",
       command: "run_123",
-      description: "Async stop",
+      description: "Stop async task",
+    })
+  })
+
+  test("formats async remove details", () => {
+    expect(
+      shellinput(
+        {
+          mode: "remove",
+          asyncID: "run_123",
+        },
+        (value) => value ?? "",
+      ),
+    ).toEqual({
+      icon: "✕",
+      mode: "remove",
+      command: "run_123",
+      description: "Remove async task",
     })
   })
 
