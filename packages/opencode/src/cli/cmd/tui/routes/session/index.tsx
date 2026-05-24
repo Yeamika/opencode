@@ -14,6 +14,7 @@ import {
 } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import fs from "fs"
+import { spawn as nodeSpawn, spawnSync } from "child_process"
 import path from "path"
 import { useRoute, useRouteData } from "@tui/context/route"
 import { useSync } from "@tui/context/sync"
@@ -89,7 +90,6 @@ import { UI } from "@/cli/ui.ts"
 import { useTuiConfig } from "../../context/tui-config"
 import { getScrollAcceleration } from "../../util/scroll"
 import { TuiPluginRuntime } from "../../plugin"
-import { Process } from "@/util/process"
 
 addDefaultParsers(parsers.parsers)
 
@@ -240,21 +240,55 @@ export function Session() {
     return [ptytBin(), "--url", url, "--pty", pty]
   }
 
-  async function openPtyt(cmd: string) {
-    renderer.suspend()
-    renderer.currentRenderBuffer.clear()
-    try {
-      const proc = Process.spawn(ptytArgs(cmd), {
-        stdin: "inherit",
-        stdout: "inherit",
-        stderr: "inherit",
-      })
-      await proc.exited
-    } finally {
-      renderer.currentRenderBuffer.clear()
-      renderer.resume()
-      renderer.requestRender()
+  function quote(arg: string) {
+    if (/^[A-Za-z0-9_/:=.,@%+-]+$/.test(arg)) return arg
+    return `'${arg.replaceAll("'", `'\\''`)}'`
+  }
+
+  function psquote(arg: string) {
+    return `'${arg.replaceAll("'", "''")}'`
+  }
+
+  function exists(cmd: string) {
+    return spawnSync(process.platform === "win32" ? "where" : "command", process.platform === "win32" ? [cmd] : ["-v", cmd], {
+      shell: process.platform !== "win32",
+      stdio: "ignore",
+    }).status === 0
+  }
+
+  function windowCommand(args: string[]) {
+    if (process.platform === "darwin") return ["osascript", "-e", `tell application "Terminal" to do script ${JSON.stringify(args.map(quote).join(" "))}`]
+    if (process.platform === "win32") {
+      return [
+        "powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        `Start-Process -FilePath ${psquote(args[0])} -ArgumentList @(${args.slice(1).map(psquote).join(",")})`,
+      ]
     }
+    if (process.env.OPENCODE_TERMINAL) return [process.env.OPENCODE_TERMINAL, "-e", ...args]
+    const terms = [
+      ["gnome-terminal", "--", ...args],
+      ["konsole", "--new-tab", "-p", "tabtitle=opencode ptyt", "-e", ...args],
+      ["xfce4-terminal", "--title", "opencode ptyt", "-e", ...args],
+      ["mate-terminal", "--title", "opencode ptyt", "-e", ...args],
+      ["tilix", "--title", "opencode ptyt", "-e", ...args],
+      ["kitty", "--title", "opencode ptyt", ...args],
+      ["alacritty", "--title", "opencode ptyt", "-e", ...args],
+      ["wezterm", "start", "--", ...args],
+      ["xterm", "-T", "opencode ptyt", "-e", ...args],
+      ["x-terminal-emulator", "-e", ...args],
+    ]
+    return terms.find((item) => exists(item[0]))
+  }
+
+  async function openPtyt(cmd: string) {
+    const cmdline = windowCommand(ptytArgs(cmd))
+    if (!cmdline) throw new Error("No terminal window launcher found for ptyt auto attach")
+    const proc = nodeSpawn(cmdline[0], cmdline.slice(1), { detached: true, stdio: "ignore", windowsHide: false })
+    proc.unref()
   }
 
   async function attachPtyt(part: ToolPart) {

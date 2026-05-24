@@ -55,6 +55,17 @@ function mock() {
   return spyOn(RemoteExecutor, "call").mockImplementation(async (tool, args) => {
     calls.push({ tool, args })
     if (tool === "exbash") {
+      if (args.command === "echo done") {
+        return {
+          title: String(args.description ?? args.command ?? "exbash"),
+          metadata: {
+            description: args.description ?? args.command,
+            exit: 0,
+            output: "done\n",
+          },
+          output: "done\n",
+        }
+      }
       const id = `rex-test-${++seq}`
       return {
         title: String(args.description ?? args.command ?? "exbash"),
@@ -155,6 +166,22 @@ describe("tool.exbash", () => {
         expect(result.metadata.executor).toBe("local")
         expect(result.metadata.workspace).toBeUndefined()
         expect(result.metadata.timeout).toBeUndefined()
+      })
+    } finally {
+      call.mockRestore()
+    }
+  })
+
+  test.serial("returns plaintext output when run completes before detach", async () => {
+    const call = mock()
+    try {
+      await repo(async (dir) => {
+        const tool = await ExBashTool.init()
+        const result = await tool.execute({ command: "echo done", description: "Complete immediately" }, await ctx("plaintext run", dir))
+
+        expect(result.output).toBe("done\n")
+        expect(result.metadata).toMatchObject({ exit: 0, output: "done\n" })
+        expect(result.metadata.asyncID).toBeUndefined()
       })
     } finally {
       call.mockRestore()

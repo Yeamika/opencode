@@ -149,7 +149,9 @@ function icon(props: { api: TuiPluginApi; job: Job }) {
   const theme = () => props.api.theme.current
   if (props.job.state === "running") return <Spinner color={theme().info} />
   if (props.job.state === "unknown") return <text fg={theme().warning}>[?]</text>
-  return <text fg={(props.job.exitCode ?? -1) === 0 ? theme().success : theme().error}>[■]</text>
+  if (props.job.exitCode === 0) return <text fg={theme().success}>[✓]</text>
+  if (props.job.exitCode === undefined) return <text fg={theme().warning}>[■]</text>
+  return <text fg={theme().error}>[E]</text>
 }
 
 function View(props: { api: TuiPluginApi; session_id: string }) {
