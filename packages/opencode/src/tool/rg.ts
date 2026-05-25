@@ -25,6 +25,8 @@ export const RgTool = Tool.define("rg", {
   }),
   async execute(params, ctx) {
     if (!params.pattern) throw new Error("pattern is required")
+    const executor = params.executor?.trim() || "local"
+    const local = executor === "local"
 
     const root = params.root
       ? path.isAbsolute(params.root)
@@ -37,22 +39,26 @@ export const RgTool = Tool.define("rg", {
         : path.resolve(root, params.path)
       : root
 
-    await ctx.ask({
-      permission: "grep",
-      patterns: [params.pattern],
-      always: ["*"],
-      metadata: {
-        pattern: params.pattern,
-        root,
-        path: params.path,
-        globs: params.globs ?? (params.include === undefined ? undefined : [params.include]),
-        case_sensitive: params.case_sensitive,
-        max_count: params.max_count,
-      },
-    })
+    if (local) {
+      await ctx.ask({
+        permission: "grep",
+        patterns: [params.pattern],
+        always: ["*"],
+        metadata: {
+          pattern: params.pattern,
+          root,
+          path: params.path,
+          globs: params.globs ?? (params.include === undefined ? undefined : [params.include]),
+          case_sensitive: params.case_sensitive,
+          max_count: params.max_count,
+        },
+      })
+    }
 
-    await assertExternalDirectory(ctx, root, { kind: "directory" })
-    await assertExternalDirectory(ctx, target, { kind: Filesystem.stat(target)?.isDirectory() ? "directory" : "file" })
+    if (local) {
+      await assertExternalDirectory(ctx, root, { kind: "directory" })
+      await assertExternalDirectory(ctx, target, { kind: Filesystem.stat(target)?.isDirectory() ? "directory" : "file" })
+    }
 
     if (!(await RemoteExecutor.enabled())) {
       throw new Error("rg requires experimental.remote_executor.enabled")
@@ -67,7 +73,7 @@ export const RgTool = Tool.define("rg", {
         ...(params.globs === undefined && params.include === undefined ? {} : { globs: params.globs ?? [params.include] }),
         ...(params.case_sensitive === undefined ? {} : { case_sensitive: params.case_sensitive }),
         ...(params.max_count === undefined ? {} : { max_count: params.max_count }),
-        ...(params.executor === undefined ? {} : { executor: params.executor }),
+        ...(local ? {} : { executor }),
       },
       { signal: ctx.abort },
     )

@@ -26,9 +26,28 @@ export const WriteTool = Tool.define("write", {
   }),
   async execute(params, ctx) {
     const filepath = path.isAbsolute(params.filePath) ? params.filePath : path.join(Instance.directory, params.filePath)
+    const executor = params.executor?.trim() || "local"
+    if (executor !== "local") {
+      const result = await RemoteExecutor.call(
+        "apply_patch",
+        { patchText: RemoteExecutor.patch(filepath, "", params.content, false), executor },
+        { signal: ctx.abort },
+      )
+      const next = await RemoteExecutor.stat(filepath, executor).catch(() => undefined)
+      await FileTime.read(ctx.sessionID, filepath, next ? { executor, file: next } : undefined)
+      return {
+        ...result,
+        metadata: {
+          ...result.metadata,
+          diagnostics: {},
+          filepath,
+          exists: next ? next.kind !== "missing" : undefined,
+        },
+      }
+    }
+
     await assertExternalDirectory(ctx, filepath)
 
-    const executor = params.executor?.trim() || "local"
     const stat = await RemoteExecutor.stat(filepath, executor).catch(() => undefined)
     const local = await Filesystem.exists(filepath)
     const exists = stat ? stat.kind !== "missing" : local

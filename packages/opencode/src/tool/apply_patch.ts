@@ -14,6 +14,18 @@ import DESCRIPTION from "./apply_patch.txt"
 import { File } from "../file"
 import { RemoteExecutor } from "./remote_executor"
 
+type ViewFile = {
+  filePath: string
+  relativePath: string
+  type: string
+  diff: string
+  before: string
+  after: string
+  additions: number
+  deletions: number
+  movePath?: string
+}
+
 const PatchParams = z.object({
   patchText: z.string().describe("The full patch text that describes all changes to be made"),
   executor: z.string().optional().describe("RemoteExecutor executor id. Defaults to local."),
@@ -25,6 +37,20 @@ export const ApplyPatchTool = Tool.define("apply_patch", {
   async execute(params, ctx) {
     if (!params.patchText) {
       throw new Error("patchText is required")
+    }
+    const executor = params.executor?.trim() || "local"
+    if (executor !== "local") {
+      const result = await RemoteExecutor.call("apply_patch", { patchText: params.patchText, executor }, { signal: ctx.abort })
+      const files = Array.isArray(result.metadata.files) ? (result.metadata.files as ViewFile[]) : []
+      return {
+        ...result,
+        metadata: {
+          ...result.metadata,
+          diff: typeof result.metadata.diff === "string" ? result.metadata.diff : "",
+          files,
+          diagnostics: {},
+        },
+      }
     }
 
     // Parse the patch to get hunks

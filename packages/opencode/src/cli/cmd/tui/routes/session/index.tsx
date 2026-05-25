@@ -263,17 +263,7 @@ export function Session() {
   function windowCommand(args: string[]) {
     if (process.platform === "darwin") return ["osascript", "-e", `tell application "Terminal" to do script ${JSON.stringify(args.map(quote).join(" "))}`]
     if (process.platform === "win32") {
-      const shell = exists("pwsh.exe") ? "pwsh.exe" : "powershell.exe"
-      const line = psline(args)
-      if (exists("wt.exe")) return ["wt.exe", "new-window", "--title", "opencode ptyt", shell, "-NoExit", "-NoProfile", "-Command", line]
-      return [
-        "powershell.exe",
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        `Start-Process -FilePath ${psquote(shell)} -ArgumentList @('-NoExit','-NoProfile','-Command',${psquote(line)}) -WindowStyle Normal`,
-      ]
+      return ["powershell.exe", "-NoProfile", "-Command", psline(args)]
     }
     if (process.env.OPENCODE_TERMINAL) return [process.env.OPENCODE_TERMINAL, "-e", ...args]
     const terms = [
@@ -1834,6 +1824,7 @@ function InlineTool(props: {
   output?: string
   onClick?: () => void
   label?: string
+  suffix?: string
 }) {
   const [margin, setMargin] = createSignal(0)
   const { theme } = useTheme()
@@ -1866,6 +1857,21 @@ function InlineTool(props: {
       error()?.includes("rejected permission") ||
       error()?.includes("specified a rule") ||
       error()?.includes("user dismissed"),
+  )
+
+  const line = () => (
+    <Switch>
+      <Match when={props.spinner}>
+        <Spinner color={fg()} children={props.children} />
+      </Match>
+      <Match when={true}>
+        <text paddingLeft={3} fg={fg()} attributes={denied() ? TextAttributes.STRIKETHROUGH : undefined}>
+          <Show fallback={<>~ {props.pending}</>} when={props.complete}>
+            <span style={{ fg: props.iconColor }}>{props.icon}</span> {props.children}
+          </Show>
+        </text>
+      </Match>
+    </Switch>
   )
 
   return (
@@ -1920,18 +1926,12 @@ function InlineTool(props: {
         }
       }}
     >
-      <Switch>
-        <Match when={props.spinner}>
-          <Spinner color={fg()} children={props.children} />
-        </Match>
-        <Match when={true}>
-          <text paddingLeft={3} fg={fg()} attributes={denied() ? TextAttributes.STRIKETHROUGH : undefined}>
-            <Show fallback={<>~ {props.pending}</>} when={props.complete}>
-              <span style={{ fg: props.iconColor }}>{props.icon}</span> {props.children}
-            </Show>
-          </text>
-        </Match>
-      </Switch>
+      <Show when={props.suffix} fallback={line()}>
+        <box flexDirection="row" justifyContent="space-between" width="100%">
+          {line()}
+          <text fg={theme.textMuted} flexShrink={0}>{props.suffix}</text>
+        </box>
+      </Show>
       <Show when={error() && !denied()}>
         <box
           flexDirection="row"
@@ -1972,12 +1972,25 @@ function BlockTool(props: {
   part?: ToolPart
   spinner?: boolean
   label?: string
+  suffix?: string
 }) {
   const { theme } = useTheme()
   const renderer = useRenderer()
   const dialog = useDialog()
   const [hover, setHover] = createSignal(false)
   const error = createMemo(() => (props.part?.state.status === "error" ? props.part.state.error : undefined))
+  const head = () => (
+    <Show
+      when={props.spinner}
+      fallback={
+        <text paddingLeft={3} fg={theme.textMuted}>
+          {props.title}
+        </text>
+      }
+    >
+      <Spinner color={theme.textMuted}>{props.title.replace(/^# /, "")}</Spinner>
+    </Show>
+  )
   return (
     <box
       border={["left"]}
@@ -1996,15 +2009,11 @@ function BlockTool(props: {
         props.onClick?.()
       }}
     >
-      <Show
-        when={props.spinner}
-        fallback={
-          <text paddingLeft={3} fg={theme.textMuted}>
-            {props.title}
-          </text>
-        }
-      >
-        <Spinner color={theme.textMuted}>{props.title.replace(/^# /, "")}</Spinner>
+      <Show when={props.suffix} fallback={head()}>
+        <box flexDirection="row" justifyContent="space-between" width="100%">
+          {head()}
+          <text fg={theme.textMuted} flexShrink={0}>{props.suffix}</text>
+        </box>
       </Show>
       {props.children}
       <Show when={error()}>
@@ -2044,11 +2053,11 @@ function Bash(props: ToolProps<typeof BashTool | typeof ExBashTool>) {
   const isRunning = createMemo(() => props.part.state.status === "running")
   const output = createMemo(() => {
     const meta = typeof props.metadata.output === "string" ? props.metadata.output : undefined
-    const text = meta ?? (props.tool === "exbash" && ["attach", "stop"].includes(info().mode ?? "") ? props.output : undefined)
+    const text = meta ?? (props.tool === "exbash" && info().mode === "attach" ? props.output : undefined)
     return stripAnsi(text?.trim() ?? "")
   })
   const lines = createMemo(() => output().split("\n"))
-  const overflow = createMemo(() => lines().length > 10 || output().length > 600 || lines().some((x) => x.length > 160))
+  const overflow = createMemo(() => lines().length > 10 || output().length > 600)
 
   const workdirDisplay = createMemo(() => {
     const workdir = info().workdir
@@ -2078,6 +2087,12 @@ function Bash(props: ToolProps<typeof BashTool | typeof ExBashTool>) {
   const inline = createMemo(() => info().command)
   const meta = createMemo(() => props.metadata as Record<string, unknown>)
   const id = createMemo(() => (typeof meta().asyncID === "string" ? meta().asyncID : undefined))
+  const exec = createMemo(() => {
+    if (props.tool !== "exbash") return undefined
+    const input = props.input as { executor?: unknown }
+    const value = typeof meta().executor === "string" ? meta().executor : typeof input.executor === "string" ? input.executor : "local"
+    return `[${value}]`
+  })
   const detached = createMemo(() => props.tool === "exbash" && (info().mode === undefined || info().mode === "run") && id() && meta().state === "running")
   const pending = createMemo(() => {
     if (info().mode === "attach") return "Attaching to async run..."
@@ -2094,6 +2109,7 @@ function Bash(props: ToolProps<typeof BashTool | typeof ExBashTool>) {
           title={title()}
           part={props.part}
           label={info().description ?? "Shell"}
+          suffix={exec()}
           spinner={isRunning()}
           onClick={() =>
             dialog.replace(
@@ -2129,7 +2145,7 @@ function Bash(props: ToolProps<typeof BashTool | typeof ExBashTool>) {
         </BlockTool>
       </Match>
       <Match when={true}>
-        <InlineTool icon={info().icon} pending={pending()} complete={inline()} part={props.part} tool={info().description ?? "Shell"} input={props.input}>
+        <InlineTool icon={info().icon} pending={pending()} complete={inline()} part={props.part} tool={info().description ?? "Shell"} input={props.input} suffix={exec()}>
           {inline()}
         </InlineTool>
       </Match>
@@ -2139,9 +2155,10 @@ function Bash(props: ToolProps<typeof BashTool | typeof ExBashTool>) {
 
 function ExBash(props: ToolProps<typeof ExBashTool>) {
   const runs = createMemo(() => (Array.isArray(props.metadata.runs) ? props.metadata.runs : []))
+  const exec = createMemo(() => `[${typeof props.input.executor === "string" ? props.input.executor : "local"}]`)
   if (props.input.mode === "list") {
     return (
-      <InlineTool icon="≡" pending="Listing async tasks..." complete={`${runs().length} tasks`} part={props.part} tool="ExBash" input={props.input}>
+      <InlineTool icon="≡" pending="Listing async tasks..." complete={`${runs().length} tasks`} part={props.part} tool="ExBash" input={props.input} suffix={exec()}>
         ExBash tasks <Show when={props.input.asyncID}>for {props.input.asyncID}</Show>
         <Show when={!props.input.asyncID}>({runs().length} visible)</Show>
       </InlineTool>
@@ -2160,7 +2177,7 @@ function Write(props: ToolProps<typeof WriteTool>) {
   return (
     <Switch>
       <Match when={props.metadata.diagnostics !== undefined}>
-        <BlockTool title={"# Wrote " + normalizePath(props.input.filePath!)} part={props.part}>
+        <BlockTool title={"# Wrote " + normalizePath(props.input.filePath!)} part={props.part} suffix={executor(props.input)}>
           <line_number fg={theme.textMuted} minWidth={3} paddingRight={1}>
             <code
               conceal={false}
@@ -2174,7 +2191,7 @@ function Write(props: ToolProps<typeof WriteTool>) {
         </BlockTool>
       </Match>
       <Match when={true}>
-        <InlineTool icon="←" pending="Preparing write..." complete={props.input.filePath} part={props.part} tool="Write" input={props.input}>
+        <InlineTool icon="←" pending="Preparing write..." complete={props.input.filePath} part={props.part} tool="Write" input={props.input} suffix={executor(props.input)}>
           Write {normalizePath(props.input.filePath!)}
         </InlineTool>
       </Match>
@@ -2184,7 +2201,7 @@ function Write(props: ToolProps<typeof WriteTool>) {
 
 function Glob(props: ToolProps<typeof GlobTool>) {
   return (
-    <InlineTool icon="✱" pending="Finding files..." complete={props.input.pattern} part={props.part} tool="Glob" input={props.input}>
+    <InlineTool icon="✱" pending="Finding files..." complete={props.input.pattern} part={props.part} tool="Glob" input={props.input} suffix={executor(props.input)}>
       Glob "{props.input.pattern}" <Show when={props.input.path}>in {normalizePath(props.input.path)} </Show>
       <Show when={props.metadata.count}>
         ({props.metadata.count} {props.metadata.count === 1 ? "match" : "matches"})
@@ -2213,6 +2230,7 @@ function Read(props: ToolProps<typeof ReadTool>) {
         part={props.part}
         tool="Read"
         input={props.input}
+        suffix={executor(props.input)}
       >
         Read {normalizePath(props.input.filePath!)} {input(props.input, ["filePath"])}
       </InlineTool>
@@ -2231,7 +2249,7 @@ function Read(props: ToolProps<typeof ReadTool>) {
 
 function Grep(props: ToolProps<typeof GrepTool>) {
   return (
-    <InlineTool icon="✱" pending="Searching content..." complete={props.input.pattern} part={props.part} tool="Grep" input={props.input}>
+    <InlineTool icon="✱" pending="Searching content..." complete={props.input.pattern} part={props.part} tool="Grep" input={props.input} suffix={executor(props.input)}>
       Grep "{props.input.pattern}" <Show when={props.input.path}>in {normalizePath(props.input.path)} </Show>
       <Show when={props.metadata.matches}>
         ({props.metadata.matches} {props.metadata.matches === 1 ? "match" : "matches"})
@@ -2244,7 +2262,7 @@ function Rg(props: ToolProps<typeof RgTool>) {
   const root = () => props.input.path ?? props.input.root
   const matches = () => (typeof props.metadata.matches === "number" ? props.metadata.matches : undefined)
   return (
-    <InlineTool icon="✱" pending="Searching content..." complete={props.input.pattern} part={props.part} tool="Ripgrep" input={props.input}>
+    <InlineTool icon="✱" pending="Searching content..." complete={props.input.pattern} part={props.part} tool="Ripgrep" input={props.input} suffix={executor(props.input)}>
       Ripgrep "{props.input.pattern}" <Show when={root()}>in {normalizePath(root())} </Show>
       <Show when={matches() !== undefined}>
         ({matches()} {matches() === 1 ? "match" : "matches"})
@@ -2378,7 +2396,7 @@ function Edit(props: ToolProps<typeof EditTool>) {
   return (
     <Switch>
       <Match when={props.metadata.diff !== undefined}>
-        <BlockTool title={"← Edit " + normalizePath(props.input.filePath!)} part={props.part}>
+        <BlockTool title={"← Edit " + normalizePath(props.input.filePath!)} part={props.part} suffix={executor(props.input)}>
           <box paddingLeft={1}>
             <diff
               diff={diffContent()}
@@ -2404,7 +2422,7 @@ function Edit(props: ToolProps<typeof EditTool>) {
         </BlockTool>
       </Match>
       <Match when={true}>
-        <InlineTool icon="←" pending="Preparing edit..." complete={props.input.filePath} part={props.part} tool="Edit" input={props.input}>
+        <InlineTool icon="←" pending="Preparing edit..." complete={props.input.filePath} part={props.part} tool="Edit" input={props.input} suffix={executor(props.input)}>
           Edit {normalizePath(props.input.filePath!)} {input({ replaceAll: props.input.replaceAll })}
         </InlineTool>
       </Match>
@@ -2462,7 +2480,7 @@ function ApplyPatch(props: ToolProps<typeof ApplyPatchTool>) {
       <Match when={files().length > 0}>
         <For each={files()}>
           {(file) => (
-            <BlockTool title={title(file)} part={props.part}>
+            <BlockTool title={title(file)} part={props.part} suffix={executor(props.input)}>
               <Show
                 when={file.type !== "delete"}
                 fallback={
@@ -2479,7 +2497,7 @@ function ApplyPatch(props: ToolProps<typeof ApplyPatchTool>) {
         </For>
       </Match>
       <Match when={true}>
-        <InlineTool icon="%" pending="Preparing patch..." complete={false} part={props.part} tool="Patch" input={props.input}>
+        <InlineTool icon="%" pending="Preparing patch..." complete={false} part={props.part} tool="Patch" input={props.input} suffix={executor(props.input)}>
           Patch
         </InlineTool>
       </Match>
@@ -2596,6 +2614,11 @@ function input(input: Record<string, any>, omit?: string[]): string {
   const text = `[${primitives.map(([key, value]) => `${key}=${value}`).join(", ")}]`
   if (text.split(/\r?\n/).length > 2) return "[args=...]"
   return text
+}
+
+function executor(input: { executor?: unknown }, metadata?: Record<string, unknown>) {
+  const value = typeof metadata?.executor === "string" ? metadata.executor : typeof input.executor === "string" ? input.executor : "local"
+  return `[${value.trim() || "local"}]`
 }
 
 function filetype(input?: string) {

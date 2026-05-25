@@ -8,7 +8,7 @@ import { assertExternalDirectory } from "./external-directory"
 import { RemoteExecutor } from "./remote_executor"
 
 const EXECUTOR = "local"
-const LIMIT = 10
+const LIMIT = 5
 const ms = z.preprocess((value) => (value === "" ? undefined : value), z.number().optional())
 
 const parameters = z.object({
@@ -53,6 +53,10 @@ function text(value: unknown) {
   return typeof value === "string" ? value : undefined
 }
 
+function local(executor?: string) {
+  return (executor?.trim() || EXECUTOR) === EXECUTOR
+}
+
 function num(value: unknown) {
   return typeof value === "number" ? value : undefined
 }
@@ -79,8 +83,7 @@ function arr(value: unknown): Record<string, unknown>[] {
 
 function kind(item: ExBashTask.Info) {
   if (item.state === "running") return "running"
-  if (item.state === "unknown") return "unknown"
-  return (item.exitCode ?? -1) === 0 ? "completed" : "failed"
+  return "other"
 }
 
 function reason(items: ExBashTask.Info[], next?: { scope?: ExBashTask.Scope; kind: ReturnType<typeof kind> }) {
@@ -90,7 +93,7 @@ function reason(items: ExBashTask.Info[], next?: { scope?: ExBashTask.Scope; kin
   const hit = [...counts.entries()].find(([, count]) => count > LIMIT)
   if (!hit) return
   const [scope, type] = hit[0].split("\0")
-  return `Too many ${type} exbash tasks in ${scope} scope (${hit[1]}/${LIMIT}). Remove stopped or stale tasks with {"mode":"remove","asyncID":"..."}. Unknown tasks are stale records from tasks that were not shut down normally; remove them, or restart/re-run the task if needed.`
+  return `Too many ${type} exbash tasks in ${scope} scope (${hit[1]}/${LIMIT}). Each local/workspace scope keeps at most ${LIMIT} running and ${LIMIT} other tasks across all executors. Remove stopped or stale tasks with {"mode":"remove","asyncID":"..."}. Unknown tasks are stale records from tasks that were not shut down normally; remove them, or restart/re-run the task if needed.`
 }
 
 function merge(base: ExBashTask.Info, hit?: Record<string, unknown>): ExBashTask.Info {
@@ -170,8 +173,8 @@ async function known(ctx: Tool.Context, input?: { asyncID?: string; scope?: ExBa
   )
 }
 
-async function guard(ctx: Tool.Context, input: { executor?: string; scope?: ExBashTask.Scope; kind?: ReturnType<typeof kind> }) {
-  const items = (await ExBashTask.get({ sessionID: ctx.sessionID, workspace: workspace(ctx) })).filter((item) => item.executor === (input.executor ?? EXECUTOR))
+async function guard(ctx: Tool.Context, input: { scope?: ExBashTask.Scope; kind?: ReturnType<typeof kind> }) {
+  const items = await ExBashTask.get({ sessionID: ctx.sessionID, workspace: workspace(ctx) })
   const msg = reason(items, input.kind ? { scope: input.scope, kind: input.kind } : undefined)
   if (msg) throw new Error(msg)
 }
@@ -249,14 +252,15 @@ export const ExBashTool = Tool.define("exbash", {
           scope: z.enum(["local", "workspace"]).optional(),
         })
         .parse(arg)
-      await guard(ctx, { executor: data.executor, scope: data.scope, kind: "running" })
-      const dir = await command(ctx, data)
+      const exec = data.executor?.trim() || EXECUTOR
+      await guard(ctx, { scope: data.scope, kind: "running" })
+      const dir = local(exec) ? await command(ctx, data) : await cwd(data.workdir, shell().file)
       const result = await RemoteExecutor.call(
         "exbash",
         {
           command: data.command,
           ...(data.description === undefined ? {} : { description: data.description }),
-          ...(data.executor === undefined ? {} : { executor: data.executor }),
+          ...(local(exec) ? {} : { executor: exec }),
           ...(data.timeout === undefined ? {} : { timeout: data.timeout }),
           ...(data.read_timeout === undefined ? {} : { read_timeout: data.read_timeout }),
           directory: dir,
@@ -273,21 +277,33 @@ export const ExBashTool = Tool.define("exbash", {
 
     if (mode === "list") {
       const data = z.object({ asyncID: z.string().optional(), scope: z.enum(["local", "workspace"]).optional(), executor: z.string().optional() }).parse(arg)
-      await ctx.ask({
-        permission: "bash",
-        patterns: [data.asyncID ? `exbash list ${data.asyncID}` : "exbash list"],
-        always: ["exbash list *"],
-        metadata: {},
-      })
+      const exec = data.executor?.trim() || EXECUTOR
+      if (local(exec)) {
+        await ctx.ask({
+          permission: "bash",
+          patterns: [data.asyncID ? `exbash list ${data.asyncID}` : "exbash list"],
+          always: ["exbash list *"],
+          metadata: {},
+        })
+      }
       const result = await RemoteExecutor.call(
         "exbash_list",
-        { ...(data.executor === undefined ? {} : { executor: data.executor }) },
+        { ...(local(exec) ? {} : { executor: exec }), ...(data.asyncID === undefined ? {} : { asyncID: data.asyncID }) },
         { signal: ctx.abort },
       )
-      const map = new Map(arr(result.metadata.runs).map((item) => [text(item.asyncID), item]))
-      const runs = await Promise.all((await known(ctx, data)).map((item) => sync(item, map.get(item.asyncID))))
-      const note = "unknown tasks are stale records from tasks that were not shut down normally; remove them, or restart/re-run the task if needed. Each local/workspace scope keeps at most 10 running, completed, failed, and unknown tasks per executor."
-      return { title: "Async runs listed", metadata: { runs, note }, output: JSON.stringify({ note, runs }, null, 2) }
+      const remote = arr(result.metadata.runs)
+      const map = new Map(remote.map((item) => [text(item.asyncID), item]))
+      const list = await known(ctx, { ...data, executor: exec })
+      const ids = new Set(list.map((item) => item.asyncID))
+      const runs = await Promise.all(list.map((item) => sync(item, map.get(item.asyncID))))
+      const untracked = local(exec) || data.scope !== undefined
+        ? []
+        : remote.flatMap((item) => {
+            const id = text(item.asyncID)
+            return id && !ids.has(id) ? [{ ...item, executor: exec, tracked: false }] : []
+          })
+      const note = `unknown tasks are stale records from tasks that were not shut down normally; remove them, or restart/re-run the task if needed. Each local/workspace scope keeps at most ${LIMIT} running and ${LIMIT} other tasks across all executors. Remote executor probing reports untracked REC PTYs without binding them to opencode tasks.`
+      return { title: "Async runs listed", metadata: { runs, untracked, note }, output: JSON.stringify({ note, runs, untracked }, null, 2) }
     }
 
     if (mode === "attach") {
@@ -303,43 +319,60 @@ export const ExBashTool = Tool.define("exbash", {
         .parse(arg)
       if (data.text !== undefined && data.filePath !== undefined) throw new Error("Provide only one of text or filePath for attach mode")
       const read_timeout = wait(data)
-      await guard(ctx, { executor: data.executor })
-      await ctx.ask({
-        permission: "bash",
-        patterns: [`exbash attach ${data.asyncID}`],
-        always: ["exbash attach *"],
-        metadata: {},
-      })
-      const exec = data.executor ?? EXECUTOR
+      const exec = data.executor?.trim() || EXECUTOR
+      if (local(exec)) {
+        await ctx.ask({
+          permission: "bash",
+          patterns: [`exbash attach ${data.asyncID}`],
+          always: ["exbash attach *"],
+          metadata: {},
+        })
+      }
       const task = await ExBashTask.one({ sessionID: ctx.sessionID, workspace: workspace(ctx), executor: exec, asyncID: data.asyncID })
-      if (!task) throw new Error(`Async run not found: ${data.asyncID}`)
-      if (task.state === "unknown") throw new Error(`Async run state unknown: ${data.asyncID}`)
+      if (!task && local(exec)) throw new Error(`Async run not found: ${data.asyncID}`)
+      if (task?.state === "unknown") throw new Error(`Async run state unknown: ${data.asyncID}`)
       const result = await RemoteExecutor.call(
         "exbash_attach",
         {
           asyncID: data.asyncID,
-          ...(data.executor === undefined ? {} : { executor: data.executor }),
+          ...(local(exec) ? {} : { executor: exec }),
           ...(data.text === undefined ? {} : { text: data.text }),
-          ...(data.filePath === undefined ? {} : { filePath: await input(ctx, data.filePath) }),
+          ...(data.filePath === undefined ? {} : { filePath: local(exec) ? await input(ctx, data.filePath) : data.filePath }),
           ...(read_timeout === undefined ? {} : { read_timeout }),
           directory: workspace(ctx),
         },
         { signal: ctx.abort },
       )
-      await sync(task, result.metadata)
-      return result
+      if (task) {
+        await sync(task, result.metadata)
+        return result
+      }
+      return {
+        ...result,
+        metadata: { ...result.metadata, asyncID: data.asyncID, executor: exec, tracked: false },
+      }
     }
 
     const data = z.object({ mode: z.enum(["stop", "remove"]), asyncID: z.string(), executor: z.string().optional() }).parse(arg)
-    await ctx.ask({
-      permission: "bash",
-      patterns: [`exbash ${data.mode} ${data.asyncID}`],
-      always: [`exbash ${data.mode} *`],
-      metadata: {},
-    })
-    const exec = data.executor ?? EXECUTOR
-    if (data.mode !== "remove") await guard(ctx, { executor: data.executor })
+    const exec = data.executor?.trim() || EXECUTOR
+    if (local(exec)) {
+      await ctx.ask({
+        permission: "bash",
+        patterns: [`exbash ${data.mode} ${data.asyncID}`],
+        always: [`exbash ${data.mode} *`],
+        metadata: {},
+      })
+    }
     const task = await ExBashTask.one({ sessionID: ctx.sessionID, workspace: workspace(ctx), executor: exec, asyncID: data.asyncID })
+    if (!task && !local(exec) && data.mode === "stop") {
+      const result = await RemoteExecutor.call("exbash_stop", { asyncID: data.asyncID, executor: exec }, { signal: ctx.abort })
+      const next = { ...result.metadata, asyncID: data.asyncID, executor: exec, tracked: false }
+      return {
+        title: "Async run stopped",
+        metadata: next,
+        output: JSON.stringify(next, null, 2),
+      }
+    }
     if (!task) throw new Error(`Async run not found: ${data.asyncID}`)
     if (data.mode === "remove" && task.state === "unknown") {
       await ExBashTask.remove({ sessionID: ctx.sessionID, workspace: workspace(ctx), executor: exec, asyncID: data.asyncID })
@@ -354,7 +387,7 @@ export const ExBashTool = Tool.define("exbash", {
     try {
       result = await RemoteExecutor.call(
         data.mode === "stop" ? "exbash_stop" : "exbash_remove",
-        { asyncID: data.asyncID, ...(data.executor === undefined ? {} : { executor: data.executor }) },
+        { asyncID: data.asyncID, ...(local(exec) ? {} : { executor: exec }) },
         { signal: ctx.abort },
       )
     } catch (error) {

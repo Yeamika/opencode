@@ -53,13 +53,42 @@ export const EditTool = Tool.define("edit", {
     }
 
     const filePath = path.isAbsolute(params.filePath) ? params.filePath : path.join(Instance.directory, params.filePath)
+    const executor = params.executor?.trim() || "local"
+    if (executor !== "local") {
+      if (params.replaceAll) throw new Error("Remote edit with replaceAll is not supported; use apply_patch instead")
+      const result = await RemoteExecutor.call(
+        "apply_patch",
+        { patchText: RemoteExecutor.patch(filePath, params.oldString, params.newString, params.oldString !== ""), executor },
+        { signal: ctx.abort },
+      )
+      const stamp = await RemoteExecutor.stat(filePath, executor).catch(() => undefined)
+      await FileTime.read(ctx.sessionID, filePath, stamp ? { executor, file: stamp } : undefined)
+      const item = Array.isArray(result.metadata.files) ? result.metadata.files[0] : undefined
+      const file = item && typeof item === "object" ? (item as Record<string, unknown>) : {}
+      const filediff: Snapshot.FileDiff = {
+        file: typeof file.filePath === "string" ? file.filePath : filePath,
+        before: typeof file.before === "string" ? file.before : "",
+        after: typeof file.after === "string" ? file.after : "",
+        additions: typeof file.additions === "number" ? file.additions : 0,
+        deletions: typeof file.deletions === "number" ? file.deletions : 0,
+      }
+      return {
+        ...result,
+        metadata: {
+          ...result.metadata,
+          diagnostics: {},
+          diff: typeof result.metadata.diff === "string" ? result.metadata.diff : "",
+          filediff,
+        },
+      }
+    }
+
     await assertExternalDirectory(ctx, filePath)
 
     let diff = ""
     let contentOld = ""
     let contentNew = ""
     await FileTime.withLock(filePath, async () => {
-      const executor = params.executor?.trim() || "local"
       if (params.oldString === "") {
         const stat = await RemoteExecutor.stat(filePath, executor).catch(() => undefined)
         const local = await Filesystem.exists(filePath)

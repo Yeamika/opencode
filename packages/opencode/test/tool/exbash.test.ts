@@ -219,8 +219,12 @@ describe("tool.exbash", () => {
         const result = await tool.execute({ command: "sleep 1", read_timeout: 0, scope: "workspace" }, one)
         const id = result.metadata.asyncID as string
 
-        const listed = JSON.parse((await tool.execute({ mode: "list", asyncID: id }, two)).output) as { runs: Array<{ asyncID: string; scope: string; executor: string }> }
+        const all = JSON.parse((await tool.execute({ mode: "list", asyncID: id }, two)).output) as { runs: Array<{ asyncID: string; scope: string; executor: string }> }
+        const local = JSON.parse((await tool.execute({ mode: "list", scope: "local", asyncID: id }, two)).output) as { runs: Array<unknown> }
+        const listed = JSON.parse((await tool.execute({ mode: "list", scope: "workspace", asyncID: id }, two)).output) as { runs: Array<{ asyncID: string; scope: string; executor: string }> }
 
+        expect(all.runs).toMatchObject([{ asyncID: id, scope: "workspace", executor: "local" }])
+        expect(local.runs).toHaveLength(0)
         expect(listed.runs).toMatchObject([{ asyncID: id, scope: "workspace", executor: "local" }])
       })
     } finally {
@@ -241,6 +245,7 @@ describe("tool.exbash", () => {
         const remote = JSON.parse((await tool.execute({ mode: "list", asyncID: id, executor: "box" }, c)).output) as { runs: Array<{ asyncID: string; executor: string }> }
 
         expect(calls[0]).toMatchObject({ tool: "exbash", args: { executor: "box" } })
+        expect(calls).toContainEqual(expect.objectContaining({ tool: "exbash_list", args: { executor: "box", asyncID: id } }))
         expect(result.metadata.executor).toBe("box")
         expect(local.runs).toHaveLength(0)
         expect(remote.runs).toMatchObject([{ asyncID: id, executor: "box" }])
@@ -299,12 +304,30 @@ describe("tool.exbash", () => {
       await repo(async (dir) => {
         const tool = await ExBashTool.init()
         const c = await ctx("task limit", dir)
-        for (let i = 0; i < 10; i++) await tool.execute({ command: `sleep ${i}`, read_timeout: 0 }, c)
+        for (let i = 0; i < 5; i++) await tool.execute({ command: `sleep ${i}`, read_timeout: 0 }, c)
 
-        await expect(tool.execute({ command: "sleep 10", read_timeout: 0 }, c)).rejects.toThrow("Too many running exbash tasks in local scope")
+        await expect(tool.execute({ command: "sleep 5", read_timeout: 0 }, c)).rejects.toThrow("Too many running exbash tasks in local scope")
         const listed = JSON.parse((await tool.execute({ mode: "list" }, c)).output) as { note: string; runs: Array<{ asyncID: string }> }
         expect(listed.note).toContain("unknown tasks are stale records")
         await tool.execute({ mode: "remove", asyncID: listed.runs[0]!.asyncID }, c)
+      })
+    } finally {
+      call.mockRestore()
+    }
+  })
+
+  test.serial("counts task limits across executors by scope", async () => {
+    const call = mock()
+    try {
+      await repo(async (dir) => {
+        const tool = await ExBashTool.init()
+        const c = await ctx("executor bucket", dir)
+        for (let i = 0; i < 3; i++) await tool.execute({ command: `local ${i}`, read_timeout: 0 }, c)
+        for (let i = 0; i < 2; i++) await tool.execute({ command: `remote ${i}`, executor: "box", read_timeout: 0 }, c)
+
+        await expect(tool.execute({ command: "remote 3", executor: "other", read_timeout: 0 }, c)).rejects.toThrow(
+          "Too many running exbash tasks in local scope (6/5)",
+        )
       })
     } finally {
       call.mockRestore()
@@ -434,6 +457,117 @@ describe("tool.exbash", () => {
         ).rejects.toThrow("The user has specified a rule")
 
         expect(calls).toHaveLength(0)
+      })
+    } finally {
+      call.mockRestore()
+    }
+  })
+
+  test.serial("skips local command permissions for remote executor", async () => {
+    const call = mock()
+    try {
+      await repo(async (dir) => {
+        const tool = await ExBashTool.init()
+        await tool.execute(
+          { command: "echo remote", executor: "box", read_timeout: 0 },
+          await ctx("remote bypass", dir, [
+            { permission: "exbash_executor", pattern: "*", action: "deny" },
+            { permission: "bash", pattern: "*", action: "deny" },
+          ]),
+        )
+
+        expect(calls).toHaveLength(1)
+        expect(calls[0]).toMatchObject({ tool: "exbash", args: { executor: "box", command: "echo remote" } })
+      })
+    } finally {
+      call.mockRestore()
+    }
+  })
+
+  test.serial("probes untracked remote ptys without binding them", async () => {
+    const call = mock()
+    try {
+      call.mockImplementation(async (tool, args) => {
+        calls.push({ tool, args })
+        if (tool === "exbash_list") {
+          return {
+            title: "Async runs listed",
+            metadata: {
+              runs: [
+                {
+                  asyncID: "rex-foreign",
+                  command: "top",
+                  description: "top",
+                  cwd: "/tmp",
+                  state: "running",
+                  status: "running",
+                  totalOutput: 0,
+                  startedAt: Date.now(),
+                },
+              ],
+            },
+            output: "rex-foreign running totalOutput=0 command=top",
+          }
+        }
+        if (tool === "exbash_attach") return { title: "Async input sent", metadata: { asyncID: "rex-foreign", wrote: 1 }, output: "ok" }
+        if (tool === "exbash_stop") return { title: "Async run stopped", metadata: { asyncID: "rex-foreign", state: "stopped", exitCode: 0 }, output: "" }
+        return { title: tool, metadata: {}, output: "" }
+      })
+
+      await repo(async (dir) => {
+        const tool = await ExBashTool.init()
+        const c = await ctx("remote probe", dir)
+        const listed = JSON.parse((await tool.execute({ mode: "list", executor: "box" }, c)).output) as {
+          runs: Array<unknown>
+          untracked: Array<{ asyncID: string; executor: string; tracked: boolean }>
+        }
+
+        expect(listed.runs).toHaveLength(0)
+        expect(listed.untracked).toMatchObject([{ asyncID: "rex-foreign", executor: "box", tracked: false }])
+        const attached = await tool.execute({ mode: "attach", asyncID: "rex-foreign", executor: "box", text: "x" }, c)
+        const stopped = await tool.execute({ mode: "stop", asyncID: "rex-foreign", executor: "box" }, c)
+        const again = JSON.parse((await tool.execute({ mode: "list", executor: "box" }, c)).output) as { runs: Array<unknown> }
+
+        expect(attached.metadata).toMatchObject({ asyncID: "rex-foreign", executor: "box", tracked: false })
+        expect(stopped.metadata).toMatchObject({ asyncID: "rex-foreign", executor: "box", tracked: false, state: "stopped" })
+        expect(again.runs).toHaveLength(0)
+        await expect(tool.execute({ mode: "remove", asyncID: "rex-foreign", executor: "box" }, c)).rejects.toThrow("Async run not found")
+      })
+    } finally {
+      call.mockRestore()
+    }
+  })
+
+  test.serial("remote list without scope probes all remote ptys", async () => {
+    const call = mock()
+    try {
+      call.mockImplementation(async (tool, args) => {
+        calls.push({ tool, args })
+        if (tool === "exbash_list") {
+          return {
+            title: "Async runs listed",
+            metadata: {
+              runs: [
+                { asyncID: "rex-one", command: "one", description: "one", cwd: "/tmp", state: "running", status: "running", totalOutput: 0, startedAt: 1 },
+                { asyncID: "rex-two", command: "two", description: "two", cwd: "/tmp", state: "running", status: "running", totalOutput: 0, startedAt: 2 },
+              ],
+            },
+            output: "rex-one running\nrex-two running",
+          }
+        }
+        return { title: tool, metadata: {}, output: "" }
+      })
+
+      await repo(async (dir) => {
+        const tool = await ExBashTool.init()
+        const c = await ctx("remote all", dir)
+        const all = JSON.parse((await tool.execute({ mode: "list", executor: "box" }, c)).output) as {
+          untracked: Array<{ asyncID: string }>
+        }
+
+        expect(calls.at(-1)).toMatchObject({ tool: "exbash_list", args: { executor: "box" } })
+        expect(calls.at(-1)?.args.asyncID).toBeUndefined()
+        expect(all.untracked.map((item) => item.asyncID)).toEqual(["rex-one", "rex-two"])
       })
     } finally {
       call.mockRestore()

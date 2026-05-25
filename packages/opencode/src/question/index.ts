@@ -85,13 +85,13 @@ export namespace Question {
 
   export class TimeoutError extends Schema.TaggedErrorClass<TimeoutError>()("QuestionTimeoutError", {}) {
     override get message() {
-      return "TimeoutAfter 300s"
+      return "300s Timeout auto replied"
     }
   }
 
   interface PendingEntry {
     info: Request
-    deferred: Deferred.Deferred<Answer[], RejectedError>
+    deferred: Deferred.Deferred<Answer[], RejectedError | TimeoutError>
   }
 
   interface State {
@@ -136,6 +136,23 @@ export namespace Question {
         }),
       )
 
+      const dismiss = Effect.fn("Question.dismiss")(function* (requestID: QuestionID, err?: TimeoutError) {
+        const pending = (yield* InstanceState.get(state)).pending
+        const existing = pending.get(requestID)
+        if (!existing) {
+          log.warn("reject for unknown request", { requestID })
+          return false
+        }
+        pending.delete(requestID)
+        log.info("rejected", { requestID })
+        yield* bus.publish(Event.Rejected, {
+          sessionID: existing.info.sessionID,
+          requestID: existing.info.id,
+        })
+        yield* Deferred.fail(existing.deferred, err ?? new RejectedError())
+        return true
+      })
+
       const ask = Effect.fn("Question.ask")(function* (input: {
         sessionID: SessionID
         questions: Info[]
@@ -145,7 +162,7 @@ export namespace Question {
         const id = QuestionID.ascending()
         log.info("asking", { id, questions: input.questions.length })
 
-        const deferred = yield* Deferred.make<Answer[], RejectedError>()
+        const deferred = yield* Deferred.make<Answer[], RejectedError | TimeoutError>()
         const info: Request = {
           id,
           sessionID: input.sessionID,
@@ -158,7 +175,12 @@ export namespace Question {
         return yield* Effect.ensuring(
           Effect.timeoutOrElse(Deferred.await(deferred), {
             duration: timeout,
-            orElse: () => Effect.fail(new TimeoutError()),
+            orElse: () =>
+              Effect.gen(function* () {
+                const ok = yield* dismiss(id, new TimeoutError())
+                if (!ok) return yield* new RejectedError()
+                return yield* Deferred.await(deferred)
+              }),
           }),
           Effect.sync(() => {
             pending.delete(id)
@@ -184,19 +206,7 @@ export namespace Question {
       })
 
       const reject = Effect.fn("Question.reject")(function* (requestID: QuestionID) {
-        const pending = (yield* InstanceState.get(state)).pending
-        const existing = pending.get(requestID)
-        if (!existing) {
-          log.warn("reject for unknown request", { requestID })
-          return
-        }
-        pending.delete(requestID)
-        log.info("rejected", { requestID })
-        yield* bus.publish(Event.Rejected, {
-          sessionID: existing.info.sessionID,
-          requestID: existing.info.id,
-        })
-        yield* Deferred.fail(existing.deferred, new RejectedError())
+        yield* dismiss(requestID)
       })
 
       const list = Effect.fn("Question.list")(function* () {

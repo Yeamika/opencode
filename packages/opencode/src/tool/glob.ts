@@ -19,27 +19,31 @@ export const GlobTool = Tool.define("glob", {
     executor: z.string().optional().describe("RemoteExecutor executor id. Defaults to local."),
   }),
   async execute(params, ctx) {
-    await ctx.ask({
-      permission: "glob",
-      patterns: [params.pattern],
-      always: ["*"],
-      metadata: {
-        pattern: params.pattern,
-        path: params.path,
-      },
-    })
+    const executor = params.executor?.trim() || "local"
+    const local = executor === "local"
+    if (local) {
+      await ctx.ask({
+        permission: "glob",
+        patterns: [params.pattern],
+        always: ["*"],
+        metadata: {
+          pattern: params.pattern,
+          path: params.path,
+        },
+      })
+    }
 
     const search = path.isAbsolute(params.path ?? Instance.directory)
       ? (params.path ?? Instance.directory)
       : path.resolve(Instance.directory, params.path!)
-    await assertExternalDirectory(ctx, search, { kind: "directory" })
+    if (local) await assertExternalDirectory(ctx, search, { kind: "directory" })
 
     const result = await RemoteExecutor.call(
       "glob",
       {
         pattern: params.pattern,
         path: search,
-        ...(params.executor === undefined ? {} : { executor: params.executor }),
+        ...(local ? {} : { executor }),
       },
       { signal: ctx.abort },
     )

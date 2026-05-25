@@ -16,22 +16,26 @@ export const GrepTool = Tool.define("grep", {
   }),
   async execute(params, ctx) {
     if (!params.pattern) throw new Error("pattern is required")
+    const executor = params.executor?.trim() || "local"
+    const local = executor === "local"
 
-    await ctx.ask({
-      permission: "grep",
-      patterns: [params.pattern],
-      always: ["*"],
-      metadata: {
-        pattern: params.pattern,
-        path: params.path,
-        include: params.include,
-      },
-    })
+    if (local) {
+      await ctx.ask({
+        permission: "grep",
+        patterns: [params.pattern],
+        always: ["*"],
+        metadata: {
+          pattern: params.pattern,
+          path: params.path,
+          include: params.include,
+        },
+      })
+    }
 
     const search = path.isAbsolute(params.path ?? Instance.directory)
       ? (params.path ?? Instance.directory)
       : path.resolve(Instance.directory, params.path!)
-    await assertExternalDirectory(ctx, search, { kind: "directory" })
+    if (local) await assertExternalDirectory(ctx, search, { kind: "directory" })
 
     const result = await RemoteExecutor.call(
       "grep",
@@ -39,7 +43,7 @@ export const GrepTool = Tool.define("grep", {
         pattern: params.pattern,
         path: search,
         ...(params.include === undefined ? {} : { include: params.include }),
-        ...(params.executor === undefined ? {} : { executor: params.executor }),
+        ...(local ? {} : { executor }),
       },
       { signal: ctx.abort },
     )

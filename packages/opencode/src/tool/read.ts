@@ -23,27 +23,29 @@ export const ReadTool = Tool.define("read", {
     }
     const file = path.isAbsolute(params.filePath) ? params.filePath : path.resolve(Instance.directory, params.filePath)
     const filepath = process.platform === "win32" ? Filesystem.normalizePath(file) : file
-    const stat = Filesystem.stat(filepath)
     const executor = params.executor?.trim() || "local"
+    const local = executor === "local"
+    const stat = local ? Filesystem.stat(filepath) : undefined
 
-    await assertExternalDirectory(ctx, filepath, {
-      bypass: Boolean(ctx.extra?.["bypassCwdCheck"]),
-      kind: stat?.isDirectory() ? "directory" : "file",
-    })
+    if (local) {
+      await assertExternalDirectory(ctx, filepath, {
+        bypass: Boolean(ctx.extra?.["bypassCwdCheck"]),
+        kind: stat?.isDirectory() ? "directory" : "file",
+      })
 
-    await ctx.ask({
-      permission: "read",
-      patterns: [filepath],
-      always: ["*"],
-      metadata: {},
-    })
+      await ctx.ask({
+        permission: "read",
+        patterns: [filepath],
+        always: ["*"],
+        metadata: {},
+      })
+    }
 
-    if (stat && !stat.isDirectory()) {
+    if (local && stat && !stat.isDirectory()) {
       const mime = Filesystem.mimeType(filepath)
       const image = mime.startsWith("image/") && mime !== "image/svg+xml" && mime !== "image/vnd.fastbidsheet"
       const pdf = mime === "application/pdf"
       if (image || pdf) {
-        if (executor !== "local") throw new Error(`${image ? "Image" : "PDF"} reads require executor=local`)
         if (pdf) throw new Error("PDF read is not supported yet")
         const msg = "Image read successfully"
         const instructions = await Instruction.resolve(ctx.messages, filepath, ctx.messageID)
@@ -72,7 +74,7 @@ export const ReadTool = Tool.define("read", {
         filePath: filepath,
         ...(params.offset === undefined ? {} : { offset: params.offset }),
         ...(params.limit === undefined ? {} : { limit: params.limit }),
-        ...(executor === "local" ? {} : { executor }),
+        ...(local ? {} : { executor }),
       },
       { signal: ctx.abort },
     )

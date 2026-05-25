@@ -89,7 +89,7 @@ export namespace Permission {
 
   export class TimeoutError extends Schema.TaggedErrorClass<TimeoutError>()("PermissionTimeoutError", {}) {
     override get message() {
-      return "TimeoutAfter 300s"
+      return "300s Timeout auto replied"
     }
   }
 
@@ -129,7 +129,7 @@ export namespace Permission {
 
   interface PendingEntry {
     info: Request
-    deferred: Deferred.Deferred<void, RejectedError | CorrectedError>
+    deferred: Deferred.Deferred<void, RejectedError | CorrectedError | TimeoutError>
   }
 
   interface State {
@@ -171,6 +171,65 @@ export namespace Permission {
         }),
       )
 
+      const respond = Effect.fn("Permission.respond")(function* (input: z.infer<typeof ReplyInput>, err?: TimeoutError) {
+        const { approved, pending } = yield* InstanceState.get(state)
+        const existing = pending.get(input.requestID)
+        if (!existing) return false
+
+        pending.delete(input.requestID)
+        yield* bus.publish(Event.Replied, {
+          sessionID: existing.info.sessionID,
+          requestID: existing.info.id,
+          reply: input.reply,
+        })
+
+        if (input.reply === "reject") {
+          yield* Deferred.fail(
+            existing.deferred,
+            err ?? (input.message ? new CorrectedError({ feedback: input.message }) : new RejectedError()),
+          )
+
+          for (const [id, item] of pending.entries()) {
+            if (item.info.sessionID !== existing.info.sessionID) continue
+            pending.delete(id)
+            yield* bus.publish(Event.Replied, {
+              sessionID: item.info.sessionID,
+              requestID: item.info.id,
+              reply: "reject",
+            })
+            yield* Deferred.fail(item.deferred, err ?? new RejectedError())
+          }
+          return true
+        }
+
+        yield* Deferred.succeed(existing.deferred, undefined)
+        if (input.reply === "once") return true
+
+        for (const pattern of existing.info.always) {
+          approved.push({
+            permission: existing.info.permission,
+            pattern,
+            action: "allow",
+          })
+        }
+
+        for (const [id, item] of pending.entries()) {
+          if (item.info.sessionID !== existing.info.sessionID) continue
+          const ok = item.info.patterns.every(
+            (pattern) => evaluate(item.info.permission, pattern, approved).action === "allow",
+          )
+          if (!ok) continue
+          pending.delete(id)
+          yield* bus.publish(Event.Replied, {
+            sessionID: item.info.sessionID,
+            requestID: item.info.id,
+            reply: "always",
+          })
+          yield* Deferred.succeed(item.deferred, undefined)
+        }
+        return true
+      })
+
       const ask = Effect.fn("Permission.ask")(function* (input: z.infer<typeof AskInput>) {
         const { approved, pending } = yield* InstanceState.get(state)
         const { ruleset, ...request } = input
@@ -197,13 +256,18 @@ export namespace Permission {
         }
         log.info("asking", { id, permission: info.permission, patterns: info.patterns })
 
-        const deferred = yield* Deferred.make<void, RejectedError | CorrectedError>()
+        const deferred = yield* Deferred.make<void, RejectedError | CorrectedError | TimeoutError>()
         pending.set(id, { info, deferred })
         yield* bus.publish(Event.Asked, info)
         return yield* Effect.ensuring(
           Effect.timeoutOrElse(Deferred.await(deferred), {
             duration: timeout,
-            orElse: () => Effect.fail(new TimeoutError()),
+            orElse: () =>
+              Effect.gen(function* () {
+                const ok = yield* respond({ requestID: id, reply: "reject" }, new TimeoutError())
+                if (!ok) return yield* new RejectedError()
+                return yield* Deferred.await(deferred)
+              }),
           }),
           Effect.sync(() => {
             pending.delete(id)
@@ -212,61 +276,7 @@ export namespace Permission {
       })
 
       const reply = Effect.fn("Permission.reply")(function* (input: z.infer<typeof ReplyInput>) {
-        const { approved, pending } = yield* InstanceState.get(state)
-        const existing = pending.get(input.requestID)
-        if (!existing) return
-
-        pending.delete(input.requestID)
-        yield* bus.publish(Event.Replied, {
-          sessionID: existing.info.sessionID,
-          requestID: existing.info.id,
-          reply: input.reply,
-        })
-
-        if (input.reply === "reject") {
-          yield* Deferred.fail(
-            existing.deferred,
-            input.message ? new CorrectedError({ feedback: input.message }) : new RejectedError(),
-          )
-
-          for (const [id, item] of pending.entries()) {
-            if (item.info.sessionID !== existing.info.sessionID) continue
-            pending.delete(id)
-            yield* bus.publish(Event.Replied, {
-              sessionID: item.info.sessionID,
-              requestID: item.info.id,
-              reply: "reject",
-            })
-            yield* Deferred.fail(item.deferred, new RejectedError())
-          }
-          return
-        }
-
-        yield* Deferred.succeed(existing.deferred, undefined)
-        if (input.reply === "once") return
-
-        for (const pattern of existing.info.always) {
-          approved.push({
-            permission: existing.info.permission,
-            pattern,
-            action: "allow",
-          })
-        }
-
-        for (const [id, item] of pending.entries()) {
-          if (item.info.sessionID !== existing.info.sessionID) continue
-          const ok = item.info.patterns.every(
-            (pattern) => evaluate(item.info.permission, pattern, approved).action === "allow",
-          )
-          if (!ok) continue
-          pending.delete(id)
-          yield* bus.publish(Event.Replied, {
-            sessionID: item.info.sessionID,
-            requestID: item.info.id,
-            reply: "always",
-          })
-          yield* Deferred.succeed(item.deferred, undefined)
-        }
+        yield* respond(input)
       })
 
       const list = Effect.fn("Permission.list")(function* () {
