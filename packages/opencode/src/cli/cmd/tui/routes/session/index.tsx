@@ -263,7 +263,7 @@ export function Session() {
   function windowCommand(args: string[]) {
     if (process.platform === "darwin") return ["osascript", "-e", `tell application "Terminal" to do script ${JSON.stringify(args.map(quote).join(" "))}`]
     if (process.platform === "win32") {
-      return ["powershell.exe", "-NoProfile", "-Command", psline(args)]
+      return ["cmd.exe", "/c", "start", "", "powershell.exe", "-NoProfile", "-Command", psline(args)]
     }
     if (process.env.OPENCODE_TERMINAL) return [process.env.OPENCODE_TERMINAL, "-e", ...args]
     const terms = [

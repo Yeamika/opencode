@@ -9,6 +9,7 @@ import { RemoteExecutor } from "./remote_executor"
 
 const EXECUTOR = "local"
 const LIMIT = 5
+const BUFFER = 5_000
 const ms = z.preprocess((value) => (value === "" ? undefined : value), z.number().optional())
 
 const parameters = z.object({
@@ -66,6 +67,12 @@ function wait(input: { read_timeout?: number; timeout?: number }) {
   if (input.timeout !== undefined && input.timeout !== 0) return input.timeout
   if (input.read_timeout !== undefined) return input.read_timeout
   return input.timeout
+}
+
+function budget(ms?: number) {
+  if (ms === undefined || ms <= 0) return undefined
+  const next = ms + BUFFER
+  return next > 30_000 ? next : undefined
 }
 
 function rec(value: unknown) {
@@ -255,6 +262,7 @@ export const ExBashTool = Tool.define("exbash", {
       const exec = data.executor?.trim() || EXECUTOR
       await guard(ctx, { scope: data.scope, kind: "running" })
       const dir = local(exec) ? await command(ctx, data) : await cwd(data.workdir, shell().file)
+      const limit = budget(data.read_timeout)
       const result = await RemoteExecutor.call(
         "exbash",
         {
@@ -265,7 +273,7 @@ export const ExBashTool = Tool.define("exbash", {
           ...(data.read_timeout === undefined ? {} : { read_timeout: data.read_timeout }),
           directory: dir,
         },
-        { signal: ctx.abort },
+        { signal: ctx.abort, ...(limit === undefined ? {} : { timeout: limit }) },
       )
       const task = await save(ctx, result, { ...data, cwd: dir })
       if (!task) return result
@@ -319,6 +327,7 @@ export const ExBashTool = Tool.define("exbash", {
         .parse(arg)
       if (data.text !== undefined && data.filePath !== undefined) throw new Error("Provide only one of text or filePath for attach mode")
       const read_timeout = wait(data)
+      const limit = budget(read_timeout)
       const exec = data.executor?.trim() || EXECUTOR
       if (local(exec)) {
         await ctx.ask({
@@ -341,7 +350,7 @@ export const ExBashTool = Tool.define("exbash", {
           ...(read_timeout === undefined ? {} : { read_timeout }),
           directory: workspace(ctx),
         },
-        { signal: ctx.abort },
+        { signal: ctx.abort, ...(limit === undefined ? {} : { timeout: limit }) },
       )
       if (task) {
         await sync(task, result.metadata)

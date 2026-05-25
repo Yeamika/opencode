@@ -21,7 +21,7 @@ const base = {
   ask: async () => {},
 }
 
-const calls: Array<{ tool: string; args: Record<string, unknown> }> = []
+const calls: Array<{ tool: string; args: Record<string, unknown>; opts?: { timeout?: number } }> = []
 let seq = 0
 
 afterEach(() => {
@@ -52,8 +52,8 @@ async function repo<T>(fn: (dir: string) => Promise<T>) {
 }
 
 function mock() {
-  return spyOn(RemoteExecutor, "call").mockImplementation(async (tool, args) => {
-    calls.push({ tool, args })
+  return spyOn(RemoteExecutor, "call").mockImplementation(async (tool, args, opts) => {
+    calls.push({ tool, args, opts })
     if (tool === "exbash") {
       if (args.command === "echo done") {
         return {
@@ -182,6 +182,20 @@ describe("tool.exbash", () => {
         expect(result.output).toBe("done\n")
         expect(result.metadata).toMatchObject({ exit: 0, output: "done\n" })
         expect(result.metadata.asyncID).toBeUndefined()
+      })
+    } finally {
+      call.mockRestore()
+    }
+  })
+
+  test.serial("extends outer RemoteExecutor wait for long run read_timeout", async () => {
+    const call = mock()
+    try {
+      await repo(async (dir) => {
+        const tool = await ExBashTool.init()
+        await tool.execute({ command: "sleep 40", read_timeout: 40_000 }, await ctx("long run wait", dir))
+
+        expect(calls.at(-1)).toMatchObject({ tool: "exbash", opts: { timeout: 45_000 } })
       })
     } finally {
       call.mockRestore()
@@ -360,6 +374,9 @@ describe("tool.exbash", () => {
           },
         })
         expect(calls.at(-1)?.args.timeout).toBeUndefined()
+
+        await tool.execute({ mode: "attach", asyncID: id, text: "long\n", read_timeout: 40_000 }, c)
+        expect(calls.at(-1)).toMatchObject({ tool: "exbash_attach", opts: { timeout: 45_000 } })
       })
     } finally {
       call.mockRestore()
