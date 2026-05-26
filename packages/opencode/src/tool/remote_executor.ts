@@ -238,14 +238,16 @@ export namespace RemoteExecutor {
     if (env) return env
     const exe = process.platform === "win32" ? "remote-caller-mcp.exe" : "remote-caller-mcp"
     const names = [`.${exe}`, exe]
-    const roots = [process.execPath, real(process.execPath)].flatMap((file) => (file ? [path.dirname(file)] : [])).filter((item, index, all) => all.indexOf(item) === index)
+    const roots = [process.env.OPENCODE_BIN_DIR, path.dirname(process.execPath), real(process.execPath)]
+      .flatMap((file) => (file ? [file] : []))
+      .filter((item, index, all) => all.indexOf(item) === index)
     const hit = roots.flatMap((root) => names.map((name) => path.join(root, name))).find((file) => fs.existsSync(file))
     return hit ?? exe
   }
 
   function real(file: string) {
     try {
-      return fs.realpathSync.native(file)
+      return path.dirname(fs.realpathSync.native(file))
     } catch {
       return undefined
     }

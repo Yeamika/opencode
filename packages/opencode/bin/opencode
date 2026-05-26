@@ -8,6 +8,10 @@ const os = require("os")
 function run(target) {
   const result = childProcess.spawnSync(target, process.argv.slice(2), {
     stdio: "inherit",
+    env: {
+      ...process.env,
+      OPENCODE_BIN_DIR: process.env.OPENCODE_BIN_DIR || path.dirname(path.resolve(target)),
+    },
   })
   if (result.error) {
     console.error(result.error.message)

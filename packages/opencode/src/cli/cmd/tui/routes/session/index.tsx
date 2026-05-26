@@ -229,13 +229,15 @@ export function Session() {
 
   function ptytBin() {
     const exe = process.platform === "win32" ? "ptyt.exe" : "ptyt"
-    const roots = [process.execPath, real(process.execPath)].flatMap((file) => (file ? [path.dirname(file)] : [])).filter((item, index, all) => all.indexOf(item) === index)
+    const roots = [process.env.OPENCODE_BIN_DIR, path.dirname(process.execPath), real(process.execPath)]
+      .flatMap((file) => (file ? [file] : []))
+      .filter((item, index, all) => all.indexOf(item) === index)
     return roots.flatMap((root) => [exe, `.${exe}`].map((name) => path.join(root, name))).find((file) => fs.existsSync(file)) ?? exe
   }
 
   function real(file: string) {
     try {
-      return fs.realpathSync.native(file)
+      return path.dirname(fs.realpathSync.native(file))
     } catch {
       return undefined
     }
