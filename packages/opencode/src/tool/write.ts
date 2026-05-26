@@ -22,11 +22,49 @@ export const WriteTool = Tool.define("write", {
   parameters: z.object({
     content: z.string().describe("The content to write to the file"),
     filePath: z.string().describe("The absolute path to the file to write (must be absolute, not relative)"),
+    mode: z.enum(["text", "binary"]).optional().describe("Write mode. Defaults to text. Binary mode treats content as hex bytes."),
+    encoding: z.enum(["hex"]).optional().describe("Encoding for binary content. Currently only hex is supported."),
     executor: z.string().optional().describe("RemoteExecutor executor id. Defaults to local."),
   }),
   async execute(params, ctx) {
     const filepath = path.isAbsolute(params.filePath) ? params.filePath : path.join(Instance.directory, params.filePath)
     const executor = params.executor?.trim() || "local"
+    if (params.mode === "binary") {
+      const bytes = hexLength(params.content)
+      const patchText = `*** Begin Patch\n*** Binary Write File: ${filepath}\n+${params.content}\n*** End Patch\n`
+      if (executor === "local") {
+        await assertExternalDirectory(ctx, filepath)
+        const stat = await RemoteExecutor.stat(filepath, executor).catch(() => undefined)
+        const local = await Filesystem.exists(filepath)
+        const exists = stat ? stat.kind !== "missing" : local
+        if (exists) await FileTime.assert(ctx.sessionID, filepath, stat ? { executor, file: stat } : undefined)
+        await ctx.ask({
+          permission: "edit",
+          patterns: [path.relative(Instance.worktree, filepath)],
+          always: ["*"],
+          metadata: { filepath, diff: `Binary write ${filepath}\n+ ${bytes} bytes` },
+        })
+      }
+      const result = await RemoteExecutor.call("apply_patch", { patchText, ...(executor === "local" ? {} : { executor }) }, { signal: ctx.abort })
+      if (executor === "local") {
+        Bus.publish(File.Event.Edited, { file: filepath })
+        await Bus.publish(FileWatcher.Event.Updated, { file: filepath, event: "change" })
+      }
+      const next = await RemoteExecutor.stat(filepath, executor).catch(() => undefined)
+      await FileTime.read(ctx.sessionID, filepath, next ? { executor, file: next } : undefined)
+      return {
+        ...result,
+        metadata: {
+          ...result.metadata,
+          diagnostics: {},
+          filepath,
+          binary: true,
+          encoding: params.encoding ?? "hex",
+          bytes,
+        },
+        output: `Wrote binary file successfully (${bytes} bytes).`,
+      } as any
+    }
     if (executor !== "local") {
       const result = await RemoteExecutor.call(
         "apply_patch",
@@ -112,3 +150,10 @@ export const WriteTool = Tool.define("write", {
     }
   },
 })
+
+function hexLength(text: string) {
+  const compact = text.replace(/(?:0x|0X)/g, "").replace(/[\s,_]/g, "")
+  if (compact.length % 2 !== 0) throw new Error("Binary hex content must contain an even number of digits")
+  if (!/^[0-9a-fA-F]*$/.test(compact)) throw new Error("Binary hex content contains non-hex characters")
+  return compact.length / 2
+}

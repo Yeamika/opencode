@@ -38,9 +38,14 @@ export const EditTool = Tool.define("edit", {
   description: DESCRIPTION,
   parameters: z.object({
     filePath: z.string().describe("The absolute path to the file to modify"),
-    oldString: z.string().describe("The text to replace"),
-    newString: z.string().describe("The text to replace it with (must be different from oldString)"),
+    oldString: z.string().optional().describe("The text to replace"),
+    newString: z.string().optional().describe("The text to replace it with (must be different from oldString)"),
     replaceAll: z.boolean().optional().describe("Replace all occurrences of oldString (default false)"),
+    mode: z.enum(["text", "binary"]).optional().describe("Edit mode. Defaults to text. Binary mode replaces bytes at offset."),
+    offset: z.coerce.number().optional().describe("Byte offset for binary mode"),
+    oldBytes: z.string().optional().describe("Expected old bytes as hex for binary mode"),
+    newBytes: z.string().optional().describe("Replacement bytes as hex for binary mode"),
+    encoding: z.enum(["hex"]).optional().describe("Encoding for binary bytes. Currently only hex is supported."),
     executor: z.string().optional().describe("RemoteExecutor executor id. Defaults to local."),
   }),
   async execute(params, ctx) {
@@ -48,17 +53,63 @@ export const EditTool = Tool.define("edit", {
       throw new Error("filePath is required")
     }
 
+    const filePath = path.isAbsolute(params.filePath) ? params.filePath : path.join(Instance.directory, params.filePath)
+    const executor = params.executor?.trim() || "local"
+    if (params.mode === "binary") {
+      if (params.offset === undefined || params.offset < 0) throw new Error("binary edit requires non-negative offset")
+      if (params.oldBytes === undefined) throw new Error("binary edit requires oldBytes")
+      if (params.newBytes === undefined) throw new Error("binary edit requires newBytes")
+      const oldLen = hexLength(params.oldBytes)
+      const newLen = hexLength(params.newBytes)
+      const diff = `Binary edit ${filePath} @${params.offset}\n- ${params.oldBytes}\n+ ${params.newBytes}`
+      const patchText = `*** Begin Patch\n*** Binary Update File: ${filePath}\n*** Offset: ${params.offset}\n*** Old Bytes: ${params.oldBytes}\n*** New Bytes: ${params.newBytes}\n*** End Patch\n`
+      if (executor === "local") {
+        await assertExternalDirectory(ctx, filePath)
+        const stat = await RemoteExecutor.stat(filePath, executor).catch(() => undefined)
+        await FileTime.assert(ctx.sessionID, filePath, stat ? { executor, file: stat } : undefined)
+        await ctx.ask({
+          permission: "edit",
+          patterns: [path.relative(Instance.worktree, filePath)],
+          always: ["*"],
+          metadata: { filepath: filePath, diff },
+        })
+      }
+      const result = await RemoteExecutor.call("apply_patch", { patchText, ...(executor === "local" ? {} : { executor }) }, { signal: ctx.abort })
+      if (executor === "local") {
+        Bus.publish(File.Event.Edited, { file: filePath })
+        await Bus.publish(FileWatcher.Event.Updated, { file: filePath, event: "change" })
+      }
+      const stamp = await RemoteExecutor.stat(filePath, executor).catch(() => undefined)
+      await FileTime.read(ctx.sessionID, filePath, stamp ? { executor, file: stamp } : undefined)
+      return {
+        ...result,
+        metadata: {
+          ...result.metadata,
+          diagnostics: {},
+          diff,
+          binary: true,
+          encoding: params.encoding ?? "hex",
+          offset: params.offset,
+          oldBytes: oldLen,
+          newBytes: newLen,
+        },
+        output: `Binary edit applied successfully (${oldLen} -> ${newLen} bytes at offset ${params.offset}).`,
+      } as any
+    }
+
+    if (params.oldString === undefined) throw new Error("oldString is required")
+    if (params.newString === undefined) throw new Error("newString is required")
     if (params.oldString === params.newString) {
       throw new Error("No changes to apply: oldString and newString are identical.")
     }
+    const oldString = params.oldString
+    const newString = params.newString
 
-    const filePath = path.isAbsolute(params.filePath) ? params.filePath : path.join(Instance.directory, params.filePath)
-    const executor = params.executor?.trim() || "local"
     if (executor !== "local") {
       if (params.replaceAll) throw new Error("Remote edit with replaceAll is not supported; use apply_patch instead")
       const result = await RemoteExecutor.call(
         "apply_patch",
-        { patchText: RemoteExecutor.patch(filePath, params.oldString, params.newString, params.oldString !== ""), executor },
+        { patchText: RemoteExecutor.patch(filePath, oldString, newString, oldString !== ""), executor },
         { signal: ctx.abort },
       )
       const stamp = await RemoteExecutor.stat(filePath, executor).catch(() => undefined)
@@ -89,12 +140,12 @@ export const EditTool = Tool.define("edit", {
     let contentOld = ""
     let contentNew = ""
     await FileTime.withLock(filePath, async () => {
-      if (params.oldString === "") {
+      if (oldString === "") {
         const stat = await RemoteExecutor.stat(filePath, executor).catch(() => undefined)
         const local = await Filesystem.exists(filePath)
         const existed = stat ? stat.kind !== "missing" : local
         contentOld = local ? await Filesystem.readText(filePath).catch(() => "") : ""
-        contentNew = params.newString
+        contentNew = newString
         diff = trimDiff(createTwoFilesPatch(filePath, filePath, contentOld, contentNew))
         await ctx.ask({
           permission: "edit",
@@ -131,8 +182,8 @@ export const EditTool = Tool.define("edit", {
       contentOld = await Filesystem.readText(filePath)
 
       const ending = detectLineEnding(contentOld)
-      const old = convertToLineEnding(normalizeLineEndings(params.oldString), ending)
-      const next = convertToLineEnding(normalizeLineEndings(params.newString), ending)
+      const old = convertToLineEnding(normalizeLineEndings(oldString), ending)
+      const next = convertToLineEnding(normalizeLineEndings(newString), ending)
 
       contentNew = replace(contentOld, old, next, params.replaceAll)
 
@@ -210,6 +261,13 @@ export const EditTool = Tool.define("edit", {
     }
   },
 })
+
+function hexLength(text: string) {
+  const compact = text.replace(/(?:0x|0X)/g, "").replace(/[\s,_]/g, "")
+  if (compact.length % 2 !== 0) throw new Error("Binary hex content must contain an even number of digits")
+  if (!/^[0-9a-fA-F]*$/.test(compact)) throw new Error("Binary hex content contains non-hex characters")
+  return compact.length / 2
+}
 
 export type Replacer = (content: string, find: string) => Generator<string, void, unknown>
 

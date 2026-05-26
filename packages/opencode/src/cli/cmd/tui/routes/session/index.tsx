@@ -2061,10 +2061,13 @@ function Bash(props: ToolProps<typeof BashTool | typeof ExBashTool>) {
   const sync = useSync()
   const info = createMemo(() => shellinput(props.input, normalizePath))
   const isRunning = createMemo(() => props.part.state.status === "running")
+  const meta = createMemo(() => props.metadata as Record<string, unknown>)
+  const id = createMemo(() => (typeof meta().asyncID === "string" ? meta().asyncID : undefined))
   const output = createMemo(() => {
-    const meta = typeof props.metadata.output === "string" ? props.metadata.output : undefined
-    const text = meta ?? (props.tool === "exbash" && info().mode === "attach" ? props.output : undefined)
-    return stripAnsi(text?.trim() ?? "")
+    const metaOutput = typeof meta().output === "string" ? meta().output : undefined
+    const propOutput = typeof props.output === "string" ? props.output : undefined
+    const text = props.tool === "exbash" && (info().mode === "attach" || detached()) ? propOutput ?? metaOutput : metaOutput
+    return stripAnsi(typeof text === "string" ? text.trim() : "")
   })
   const lines = createMemo(() => output().split("\n"))
   const overflow = createMemo(() => lines().length > 10 || output().length > 600)
@@ -2095,8 +2098,6 @@ function Bash(props: ToolProps<typeof BashTool | typeof ExBashTool>) {
   })
 
   const inline = createMemo(() => info().command)
-  const meta = createMemo(() => props.metadata as Record<string, unknown>)
-  const id = createMemo(() => (typeof meta().asyncID === "string" ? meta().asyncID : undefined))
   const exec = createMemo(() => {
     if (props.tool !== "exbash") return undefined
     const input = props.input as { executor?: unknown }
@@ -2223,6 +2224,8 @@ function Glob(props: ToolProps<typeof GlobTool>) {
 function Read(props: ToolProps<typeof ReadTool>) {
   const { theme } = useTheme()
   const isRunning = createMemo(() => props.part.state.status === "running")
+  const binary = createMemo(() => props.metadata.mode === "binary")
+  const preview = createMemo(() => (typeof props.metadata.preview === "string" ? props.metadata.preview : ""))
   const loaded = createMemo(() => {
     if (props.part.state.status !== "completed") return []
     if (props.part.state.time.compacted) return []
@@ -2232,18 +2235,27 @@ function Read(props: ToolProps<typeof ReadTool>) {
   })
   return (
     <>
-      <InlineTool
-        icon="→"
-        pending="Reading file..."
-        complete={props.input.filePath}
-        spinner={isRunning()}
-        part={props.part}
-        tool="Read"
-        input={props.input}
-        suffix={executor(props.input)}
+      <Show
+        when={binary() && preview()}
+        fallback={
+          <InlineTool
+            icon="→"
+            pending="Reading file..."
+            complete={props.input.filePath}
+            spinner={isRunning()}
+            part={props.part}
+            tool="Read"
+            input={props.input}
+            suffix={executor(props.input)}
+          >
+            Read {normalizePath(props.input.filePath!)} {input(props.input, ["filePath"])}
+          </InlineTool>
+        }
       >
-        Read {normalizePath(props.input.filePath!)} {input(props.input, ["filePath"])}
-      </InlineTool>
+        <BlockTool title={`# Read binary ${normalizePath(props.input.filePath!)}`} part={props.part} suffix={executor(props.input)}>
+          <text fg={theme.text}>{preview()}</text>
+        </BlockTool>
+      </Show>
       <For each={loaded()}>
         {(filepath) => (
           <box paddingLeft={3}>

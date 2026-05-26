@@ -20,7 +20,7 @@ const parameters = z.object({
   command: z
     .string()
     .optional()
-    .describe("Use for run mode. Command argv string parsed by REC without an implicit shell. Use an explicit shell such as bash -lc '...' for pipes, redirects, variables, or other shell syntax."),
+    .describe("Use for run mode. Command argv string parsed by REC without an implicit shell. Input must be at most 4KB. Use an explicit shell such as bash -lc '...' for pipes, redirects, variables, or other shell syntax."),
   description: z.string().optional().describe("Use for run mode. Clear, concise description of what this command does."),
   workdir: z.string().optional().describe("Use for run mode. Working directory. Defaults to the current opencode directory."),
   executor: z.string().optional().describe("RemoteExecutor executor id. Defaults to local."),
@@ -28,7 +28,7 @@ const parameters = z.object({
   scope: z.enum(["local", "workspace"]).optional().describe("Use for run and list modes. Defaults to local."),
   read_timeout: ms.describe("Use for run and attach modes. Optional read wait in milliseconds. Leave empty to use REC's default read wait. Use 0 to detach/read immediately."),
   asyncID: z.string().optional().describe("Use for list, attach, stop, and remove modes."),
-  text: z.string().optional().describe("Use for attach mode. Text to write to the running PTY before reading a snapshot. REC parses escape sequences in text; if escaping is awkward or fails, put the input in a text file and use filePath instead."),
+  text: z.string().optional().describe("Use for attach mode. Text to write to the running PTY before reading a snapshot. Input must be at most 4KB. REC parses escape sequences in text; if escaping is awkward or fails, put the input in a text file and use filePath instead."),
   filePath: z.string().optional().describe("Use for attach mode. Text file path whose bytes are written to the running PTY before reading a snapshot. Prefer this when text input needs exact bytes or would require difficult escaping."),
 })
 
@@ -225,10 +225,10 @@ async function input(ctx: Tool.Context, file: string) {
 export const ExBashTool = Tool.define("exbash", {
   description: [
     "Extended PTY command control surface backed by RemoteExecutor.",
-    "- mode omitted or mode=run: start a command and read output for read_timeout ms before returning. Use read_timeout=0 to detach immediately.",
+    "- mode omitted or mode=run: start a command and read output for read_timeout ms before returning. command input must be at most 4KB. Use read_timeout=0 to detach immediately.",
     "- run commands are parsed by REC as argv and are not wrapped in an implicit shell. For shell syntax like pipes, redirects, variables, cd, or compound commands, explicitly run a shell, for example: bash -lc 'echo hi | cat'.",
     "- mode=list: list REC exbash runs known to this opencode session/workspace, optionally filtered by asyncID or scope.",
-    "- mode=attach: write text or text-file bytes to a running PTY, wait read_timeout ms, and return a plain-text PTY snapshot. text is escape-parsed by REC; if text escaping is problematic, write the input to a text file and pass filePath.",
+    "- mode=attach: write text or text-file bytes to a running PTY, wait read_timeout ms, and return a plain-text PTY snapshot. text input must be at most 4KB. text is escape-parsed by REC; if text escaping is problematic, write the input to a text file and pass filePath.",
     "- mode=stop: stop a running task by asyncID.",
     "- mode=remove: remove a stopped or stale task by asyncID; remove also clears stale unknown records locally.",
     "- executor selects a configured RemoteExecutor executor. Omit it to use local.",

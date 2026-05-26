@@ -66,6 +66,23 @@ function mock() {
           output: "done\n",
         }
       }
+      if (args.command === "sleep snapshot") {
+        const id = `rex-test-${++seq}`
+        return {
+          title: String(args.description ?? args.command ?? "exbash"),
+          metadata: {
+            asyncID: id,
+            command: args.command,
+            description: args.description ?? args.command,
+            cwd: args.directory,
+            startedAt: Date.now(),
+            state: "running",
+            status: "running",
+            detached: true,
+          },
+          output: "before-detach\n",
+        }
+      }
       const id = `rex-test-${++seq}`
       return {
         title: String(args.description ?? args.command ?? "exbash"),
@@ -196,6 +213,22 @@ describe("tool.exbash", () => {
         await tool.execute({ command: "sleep 40", read_timeout: 40_000 }, await ctx("long run wait", dir))
 
         expect(calls.at(-1)).toMatchObject({ tool: "exbash", opts: { timeout: 45_000 } })
+      })
+    } finally {
+      call.mockRestore()
+    }
+  })
+
+  test.serial("returns detached run snapshot as output", async () => {
+    const call = mock()
+    try {
+      await repo(async (dir) => {
+        const tool = await ExBashTool.init()
+        const result = await tool.execute({ command: "sleep snapshot", read_timeout: 100 }, await ctx("detached snapshot", dir))
+
+        expect(result.output).toBe("before-detach\n")
+        expect(result.metadata).toMatchObject({ state: "running" })
+        expect(result.metadata.output).toBeUndefined()
       })
     } finally {
       call.mockRestore()

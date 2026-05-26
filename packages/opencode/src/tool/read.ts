@@ -13,6 +13,7 @@ export const ReadTool = Tool.define("read", {
   description: DESCRIPTION,
   parameters: z.object({
     filePath: z.string().describe("The absolute path to the file or directory to read"),
+    mode: z.enum(["text", "binary"]).optional().describe("Read mode. Defaults to text. Binary mode returns a hex dump and reads at most 128 bytes."),
     offset: z.coerce.number().describe("The line number to start reading from (1-indexed)").optional(),
     limit: z.coerce.number().describe("The maximum number of lines to read (defaults to 2000)").optional(),
     executor: z.string().optional().describe("RemoteExecutor executor id. Defaults to local."),
@@ -41,7 +42,7 @@ export const ReadTool = Tool.define("read", {
       })
     }
 
-    if (local && stat && !stat.isDirectory()) {
+    if (local && params.mode !== "binary" && stat && !stat.isDirectory()) {
       const mime = Filesystem.mimeType(filepath)
       const image = mime.startsWith("image/") && mime !== "image/svg+xml" && mime !== "image/vnd.fastbidsheet"
       const pdf = mime === "application/pdf"
@@ -72,6 +73,7 @@ export const ReadTool = Tool.define("read", {
       "read",
       {
         filePath: filepath,
+        ...(params.mode === undefined ? {} : { mode: params.mode }),
         ...(params.offset === undefined ? {} : { offset: params.offset }),
         ...(params.limit === undefined ? {} : { limit: params.limit }),
         ...(local ? {} : { executor }),

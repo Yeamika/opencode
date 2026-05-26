@@ -31,6 +31,22 @@ const PatchParams = z.object({
   executor: z.string().optional().describe("RemoteExecutor executor id. Defaults to local."),
 })
 
+function binaryPatchPaths(patchText: string) {
+  const paths = patchText
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .flatMap((line) => {
+      const write = line.match(/^\*\*\* Binary Write File:\s*(.+)$/)
+      if (write) return [write[1]!.trim()]
+      const update = line.match(/^\*\*\* Binary Update File:\s*(.+)$/)
+      if (update) return [update[1]!.trim()]
+      return []
+    })
+  if (paths.length === 0) throw new Error("binary patch requires Binary Write File or Binary Update File section")
+  return paths
+}
+
 export const ApplyPatchTool = Tool.define("apply_patch", {
   description: DESCRIPTION,
   parameters: PatchParams,
@@ -39,6 +55,7 @@ export const ApplyPatchTool = Tool.define("apply_patch", {
       throw new Error("patchText is required")
     }
     const executor = params.executor?.trim() || "local"
+    const binary = params.patchText.includes("*** Binary ")
     if (executor !== "local") {
       const result = await RemoteExecutor.call("apply_patch", { patchText: params.patchText, executor }, { signal: ctx.abort })
       const files = Array.isArray(result.metadata.files) ? (result.metadata.files as ViewFile[]) : []
@@ -49,6 +66,37 @@ export const ApplyPatchTool = Tool.define("apply_patch", {
           diff: typeof result.metadata.diff === "string" ? result.metadata.diff : "",
           files,
           diagnostics: {},
+        },
+      }
+    }
+
+    if (binary) {
+      const files = binaryPatchPaths(params.patchText)
+      for (const item of files) {
+        const filePath = path.resolve(Instance.directory, item)
+        await assertExternalDirectory(ctx, filePath)
+        await ctx.ask({
+          permission: "edit",
+          patterns: [path.relative(Instance.worktree, filePath)],
+          always: ["*"],
+          metadata: { filepath: filePath, diff: params.patchText },
+        })
+      }
+      const result = await RemoteExecutor.call("apply_patch", { patchText: params.patchText }, { signal: ctx.abort })
+      const filesMeta = Array.isArray(result.metadata.files) ? (result.metadata.files as ViewFile[]) : []
+      for (const file of filesMeta) {
+        Bus.publish(File.Event.Edited, { file: file.filePath })
+        await Bus.publish(FileWatcher.Event.Updated, { file: file.filePath, event: file.type === "add" || file.type === "binary-write" ? "add" : "change" })
+      }
+      const diagnostics = await LSP.diagnostics()
+      return {
+        ...result,
+        metadata: {
+          ...result.metadata,
+          diff: typeof result.metadata.diff === "string" ? result.metadata.diff : "",
+          files: filesMeta,
+          diagnostics,
+          binary: true,
         },
       }
     }
