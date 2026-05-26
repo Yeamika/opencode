@@ -229,8 +229,16 @@ export function Session() {
 
   function ptytBin() {
     const exe = process.platform === "win32" ? "ptyt.exe" : "ptyt"
-    const root = path.dirname(process.execPath)
-    return [exe, `.${exe}`].map((name) => path.join(root, name)).find((file) => fs.existsSync(file)) ?? exe
+    const roots = [process.execPath, real(process.execPath)].flatMap((file) => (file ? [path.dirname(file)] : [])).filter((item, index, all) => all.indexOf(item) === index)
+    return roots.flatMap((root) => [exe, `.${exe}`].map((name) => path.join(root, name))).find((file) => fs.existsSync(file)) ?? exe
+  }
+
+  function real(file: string) {
+    try {
+      return fs.realpathSync.native(file)
+    } catch {
+      return undefined
+    }
   }
 
   function ptytArgs(cmd: string) {
