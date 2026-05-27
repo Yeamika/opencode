@@ -14,17 +14,17 @@ const ms = z.preprocess((value) => (value === "" ? undefined : value), z.number(
 
 const parameters = z.object({
   mode: z
-    .enum(["run", "list", "attach", "stop", "remove"])
+    .enum(["run", "runexe", "list", "attach", "stop", "remove"])
     .optional()
-    .describe("Operation mode. Omit or use run to start a command; use attach to send input/read a PTY snapshot; use stop/remove to manage a task."),
+    .describe("Operation mode. Omit or use run to start a shell command through REC runbash; use runexe to execute command argv directly; use attach to send input/read a PTY snapshot; use stop/remove to manage a task."),
   command: z
     .string()
     .optional()
-    .describe("Use for run mode. Command argv string parsed by REC without an implicit shell. Input must be at most 4KB. Use an explicit shell such as bash -lc '...' for pipes, redirects, variables, or other shell syntax."),
+    .describe("Use for run/runexe mode. run wraps the command in the platform shell through REC runbash; runexe parses command argv directly without an implicit shell. Input must be at most 4KB."),
   description: z.string().optional().describe("Use for run mode. Clear, concise description of what this command does."),
   workdir: z.string().optional().describe("Use for run mode. Working directory. Defaults to the current opencode directory."),
   executor: z.string().optional().describe("RemoteExecutor executor id. Defaults to local."),
-  timeout: ms.describe("Use for run mode. Optional total runtime limit in milliseconds. Leave empty to use REC's default behavior: no total runtime limit."),
+  timeout: ms.describe("Use for run/runexe mode. Optional total runtime limit in milliseconds. Leave empty to use REC's default behavior: no total runtime limit."),
   scope: z.enum(["local", "workspace"]).optional().describe("Use for run and list modes. Defaults to local."),
   read_timeout: ms.describe("Use for run and attach modes. Optional read wait in milliseconds. Leave empty to use REC's default read wait. Use 0 to detach/read immediately."),
   asyncID: z.string().optional().describe("Use for list, attach, stop, and remove modes."),
@@ -216,6 +216,13 @@ async function command(ctx: Tool.Context, input: { command: string; workdir?: st
   return dir
 }
 
+async function shellCommand(ctx: Tool.Context, input: { workdir?: string }) {
+  const exec = await gate(ctx)
+  const dir = await cwd(input.workdir, exec.file)
+  if (!Instance.containsPath(dir)) await assertExternalDirectory(ctx, dir, { kind: "directory" })
+  return dir
+}
+
 async function input(ctx: Tool.Context, file: string) {
   const next = await resolvePath(file, Instance.directory, shell().file)
   await assertExternalDirectory(ctx, next, { kind: "file" })
@@ -225,8 +232,8 @@ async function input(ctx: Tool.Context, file: string) {
 export const ExBashTool = Tool.define("exbash", {
   description: [
     "Extended PTY command control surface backed by RemoteExecutor.",
-    "- mode omitted or mode=run: start a command and read output for read_timeout ms before returning. command input must be at most 4KB. Use read_timeout=0 to detach immediately.",
-    "- run commands are parsed by REC as argv and are not wrapped in an implicit shell. For shell syntax like pipes, redirects, variables, cd, or compound commands, explicitly run a shell, for example: bash -lc 'echo hi | cat'.",
+    "- mode omitted or mode=run: start a shell command through REC runbash and read output for read_timeout ms before returning. command input must be at most 4KB. Use read_timeout=0 to detach immediately.",
+    "- mode=runexe: execute command argv directly through REC runexe without an implicit shell. Use runexe for exact executable invocation; use run for shell syntax like pipes, redirects, variables, cd, or compound commands.",
     "- mode=list: list REC exbash runs known to this opencode session/workspace, optionally filtered by asyncID or scope.",
     "- mode=attach: write text or text-file bytes to a running PTY, wait read_timeout ms, and return a plain-text PTY snapshot. text input must be at most 4KB. text is escape-parsed by REC; if text escaping is problematic, write the input to a text file and pass filePath.",
     "- mode=stop: stop a running task by asyncID.",
@@ -234,8 +241,8 @@ export const ExBashTool = Tool.define("exbash", {
     "- executor selects a configured RemoteExecutor executor. Omit it to use local.",
     "- timeout and read_timeout are optional. Leave them empty for REC defaults. Use read_timeout=0 to return immediately after starting or attaching.",
     "Examples:",
-    '- run foreground-ish: {"command":"echo hello","description":"Print hello"}',
-    '- run shell syntax explicitly: {"command":"bash -lc \'echo hello | cat\'","description":"Print through a shell pipe"}',
+    '- run foreground-ish via shell: {"command":"echo hello","description":"Print hello"}',
+    '- runexe direct argv: {"mode":"runexe","command":"python --version","description":"Print Python version"}',
     '- detach immediately: {"command":"sleep 20","description":"Wait in PTY","read_timeout":0}',
     '- list: {"mode":"list"}',
     '- attach: {"mode":"attach","asyncID":"<asyncID>","text":"hello\\n","read_timeout":1000}',
@@ -247,9 +254,10 @@ export const ExBashTool = Tool.define("exbash", {
     const arg = clean(args) as z.infer<typeof parameters>
     const mode = arg.mode ?? "run"
 
-    if (mode === "run") {
+    if (mode === "run" || mode === "runexe") {
       const data = z
         .object({
+          mode: z.enum(["run", "runexe"]).optional(),
           command: z.string(),
           description: z.string().optional(),
           workdir: z.string().optional(),
@@ -261,11 +269,12 @@ export const ExBashTool = Tool.define("exbash", {
         .parse(arg)
       const exec = data.executor?.trim() || EXECUTOR
       await guard(ctx, { scope: data.scope, kind: "running" })
-      const dir = local(exec) ? await command(ctx, data) : await cwd(data.workdir, shell().file)
+      const dir = local(exec) ? (mode === "runexe" ? await command(ctx, data) : await shellCommand(ctx, data)) : await cwd(data.workdir, shell().file)
       const limit = budget(data.read_timeout)
       const result = await RemoteExecutor.call(
         "exbash",
         {
+          mode: mode === "run" ? "runbash" : "runexe",
           command: data.command,
           ...(data.description === undefined ? {} : { description: data.description }),
           ...(local(exec) ? {} : { executor: exec }),

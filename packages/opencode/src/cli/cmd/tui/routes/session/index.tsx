@@ -304,7 +304,7 @@ export function Session() {
     if (part.sessionID !== route.sessionID) return
     if (part.state.status !== "completed") return
     const mode = typeof part.state.input.mode === "string" ? part.state.input.mode : undefined
-    if (mode && mode !== "run") return
+    if (mode && mode !== "run" && mode !== "runexe") return
     const id = typeof part.state.metadata.asyncID === "string" ? part.state.metadata.asyncID : undefined
     const state = typeof part.state.metadata.state === "string" ? part.state.metadata.state : undefined
     if (!id || state !== "running") return
@@ -2104,7 +2104,7 @@ function Bash(props: ToolProps<typeof BashTool | typeof ExBashTool>) {
     const value = typeof meta().executor === "string" ? meta().executor : typeof input.executor === "string" ? input.executor : "local"
     return `[${value}]`
   })
-  const detached = createMemo(() => props.tool === "exbash" && (info().mode === undefined || info().mode === "run") && id() && meta().state === "running")
+  const detached = createMemo(() => props.tool === "exbash" && (info().mode === undefined || info().mode === "run" || info().mode === "runexe") && id() && meta().state === "running")
   const pending = createMemo(() => {
     if (info().mode === "attach") return "Attaching to async run..."
     if (info().mode === "list") return "Listing async runs..."

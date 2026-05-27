@@ -146,6 +146,28 @@ function mock() {
       output: JSON.stringify({ asyncID: args.asyncID, tool }),
     }
   })
+
+  test.serial("maps runexe to REC direct executable mode", async () => {
+    const call = mock()
+    try {
+      await repo(async (dir) => {
+        const tool = await ExBashTool.init()
+        await tool.execute({ mode: "runexe", command: "python --version", description: "Python version" }, await ctx("runexe", dir))
+
+        expect(calls[0]).toMatchObject({
+          tool: "exbash",
+          args: {
+            mode: "runexe",
+            command: "python --version",
+            description: "Python version",
+            directory: dir,
+          },
+        })
+      })
+    } finally {
+      call.mockRestore()
+    }
+  })
 }
 
 describe("tool.exbash", () => {
@@ -172,6 +194,7 @@ describe("tool.exbash", () => {
         expect(calls[0]).toMatchObject({
           tool: "exbash",
           args: {
+            mode: "runbash",
             command: "echo hello",
             description: "Echo hello",
             read_timeout: -1,

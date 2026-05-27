@@ -1,0 +1,12 @@
+[
+  {
+    "id": "osg-test-2",
+    "url": "ws://osg-test-2:9001",
+    "device": "osg-test-2",
+    "system": "linux",
+    "labels": {
+      "source": "Projet-Manger-tmp",
+      "container": "osg-test-2"
+    }
+  }
+]

@@ -40,6 +40,24 @@ describe("shellinput", () => {
     })
   })
 
+  test("formats runexe command details", () => {
+    expect(
+      shellinput(
+        {
+          mode: "runexe",
+          command: "python --version",
+        },
+        (value) => value ?? "",
+      ),
+    ).toEqual({
+      icon: "▶",
+      mode: "runexe",
+      command: "python --version",
+      description: "Run executable",
+      workdir: undefined,
+    })
+  })
+
   test("formats async list details", () => {
     expect(
       shellinput(

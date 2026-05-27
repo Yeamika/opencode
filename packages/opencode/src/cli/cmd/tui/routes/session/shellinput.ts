@@ -27,12 +27,12 @@ export function shellinput(input: Input, norm: (value?: string) => string) {
     }
   }
 
-  if (input.mode === undefined || input.mode === "run") {
+  if (input.mode === undefined || input.mode === "run" || input.mode === "runexe") {
     return {
-      icon: "$",
+      icon: input.mode === "runexe" ? "▶" : "$",
       mode: input.mode,
       command: input.command,
-      description: input.description,
+      description: input.description ?? (input.mode === "runexe" ? "Run executable" : undefined),
       workdir: input.workdir,
     }
   }
