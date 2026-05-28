@@ -54,7 +54,8 @@ async function repo<T>(fn: (dir: string) => Promise<T>) {
 function mock() {
   return spyOn(RemoteExecutor, "call").mockImplementation(async (tool, args, opts) => {
     calls.push({ tool, args, opts })
-    if (tool === "exbash") {
+    if (tool === "exbash_shell" && args.command === "fallback shell") throw new Error("unknown method: exbash_shell")
+    if (tool === "exbash" || tool === "exbash_shell") {
       if (args.command === "echo done") {
         return {
           title: String(args.description ?? args.command ?? "exbash"),
@@ -66,7 +67,7 @@ function mock() {
           output: "done\n",
         }
       }
-      if (args.command === "sleep snapshot") {
+      if (args.command === "sleep snapshot" || args.command === "empty detach") {
         const id = `rex-test-${++seq}`
         return {
           title: String(args.description ?? args.command ?? "exbash"),
@@ -80,7 +81,7 @@ function mock() {
             status: "running",
             detached: true,
           },
-          output: "before-detach\n",
+          output: args.command === "empty detach" ? "" : "before-detach\n",
         }
       }
       const id = `rex-test-${++seq}`
@@ -104,7 +105,7 @@ function mock() {
         title: "Async runs listed",
         metadata: {
           runs: calls
-            .filter((item) => item.tool === "exbash")
+            .filter((item) => item.tool === "exbash" || item.tool === "exbash_shell")
             .map((item, idx) => {
               const id = `rex-test-${idx + 1}`
               const stopped = calls.find((call) => call.tool === "exbash_stop" && call.args.asyncID === id)
@@ -157,7 +158,6 @@ function mock() {
         expect(calls[0]).toMatchObject({
           tool: "exbash",
           args: {
-            mode: "runexe",
             command: "python --version",
             description: "Python version",
             directory: dir,
@@ -192,9 +192,8 @@ describe("tool.exbash", () => {
         )
 
         expect(calls[0]).toMatchObject({
-          tool: "exbash",
+          tool: "exbash_shell",
           args: {
-            mode: "runbash",
             command: "echo hello",
             description: "Echo hello",
             read_timeout: -1,
@@ -206,6 +205,22 @@ describe("tool.exbash", () => {
         expect(result.metadata.executor).toBe("local")
         expect(result.metadata.workspace).toBeUndefined()
         expect(result.metadata.timeout).toBeUndefined()
+      })
+    } finally {
+      call.mockRestore()
+    }
+  })
+
+  test.serial("falls back to direct exbash shell argv for older REC", async () => {
+    const call = mock()
+    try {
+      await repo(async (dir) => {
+        const tool = await ExBashTool.init()
+        await tool.execute({ command: "fallback shell", description: "fallback" }, await ctx("fallback", dir))
+
+        expect(calls[0]).toMatchObject({ tool: "exbash_shell", args: { command: "fallback shell" } })
+        expect(calls[1]).toMatchObject({ tool: "exbash" })
+        expect(String(calls[1]?.args.command)).toContain("sh -c")
       })
     } finally {
       call.mockRestore()
@@ -235,7 +250,7 @@ describe("tool.exbash", () => {
         const tool = await ExBashTool.init()
         await tool.execute({ command: "sleep 40", read_timeout: 40_000 }, await ctx("long run wait", dir))
 
-        expect(calls.at(-1)).toMatchObject({ tool: "exbash", opts: { timeout: 45_000 } })
+        expect(calls.at(-1)).toMatchObject({ tool: "exbash_shell", opts: { timeout: 45_000 } })
       })
     } finally {
       call.mockRestore()
@@ -252,6 +267,22 @@ describe("tool.exbash", () => {
         expect(result.output).toBe("before-detach\n")
         expect(result.metadata).toMatchObject({ state: "running" })
         expect(result.metadata.output).toBeUndefined()
+      })
+    } finally {
+      call.mockRestore()
+    }
+  })
+
+  test.serial("shows async metadata when detached output is empty", async () => {
+    const call = mock()
+    try {
+      await repo(async (dir) => {
+        const tool = await ExBashTool.init()
+        const result = await tool.execute({ command: "empty detach", read_timeout: 0 }, await ctx("empty detach", dir))
+        const out = JSON.parse(result.output) as { asyncID: string; state: string }
+
+        expect(out.asyncID).toBe(result.metadata.asyncID as string)
+        expect(out.state).toBe("running")
       })
     } finally {
       call.mockRestore()
@@ -311,12 +342,14 @@ describe("tool.exbash", () => {
         const result = await tool.execute({ command: "sleep 1", read_timeout: 0, executor: "box" }, c)
         const id = result.metadata.asyncID as string
 
-        const local = JSON.parse((await tool.execute({ mode: "list", asyncID: id }, c)).output) as { runs: Array<unknown> }
+        const all = JSON.parse((await tool.execute({ mode: "list", asyncID: id }, c)).output) as { runs: Array<{ asyncID: string; executor: string }> }
+        const local = JSON.parse((await tool.execute({ mode: "list", asyncID: id, executor: "local" }, c)).output) as { runs: Array<unknown> }
         const remote = JSON.parse((await tool.execute({ mode: "list", asyncID: id, executor: "box" }, c)).output) as { runs: Array<{ asyncID: string; executor: string }> }
 
-        expect(calls[0]).toMatchObject({ tool: "exbash", args: { executor: "box" } })
+        expect(calls[0]).toMatchObject({ tool: "exbash_shell", args: { executor: "box" } })
         expect(calls).toContainEqual(expect.objectContaining({ tool: "exbash_list", args: { executor: "box", asyncID: id } }))
         expect(result.metadata.executor).toBe("box")
+        expect(all.runs).toMatchObject([{ asyncID: id, executor: "box" }])
         expect(local.runs).toHaveLength(0)
         expect(remote.runs).toMatchObject([{ asyncID: id, executor: "box" }])
       })
@@ -550,7 +583,7 @@ describe("tool.exbash", () => {
         )
 
         expect(calls).toHaveLength(1)
-        expect(calls[0]).toMatchObject({ tool: "exbash", args: { executor: "box", command: "echo remote" } })
+        expect(calls[0]).toMatchObject({ tool: "exbash_shell", args: { executor: "box", command: "echo remote" } })
       })
     } finally {
       call.mockRestore()

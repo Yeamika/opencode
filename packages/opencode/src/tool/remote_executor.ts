@@ -472,7 +472,7 @@ export namespace RemoteExecutor {
     } catch (error) {
       throw new Error(`invalid executor info JSON in ${file}: ${message(error)}`)
     }
-    const parsed = Reinfos.safeParse(json)
+    const parsed = Reinfos.safeParse(Array.isArray(json) ? { executors: json } : json)
     if (!parsed.success) throw new Error(`invalid executor info in ${file}:\n${issues(parsed.error)}`)
     check(file, parsed.data.executors)
     return parsed.data

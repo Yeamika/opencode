@@ -85,6 +85,11 @@ describe("tool.executorManager", () => {
       result = await tool.execute({ mode: "list" }, c)
       list = JSON.parse(result.output) as Out
       expect(list.executors.map((item) => item.id)).toEqual(["local", "shared"])
+
+      await Bun.write(path.join(dir, ".opencode", "remote_executor_infos.json"), JSON.stringify([{ id: "legacy", url: "ws://legacy:9001" }]))
+      result = await tool.execute({ mode: "list" }, c)
+      list = JSON.parse(result.output) as Out
+      expect(list.workspace.map((item) => item.id)).toEqual(["legacy"])
     })
   })
 })

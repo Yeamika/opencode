@@ -16,11 +16,11 @@ const parameters = z.object({
   mode: z
     .enum(["run", "runexe", "list", "attach", "stop", "remove"])
     .optional()
-    .describe("Operation mode. Omit or use run to start a shell command through REC runbash; use runexe to execute command argv directly; use attach to send input/read a PTY snapshot; use stop/remove to manage a task."),
+    .describe("Operation mode. Omit or use run to start a shell command through REC exbash_shell when available; use runexe to execute command argv directly through REC exbash; use attach to send input/read a PTY snapshot; use stop/remove to manage a task."),
   command: z
     .string()
     .optional()
-    .describe("Use for run/runexe mode. run wraps the command in the platform shell through REC runbash; runexe parses command argv directly without an implicit shell. Input must be at most 4KB."),
+    .describe("Use for run/runexe mode. run wraps the command in the platform shell through REC exbash_shell or a shell argv fallback; runexe parses command argv directly without an implicit shell. Input must be at most 4KB."),
   description: z.string().optional().describe("Use for run mode. Clear, concise description of what this command does."),
   workdir: z.string().optional().describe("Use for run mode. Working directory. Defaults to the current opencode directory."),
   executor: z.string().optional().describe("RemoteExecutor executor id. Defaults to local."),
@@ -176,8 +176,43 @@ async function known(ctx: Tool.Context, input?: { asyncID?: string; scope?: ExBa
     (item) =>
       (!input?.asyncID || item.asyncID === input.asyncID) &&
       (!input?.scope || item.scope === input.scope) &&
-      item.executor === (input?.executor ?? EXECUTOR),
+      (!input || input.executor === undefined || item.executor === input.executor),
   )
+}
+
+function runOutput(result: { output: string }, task?: ExBashTask.Info) {
+  if (!task || result.output) return result.output
+  return JSON.stringify(task, null, 2)
+}
+
+function quote(value: string) {
+  return `'${value.replaceAll("'", `'\\''`)}'`
+}
+
+function wrap(command: string) {
+  if (process.platform === "win32") return `powershell.exe -NoLogo -NoProfile -NonInteractive -Command ${quote(command)}`
+  return `sh -c ${quote(command)}`
+}
+
+function missing(error: unknown) {
+  return error instanceof Error && error.message.includes("exbash_shell") && (error.message.includes("unknown method") || error.message.includes("method not found"))
+}
+
+async function listed(exec: string, id: string | undefined, ctx: Tool.Context) {
+  if (local(exec)) {
+    await ctx.ask({
+      permission: "bash",
+      patterns: [id ? `exbash list ${id}` : "exbash list"],
+      always: ["exbash list *"],
+      metadata: {},
+    })
+  }
+  const result = await RemoteExecutor.call(
+    "exbash_list",
+    { ...(local(exec) ? {} : { executor: exec }), ...(id === undefined ? {} : { asyncID: id }) },
+    { signal: ctx.abort },
+  )
+  return arr(result.metadata.runs)
 }
 
 async function guard(ctx: Tool.Context, input: { scope?: ExBashTask.Scope; kind?: ReturnType<typeof kind> }) {
@@ -232,8 +267,8 @@ async function input(ctx: Tool.Context, file: string) {
 export const ExBashTool = Tool.define("exbash", {
   description: [
     "Extended PTY command control surface backed by RemoteExecutor.",
-    "- mode omitted or mode=run: start a shell command through REC runbash and read output for read_timeout ms before returning. command input must be at most 4KB. Use read_timeout=0 to detach immediately.",
-    "- mode=runexe: execute command argv directly through REC runexe without an implicit shell. Use runexe for exact executable invocation; use run for shell syntax like pipes, redirects, variables, cd, or compound commands.",
+    "- mode omitted or mode=run: start a shell command through REC exbash_shell when available, falling back to a shell argv wrapper for older REC, and read output for read_timeout ms before returning. command input must be at most 4KB. Use read_timeout=0 to detach immediately.",
+    "- mode=runexe: execute command argv directly through REC exbash without an implicit shell. Use runexe for exact executable invocation; use run for shell syntax like pipes, redirects, variables, cd, or compound commands.",
     "- mode=list: list REC exbash runs known to this opencode session/workspace, optionally filtered by asyncID or scope.",
     "- mode=attach: write text or text-file bytes to a running PTY, wait read_timeout ms, and return a plain-text PTY snapshot. text input must be at most 4KB. text is escape-parsed by REC; if text escaping is problematic, write the input to a text file and pass filePath.",
     "- mode=stop: stop a running task by asyncID.",
@@ -271,49 +306,43 @@ export const ExBashTool = Tool.define("exbash", {
       await guard(ctx, { scope: data.scope, kind: "running" })
       const dir = local(exec) ? (mode === "runexe" ? await command(ctx, data) : await shellCommand(ctx, data)) : await cwd(data.workdir, shell().file)
       const limit = budget(data.read_timeout)
-      const result = await RemoteExecutor.call(
-        "exbash",
-        {
-          mode: mode === "run" ? "runbash" : "runexe",
-          command: data.command,
-          ...(data.description === undefined ? {} : { description: data.description }),
-          ...(local(exec) ? {} : { executor: exec }),
-          ...(data.timeout === undefined ? {} : { timeout: data.timeout }),
-          ...(data.read_timeout === undefined ? {} : { read_timeout: data.read_timeout }),
-          directory: dir,
-        },
-        { signal: ctx.abort, ...(limit === undefined ? {} : { timeout: limit }) },
-      )
+      const body = {
+        command: data.command,
+        ...(data.description === undefined ? {} : { description: data.description }),
+        ...(local(exec) ? {} : { executor: exec }),
+        ...(data.timeout === undefined ? {} : { timeout: data.timeout }),
+        ...(data.read_timeout === undefined ? {} : { read_timeout: data.read_timeout }),
+        directory: dir,
+      }
+      const opts = { signal: ctx.abort, ...(limit === undefined ? {} : { timeout: limit }) }
+      const result = mode === "runexe"
+        ? await RemoteExecutor.call("exbash", body, opts)
+        : await RemoteExecutor.call("exbash_shell", body, opts).catch((error) => {
+            if (!missing(error)) throw error
+            return RemoteExecutor.call("exbash", { ...body, command: wrap(data.command) }, opts)
+          })
+      if (mode === "run") result.metadata.command = data.command
       const task = await save(ctx, result, { ...data, cwd: dir })
       if (!task) return result
       return {
         ...result,
         metadata: task,
+        output: runOutput(result, task),
       }
     }
 
     if (mode === "list") {
       const data = z.object({ asyncID: z.string().optional(), scope: z.enum(["local", "workspace"]).optional(), executor: z.string().optional() }).parse(arg)
-      const exec = data.executor?.trim() || EXECUTOR
-      if (local(exec)) {
-        await ctx.ask({
-          permission: "bash",
-          patterns: [data.asyncID ? `exbash list ${data.asyncID}` : "exbash list"],
-          always: ["exbash list *"],
-          metadata: {},
-        })
-      }
-      const result = await RemoteExecutor.call(
-        "exbash_list",
-        { ...(local(exec) ? {} : { executor: exec }), ...(data.asyncID === undefined ? {} : { asyncID: data.asyncID }) },
-        { signal: ctx.abort },
-      )
-      const remote = arr(result.metadata.runs)
-      const map = new Map(remote.map((item) => [text(item.asyncID), item]))
-      const list = await known(ctx, { ...data, executor: exec })
+      const exec = data.executor?.trim()
+      const list = await known(ctx, { ...data, ...(exec === undefined ? {} : { executor: exec }) })
+      const execs = exec === undefined ? [...new Set([EXECUTOR, ...list.map((item) => item.executor)])] : [exec || EXECUTOR]
+      const remote = (await Promise.all(execs.map(async (item) => (await listed(item, data.asyncID, ctx)).map((hit) => ({ ...hit, executor: item }))))).flat() as Array<
+        Record<string, unknown> & { executor: string }
+      >
+      const map = new Map(remote.map((item) => [`${item.executor}\0${text(item.asyncID)}`, item]))
       const ids = new Set(list.map((item) => item.asyncID))
-      const runs = await Promise.all(list.map((item) => sync(item, map.get(item.asyncID))))
-      const untracked = local(exec) || data.scope !== undefined
+      const runs = await Promise.all(list.map((item) => sync(item, map.get(`${item.executor}\0${item.asyncID}`))))
+      const untracked = exec === undefined || local(exec) || data.scope !== undefined
         ? []
         : remote.flatMap((item) => {
             const id = text(item.asyncID)
