@@ -2063,6 +2063,7 @@ function Bash(props: ToolProps<typeof BashTool | typeof ExBashTool>) {
   const isRunning = createMemo(() => props.part.state.status === "running")
   const meta = createMemo(() => props.metadata as Record<string, unknown>)
   const id = createMemo(() => (typeof meta().asyncID === "string" ? meta().asyncID : undefined))
+  const detached = createMemo(() => props.tool === "exbash" && (info().mode === undefined || info().mode === "run" || info().mode === "runexe") && id() && meta().state === "running")
   const output = createMemo(() => {
     const metaOutput = typeof meta().output === "string" ? meta().output : undefined
     const propOutput = typeof props.output === "string" ? props.output : undefined
@@ -2108,7 +2109,6 @@ function Bash(props: ToolProps<typeof BashTool | typeof ExBashTool>) {
     const value = typeof meta().executor === "string" ? meta().executor : typeof input.executor === "string" ? input.executor : "local"
     return `[${value}]`
   })
-  const detached = createMemo(() => props.tool === "exbash" && (info().mode === undefined || info().mode === "run" || info().mode === "runexe") && id() && meta().state === "running")
   const pending = createMemo(() => {
     if (info().mode === "attach") return "Attaching to async run..."
     if (info().mode === "list") return "Listing async runs..."
