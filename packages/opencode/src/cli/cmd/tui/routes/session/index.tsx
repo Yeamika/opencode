@@ -2069,8 +2069,12 @@ function Bash(props: ToolProps<typeof BashTool | typeof ExBashTool>) {
     const text = props.tool === "exbash" && (info().mode === "attach" || detached()) ? propOutput ?? metaOutput : metaOutput
     return stripAnsi(typeof text === "string" ? text.trim() : "")
   })
-  const lines = createMemo(() => output().split("\n"))
-  const overflow = createMemo(() => lines().length > 10 || output().length > 600)
+  const lines = createMemo(() => (output() || "").split("\n"))
+  const overflow = createMemo(() => {
+    const rows = lines() || []
+    const text = output() || ""
+    return rows.length > 10 || text.length > 600
+  })
 
   const workdirDisplay = createMemo(() => {
     const workdir = info().workdir
