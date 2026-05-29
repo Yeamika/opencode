@@ -57,13 +57,13 @@ jobs:
       - name: Build with cargo
         if: ${{ !matrix.cross }}
         run: |
-          cargo build --release --workspace --target ${{ matrix.target }}
+          cargo build --release --bin remote-caller-mcp --target ${{ matrix.target }}
           cargo build --release --manifest-path vendor/pty-t/Cargo.toml -p pty_t_client --bin ptyt --target ${{ matrix.target }} --target-dir target
 
       - name: Build with cross
         if: matrix.cross
         run: |
-          cross build --release --workspace --target ${{ matrix.target }}
+          cross build --release --bin remote-caller-mcp --target ${{ matrix.target }}
           cross build --release --manifest-path vendor/pty-t/Cargo.toml -p pty_t_client --bin ptyt --target ${{ matrix.target }} --target-dir target
 
       - name: Stage RemoteExecutor binary

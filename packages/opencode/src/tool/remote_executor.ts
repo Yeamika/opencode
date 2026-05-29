@@ -145,7 +145,8 @@ export namespace RemoteExecutor {
     const target = id.trim()
     if (!target) throw new Error("id is required for reconnect")
     const items = (await list(dir)).executors.filter((item) => item.scope !== "builtin" && item.id === target)
-    if (target && target !== "local" && items.length === 0) throw new Error(`executor not configured for this workspace: ${target}`)
+    if (target && target !== "local" && items.length === 0)
+      throw new Error(`executor not configured for this workspace: ${target}`)
     const cfg = await config()
     if (!cfg) throw new Error("Remote executor is not enabled")
     const proc = start(cfg)
@@ -194,7 +195,10 @@ export namespace RemoteExecutor {
     if (next === "local") throw new Error("local executor is built in and cannot be removed")
     const target = file(scope, dir)
     const data = await load(target)
-    await store(target, data.executors.filter((item) => item.id !== next))
+    await store(
+      target,
+      data.executors.filter((item) => item.id !== next),
+    )
   }
 
   export function files(dir = Instance.directory) {
@@ -266,13 +270,20 @@ export namespace RemoteExecutor {
   }
 
   function directory(args: Record<string, unknown>, executor = "local") {
-    const dir = typeof args.dir === "string" ? args.dir : typeof args.directory === "string" ? args.directory : Instance.directory
+    const dir =
+      typeof args.dir === "string" ? args.dir : typeof args.directory === "string" ? args.directory : Instance.directory
     if (executor !== "local") return dir
     return path.resolve(dir)
   }
 
   function target(args: Record<string, unknown>, executor?: string) {
-    const next = executor ?? (typeof args.executor === "string" ? args.executor : typeof args.targetExecutor === "string" ? args.targetExecutor : undefined)
+    const next =
+      executor ??
+      (typeof args.executor === "string"
+        ? args.executor
+        : typeof args.targetExecutor === "string"
+          ? args.targetExecutor
+          : undefined)
     return next?.trim() || "local"
   }
 
@@ -489,7 +500,8 @@ export namespace RemoteExecutor {
   function check(file: string, executors: Info[]) {
     const ids = new Set<string>()
     for (const item of executors) {
-      if (item.id === "local") throw new Error(`invalid executor info in ${file}: local executor is built in and cannot be configured`)
+      if (item.id === "local")
+        throw new Error(`invalid executor info in ${file}: local executor is built in and cannot be configured`)
       if (ids.has(item.id)) throw new Error(`invalid executor info in ${file}: duplicate executor id ${item.id}`)
       ids.add(item.id)
     }
@@ -522,7 +534,9 @@ export namespace RemoteExecutor {
   }
 
   function clean(item: Info) {
-    const labels = item.labels ? Object.fromEntries(Object.entries(item.labels).sort(([a], [b]) => a.localeCompare(b))) : undefined
+    const labels = item.labels
+      ? Object.fromEntries(Object.entries(item.labels).sort(([a], [b]) => a.localeCompare(b)))
+      : undefined
     return {
       id: item.id,
       url: item.url,
