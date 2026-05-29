@@ -16,11 +16,11 @@ const parameters = z.object({
   mode: z
     .enum(["run", "runexe", "list", "attach", "stop", "remove"])
     .optional()
-    .describe("Operation mode. Omit or use run to start a shell command through REC exbash_shell when available; use runexe to execute command argv directly through REC exbash; use attach to send input/read a PTY snapshot; use stop/remove to manage a task."),
+    .describe("Operation mode. Omit or use run to start a shell command through REC exbash_shell; use runexe to execute command argv directly through REC exbash; use attach to send input/read a PTY snapshot; use stop/remove to manage a task."),
   command: z
     .string()
     .optional()
-    .describe("Use for run/runexe mode. run wraps the command in the platform shell through REC exbash_shell or a shell argv fallback; runexe parses command argv directly without an implicit shell. Input must be at most 4KB."),
+    .describe("Use for run/runexe mode. run wraps the command in the platform shell through REC exbash_shell; runexe parses command argv directly without an implicit shell. Input must be at most 4KB."),
   description: z.string().optional().describe("Use for run mode. Clear, concise description of what this command does."),
   workdir: z.string().optional().describe("Use for run mode. Working directory. Defaults to the current opencode directory."),
   executor: z.string().optional().describe("RemoteExecutor executor id. Defaults to local."),
@@ -185,19 +185,6 @@ function runOutput(result: { output: string }, task?: ExBashTask.Info) {
   return JSON.stringify(task, null, 2)
 }
 
-function quote(value: string) {
-  return `'${value.replaceAll("'", `'\\''`)}'`
-}
-
-function wrap(command: string) {
-  if (process.platform === "win32") return `powershell.exe -NoLogo -NoProfile -NonInteractive -Command ${quote(command)}`
-  return `sh -c ${quote(command)}`
-}
-
-function missing(error: unknown) {
-  return error instanceof Error && error.message.includes("exbash_shell") && (error.message.includes("unknown method") || error.message.includes("method not found"))
-}
-
 async function listed(exec: string, id: string | undefined, ctx: Tool.Context) {
   if (local(exec)) {
     await ctx.ask({
@@ -267,7 +254,7 @@ async function input(ctx: Tool.Context, file: string) {
 export const ExBashTool = Tool.define("exbash", {
   description: [
     "Extended PTY command control surface backed by RemoteExecutor.",
-    "- mode omitted or mode=run: start a shell command through REC exbash_shell when available, falling back to a shell argv wrapper for older REC, and read output for read_timeout ms before returning. command input must be at most 4KB. Use read_timeout=0 to detach immediately.",
+    "- mode omitted or mode=run: start a shell command through REC exbash_shell and read output for read_timeout ms before returning. command input must be at most 4KB. Use read_timeout=0 to detach immediately.",
     "- mode=runexe: execute command argv directly through REC exbash without an implicit shell. Use runexe for exact executable invocation; use run for shell syntax like pipes, redirects, variables, cd, or compound commands.",
     "- mode=list: list REC exbash runs known to this opencode session/workspace, optionally filtered by asyncID or scope.",
     "- mode=attach: write text or text-file bytes to a running PTY, wait read_timeout ms, and return a plain-text PTY snapshot. text input must be at most 4KB. text is escape-parsed by REC; if text escaping is problematic, write the input to a text file and pass filePath.",
@@ -315,12 +302,7 @@ export const ExBashTool = Tool.define("exbash", {
         directory: dir,
       }
       const opts = { signal: ctx.abort, ...(limit === undefined ? {} : { timeout: limit }) }
-      const result = mode === "runexe"
-        ? await RemoteExecutor.call("exbash", body, opts)
-        : await RemoteExecutor.call("exbash_shell", body, opts).catch((error) => {
-            if (!missing(error)) throw error
-            return RemoteExecutor.call("exbash", { ...body, command: wrap(data.command) }, opts)
-          })
+      const result = await RemoteExecutor.call(mode === "runexe" ? "exbash" : "exbash_shell", body, opts)
       if (mode === "run") result.metadata.command = data.command
       const task = await save(ctx, result, { ...data, cwd: dir })
       if (!task) return result

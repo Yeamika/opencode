@@ -54,7 +54,6 @@ async function repo<T>(fn: (dir: string) => Promise<T>) {
 function mock() {
   return spyOn(RemoteExecutor, "call").mockImplementation(async (tool, args, opts) => {
     calls.push({ tool, args, opts })
-    if (tool === "exbash_shell" && args.command === "fallback shell") throw new Error("unknown method: exbash_shell")
     if (tool === "exbash" || tool === "exbash_shell") {
       if (args.command === "echo done") {
         return {
@@ -205,22 +204,6 @@ describe("tool.exbash", () => {
         expect(result.metadata.executor).toBe("local")
         expect(result.metadata.workspace).toBeUndefined()
         expect(result.metadata.timeout).toBeUndefined()
-      })
-    } finally {
-      call.mockRestore()
-    }
-  })
-
-  test.serial("falls back to direct exbash shell argv for older REC", async () => {
-    const call = mock()
-    try {
-      await repo(async (dir) => {
-        const tool = await ExBashTool.init()
-        await tool.execute({ command: "fallback shell", description: "fallback" }, await ctx("fallback", dir))
-
-        expect(calls[0]).toMatchObject({ tool: "exbash_shell", args: { command: "fallback shell" } })
-        expect(calls[1]).toMatchObject({ tool: "exbash" })
-        expect(String(calls[1]?.args.command)).toContain("sh -c")
       })
     } finally {
       call.mockRestore()
