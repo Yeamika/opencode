@@ -22,10 +22,10 @@ export const ReadTool = Tool.define("read", {
     if (params.offset !== undefined && params.offset < 1) {
       throw new Error("offset must be greater than or equal to 1")
     }
-    const file = path.isAbsolute(params.filePath) ? params.filePath : path.resolve(Instance.directory, params.filePath)
-    const filepath = process.platform === "win32" ? Filesystem.normalizePath(file) : file
     const executor = params.executor?.trim() || "local"
     const local = executor === "local"
+    const file = local ? (path.isAbsolute(params.filePath) ? params.filePath : path.resolve(Instance.directory, params.filePath)) : params.filePath
+    const filepath = local && process.platform === "win32" ? Filesystem.normalizePath(file) : file
     const stat = local ? Filesystem.stat(filepath) : undefined
 
     if (local) {

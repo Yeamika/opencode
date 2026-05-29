@@ -10,6 +10,7 @@ import { Timestamps } from "../storage/schema.sql"
 
 type PartData = Omit<MessageV2.Part, "id" | "sessionID" | "messageID">
 type InfoData = Omit<MessageV2.Info, "id" | "sessionID">
+type ExBashExitCode = number | "stopped" | "timeout"
 
 export const SessionTable = sqliteTable(
   "session",
@@ -110,7 +111,7 @@ export const ExBashTaskTable = sqliteTable(
     cwd: text().notNull(),
     time_start: integer().notNull(),
     time_end: integer(),
-    exit_code: integer(),
+    exit_code: text().$type<ExBashExitCode>(),
     ...Timestamps,
   },
   (table) => [

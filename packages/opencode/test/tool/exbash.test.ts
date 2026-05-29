@@ -115,7 +115,7 @@ function mock() {
                 cwd: item.args.directory,
                 state: stopped ? "stopped" : "running",
                 status: stopped ? "stopped (exit 0)" : "running",
-                ...(stopped ? { exitCode: 0, endedAt: Date.now() } : {}),
+                ...(stopped ? { exitCode: "stopped", endedAt: Date.now() } : {}),
                 startedAt: Date.now(),
               }
             }),
@@ -133,7 +133,7 @@ function mock() {
           cwd: "bad cwd",
           timeout: null,
           state: "stopped",
-          exitCode: 0,
+          exitCode: "stopped",
           endedAt: Date.now(),
           totalOutput: 5,
         },
@@ -341,6 +341,29 @@ describe("tool.exbash", () => {
     }
   })
 
+  test.serial("infers remote executor for remembered task controls", async () => {
+    const call = mock()
+    try {
+      await repo(async (dir) => {
+        const tool = await ExBashTool.init()
+        const c = await ctx("remote inferred control", dir)
+        const result = await tool.execute({ command: "cat", read_timeout: 0, executor: "box", scope: "workspace" }, c)
+        const id = result.metadata.asyncID as string
+        calls.length = 0
+
+        await tool.execute({ mode: "attach", asyncID: id, text: "x" }, c)
+        await tool.execute({ mode: "stop", asyncID: id }, c)
+        await tool.execute({ mode: "remove", asyncID: id }, c)
+
+        expect(calls).toContainEqual(expect.objectContaining({ tool: "exbash_attach", args: expect.objectContaining({ executor: "box", asyncID: id }) }))
+        expect(calls).toContainEqual(expect.objectContaining({ tool: "exbash_stop", args: expect.objectContaining({ executor: "box", asyncID: id }) }))
+        expect(calls).toContainEqual(expect.objectContaining({ tool: "exbash_remove", args: expect.objectContaining({ executor: "box", asyncID: id }) }))
+      })
+    } finally {
+      call.mockRestore()
+    }
+  })
+
   test.serial("marks a remembered run unknown when REC no longer lists it", async () => {
     const call = mock()
     try {
@@ -520,7 +543,7 @@ describe("tool.exbash", () => {
           command: "sleep 1",
           cwd: dir,
           state: "stopped",
-          exitCode: 0,
+          exitCode: "stopped",
         })
         expect(stopped.metadata.timeout).toBeUndefined()
         expect(first?.endedAt).toBe(second?.endedAt)

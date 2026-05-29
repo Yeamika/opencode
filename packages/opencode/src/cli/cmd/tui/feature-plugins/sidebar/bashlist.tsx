@@ -12,7 +12,8 @@ type Job = ReturnType<TuiPluginApi["state"]["session"]["exbash"]>[number]
 function status(job: Job) {
   if (job.state === "running") return "running"
   if (job.state === "unknown") return "unknown"
-  return `stopped${job.exitCode === undefined ? "" : ` (exit ${job.exitCode})`}`
+  if (job.exitCode === undefined) return "stopped"
+  return `stopped (${typeof job.exitCode === "number" ? `exit ${job.exitCode}` : job.exitCode})`
 }
 
 function subtitle(job: Job) {
@@ -88,7 +89,7 @@ function Detail(props: { api: TuiPluginApi; session_id: string; job: Job }) {
           <Show when={props.job.exitCode !== undefined}>
             <box flexDirection="column">
               <text fg={theme().textMuted}>exit code</text>
-              <text fg={(props.job.exitCode ?? -1) === 0 ? theme().success : theme().error}>{props.job.exitCode}</text>
+              <text fg={props.job.exitCode === 0 ? theme().success : props.job.exitCode === "stopped" ? theme().warning : theme().error}>{props.job.exitCode}</text>
             </box>
           </Show>
           <Show when={props.job.totalOutput !== undefined}>
@@ -150,7 +151,7 @@ function icon(props: { api: TuiPluginApi; job: Job }) {
   if (props.job.state === "running") return <Spinner color={theme().info} />
   if (props.job.state === "unknown") return <text fg={theme().warning}>[?]</text>
   if (props.job.exitCode === 0) return <text fg={theme().success}>[✓]</text>
-  if (props.job.exitCode === undefined) return <text fg={theme().warning}>[■]</text>
+  if (props.job.exitCode === undefined || props.job.exitCode === "stopped") return <text fg={theme().warning}>[■]</text>
   return <text fg={theme().error}>[E]</text>
 }
 

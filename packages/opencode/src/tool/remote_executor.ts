@@ -100,11 +100,11 @@ export namespace RemoteExecutor {
     const cfg = await config()
     if (!cfg) throw new Error("Remote executor is not enabled")
     const timeout = opts?.timeout ?? cfg.timeout
-    const dir = directory(args)
     const executor = target(args, opts?.executor)
+    const dir = directory(args, executor)
     const proc = start(cfg)
     await proc.ready
-    if (executor !== "local") await ensure(proc, dir, executor, timeout)
+    if (executor !== "local") await ensure(proc, Instance.directory, executor, timeout)
     const result = await request(
       proc,
       "tools/call",
@@ -265,8 +265,9 @@ export namespace RemoteExecutor {
     return next.endsWith("\n") ? next.slice(0, -1).split("\n") : next.split("\n")
   }
 
-  function directory(args: Record<string, unknown>) {
+  function directory(args: Record<string, unknown>, executor = "local") {
     const dir = typeof args.dir === "string" ? args.dir : typeof args.directory === "string" ? args.directory : Instance.directory
+    if (executor !== "local") return dir
     return path.resolve(dir)
   }
 

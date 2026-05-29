@@ -12,6 +12,8 @@ export namespace ExBashTask {
   export type Scope = z.infer<typeof Scope>
   export const State = z.enum(["running", "stopped", "unknown"])
   export type State = z.infer<typeof State>
+  export const ExitCode = z.union([z.number(), z.enum(["stopped", "timeout"])])
+  export type ExitCode = z.infer<typeof ExitCode>
 
   export const Info = z
     .object({
@@ -25,7 +27,7 @@ export namespace ExBashTask {
       totalOutput: z.number().optional(),
       startedAt: z.number(),
       endedAt: z.number().optional(),
-      exitCode: z.number().optional(),
+      exitCode: ExitCode.optional(),
       state: State,
       memory: z.boolean().optional(),
       error: z.string().optional(),
@@ -49,7 +51,7 @@ export namespace ExBashTask {
     readonly get: (input: { sessionID: SessionID; workspace: string }) => Effect.Effect<Info[]>
     readonly one: (input: { sessionID: SessionID; workspace: string; executor: string; asyncID: string }) => Effect.Effect<Info | undefined>
     readonly start: (input: Omit<Entry, "state" | "exitCode" | "endedAt">) => Effect.Effect<Info>
-    readonly finish: (input: { executor: string; asyncID: string; exitCode: number; endedAt: number; totalOutput?: number; error?: string }) => Effect.Effect<Info | undefined>
+    readonly finish: (input: { executor: string; asyncID: string; exitCode: ExitCode; endedAt: number; totalOutput?: number; error?: string }) => Effect.Effect<Info | undefined>
     readonly lost: (input: { executor: string; asyncID: string }) => Effect.Effect<Info | undefined>
     readonly remove: (input: { sessionID: SessionID; workspace: string; executor: string; asyncID: string }) => Effect.Effect<void>
   }
@@ -89,6 +91,12 @@ export namespace ExBashTask {
 
       const state = (r: typeof ExBashTaskTable.$inferSelect) => (r.time_end === null ? "unknown" : "stopped") as State
 
+      const exit = (value: unknown) => {
+        if (typeof value === "string" && /^-?\d+$/.test(value)) return Number(value)
+        const result = ExitCode.safeParse(value)
+        return result.success ? result.data : undefined
+      }
+
       const row = (r: typeof ExBashTaskTable.$inferSelect): Entry => ({
         asyncID: r.async_id,
         sessionID: r.session_id,
@@ -100,7 +108,7 @@ export namespace ExBashTask {
         cwd: r.cwd,
         startedAt: r.time_start,
         endedAt: r.time_end ?? undefined,
-        exitCode: r.exit_code ?? undefined,
+        exitCode: exit(r.exit_code),
         state: state(r),
       })
 
@@ -208,7 +216,7 @@ export namespace ExBashTask {
       )
 
       const finish = Effect.fn("ExBashTask.finish")(
-        function* (input: { executor: string; asyncID: string; exitCode: number; endedAt: number; totalOutput?: number; error?: string }) {
+        function* (input: { executor: string; asyncID: string; exitCode: ExitCode; endedAt: number; totalOutput?: number; error?: string }) {
           const ref = idx.get(key(input))
           if (!ref) return undefined
           const map = ref.scope === "workspace" ? ws.get(ref.workspace) : ses.get(ref.sessionID)
@@ -227,7 +235,7 @@ export namespace ExBashTask {
             Database.use((db) =>
               db
                 .update(ExBashTaskTable)
-                .set({ time_end: task.endedAt, exit_code: input.exitCode })
+                .set({ time_end: task.endedAt, exit_code: input.exitCode as never })
                 .where(
                   and(
                     eq(ExBashTaskTable.async_id, input.asyncID),
@@ -312,7 +320,7 @@ export namespace ExBashTask {
     return runPromise((svc) => svc.start(input))
   }
 
-  export async function finish(input: { executor: string; asyncID: string; exitCode: number; endedAt: number; totalOutput?: number; error?: string }) {
+  export async function finish(input: { executor: string; asyncID: string; exitCode: ExitCode; endedAt: number; totalOutput?: number; error?: string }) {
     return runPromise((svc) => svc.finish(input))
   }
 

@@ -62,6 +62,12 @@ function num(value: unknown) {
   return typeof value === "number" ? value : undefined
 }
 
+function exit(value: unknown) {
+  if (typeof value === "string" && /^-?\d+$/.test(value)) return Number(value)
+  const parsed = ExBashTask.ExitCode.safeParse(value)
+  return parsed.success ? parsed.data : undefined
+}
+
 function wait(input: { read_timeout?: number; timeout?: number }) {
   if (input.read_timeout !== undefined && input.read_timeout !== 0) return input.read_timeout
   if (input.timeout !== undefined && input.timeout !== 0) return input.timeout
@@ -111,7 +117,7 @@ function merge(base: ExBashTask.Info, hit?: Record<string, unknown>): ExBashTask
     pid: num(hit.pid),
     totalOutput: num(hit.totalOutput) ?? base.totalOutput,
     state,
-    exitCode: num(hit.exitCode) ?? base.exitCode,
+    exitCode: exit(hit.exitCode) ?? base.exitCode,
     command: base.command,
     description: base.description,
     cwd: base.cwd,
@@ -178,6 +184,12 @@ async function known(ctx: Tool.Context, input?: { asyncID?: string; scope?: ExBa
       (!input?.scope || item.scope === input.scope) &&
       (!input || input.executor === undefined || item.executor === input.executor),
   )
+}
+
+async function lookup(ctx: Tool.Context, asyncID: string, executor?: string) {
+  const exec = executor?.trim()
+  if (exec) return ExBashTask.one({ sessionID: ctx.sessionID, workspace: workspace(ctx), executor: exec, asyncID })
+  return (await ExBashTask.get({ sessionID: ctx.sessionID, workspace: workspace(ctx) })).find((task) => task.asyncID === asyncID)
 }
 
 function runOutput(result: { output: string }, task?: ExBashTask.Info) {
@@ -291,7 +303,7 @@ export const ExBashTool = Tool.define("exbash", {
         .parse(arg)
       const exec = data.executor?.trim() || EXECUTOR
       await guard(ctx, { scope: data.scope, kind: "running" })
-      const dir = local(exec) ? (mode === "runexe" ? await command(ctx, data) : await shellCommand(ctx, data)) : await cwd(data.workdir, shell().file)
+      const dir = local(exec) ? (mode === "runexe" ? await command(ctx, data) : await shellCommand(ctx, data)) : (data.workdir ?? Instance.directory)
       const limit = budget(data.read_timeout)
       const body = {
         command: data.command,
@@ -348,7 +360,8 @@ export const ExBashTool = Tool.define("exbash", {
       if (data.text !== undefined && data.filePath !== undefined) throw new Error("Provide only one of text or filePath for attach mode")
       const read_timeout = wait(data)
       const limit = budget(read_timeout)
-      const exec = data.executor?.trim() || EXECUTOR
+      const task = await lookup(ctx, data.asyncID, data.executor)
+      const exec = data.executor?.trim() || task?.executor || EXECUTOR
       if (local(exec)) {
         await ctx.ask({
           permission: "bash",
@@ -357,7 +370,6 @@ export const ExBashTool = Tool.define("exbash", {
           metadata: {},
         })
       }
-      const task = await ExBashTask.one({ sessionID: ctx.sessionID, workspace: workspace(ctx), executor: exec, asyncID: data.asyncID })
       if (!task && local(exec)) throw new Error(`Async run not found: ${data.asyncID}`)
       if (task?.state === "unknown") throw new Error(`Async run state unknown: ${data.asyncID}`)
       const result = await RemoteExecutor.call(
@@ -383,7 +395,8 @@ export const ExBashTool = Tool.define("exbash", {
     }
 
     const data = z.object({ mode: z.enum(["stop", "remove"]), asyncID: z.string(), executor: z.string().optional() }).parse(arg)
-    const exec = data.executor?.trim() || EXECUTOR
+    const task = await lookup(ctx, data.asyncID, data.executor)
+    const exec = data.executor?.trim() || task?.executor || EXECUTOR
     if (local(exec)) {
       await ctx.ask({
         permission: "bash",
@@ -392,7 +405,6 @@ export const ExBashTool = Tool.define("exbash", {
         metadata: {},
       })
     }
-    const task = await ExBashTask.one({ sessionID: ctx.sessionID, workspace: workspace(ctx), executor: exec, asyncID: data.asyncID })
     if (!task && !local(exec) && data.mode === "stop") {
       const result = await RemoteExecutor.call("exbash_stop", { asyncID: data.asyncID, executor: exec }, { signal: ctx.abort })
       const next = { ...result.metadata, asyncID: data.asyncID, executor: exec, tracked: false }
