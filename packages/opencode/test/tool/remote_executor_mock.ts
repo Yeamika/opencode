@@ -147,10 +147,8 @@ export function mockRemoteExecutor() {
           relativePath: path.basename(filePath),
           type: "binary-update",
           diff: `Binary update: ${path.basename(filePath)}\n- ${before.length} bytes: ${hex(before)}\n+ ${after.length} bytes: ${hex(after)}\n`,
-          before: hex(before),
-          after: hex(after),
-          additions: 0,
-          deletions: 0,
+          additions: after.length,
+          deletions: before.length,
         }
         return {
           title: `Success. Updated file:\nM ${path.basename(filePath)}`,
@@ -169,8 +167,6 @@ export function mockRemoteExecutor() {
         relativePath: path.basename(filePath),
         type: "update",
         diff: "",
-        before,
-        after,
         additions: 0,
         deletions: 0,
       }

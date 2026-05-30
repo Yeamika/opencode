@@ -18,8 +18,6 @@ type ViewFile = {
   relativePath: string
   type: string
   diff: string
-  before: string
-  after: string
   additions: number
   deletions: number
   movePath?: string
@@ -56,21 +54,29 @@ function bytesHex(bytes: Uint8Array, max = 128) {
   return bytes.length > max ? `${value} ...` : value
 }
 
-function binarySummaryDiff(filePath: string, beforeHex: string, afterHex: string) {
+function binarySummaryDiff(filePath: string, before: string, after: string) {
   return createTwoFilesPatch(
     filePath,
     filePath,
-    `Binary before: ${beforeHex}\n`,
-    `Binary after:  ${afterHex}\n`,
+    `Binary before: ${before}\n`,
+    `Binary after:  ${after}\n`,
   )
+}
+
+function binarySummaryFromDiff(diff: string) {
+  const before = /^-\s+(.+)$/m.exec(diff)?.[1]
+  const after = /^\+\s+(.+)$/m.exec(diff)?.[1]
+  if (!before || !after) return undefined
+  return { before, after }
 }
 
 function sanitizeFile(file: ViewFile) {
   let diff = file.diff
   if (file.type === "binary-update") {
-    diff = binarySummaryDiff(file.relativePath || file.filePath, file.before, file.after)
+    const summary = binarySummaryFromDiff(file.diff)
+    if (summary) diff = binarySummaryDiff(file.relativePath || file.filePath, summary.before, summary.after)
   }
-  return { ...file, diff, before: "", after: "" }
+  return { ...file, diff }
 }
 
 function applyBinaryPatch(before: Uint8Array, patchText: string) {
