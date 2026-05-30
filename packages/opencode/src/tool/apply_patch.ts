@@ -67,9 +67,9 @@ function binaryDiff(filePath: string, beforeHex: string, afterHex: string) {
 function binaryFile(file: ViewFile) {
   if (file.type !== "binary-update") return file
   try {
-    return { ...file, diff: binaryDiff(file.relativePath || file.filePath, file.before, file.after) }
+    return { ...file, diff: binaryDiff(file.relativePath || file.filePath, file.before, file.after), before: "", after: "" }
   } catch {
-    return file
+    return { ...file, before: "", after: "" }
   }
 }
 

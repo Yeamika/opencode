@@ -166,20 +166,10 @@ export const BatchTool = Tool.define("batch", async () => {
       const successfulCalls = results.filter((r) => r.success).length
       const failedCalls = results.length - successfulCalls
 
-      const summary =
+      const outputMessage =
         failedCalls > 0
           ? `Executed ${successfulCalls}/${results.length} tools successfully. ${failedCalls} failed.`
           : `All ${successfulCalls} tools executed successfully.\n\nKeep using the batch tool for optimal performance in your next response!`
-      const outputMessage = [
-        summary,
-        "",
-        ...results.map((result) => {
-          const header = `${result.index + 1}. ${result.tool}: ${result.success ? "success" : "failed"}`
-          if (!result.success) return `${header}\n${errorMessage(result.error)}`
-          const title = result.result.title ? `title: ${result.result.title}\n` : ""
-          return `${header}\n${title}${result.result.output}`
-        }),
-      ].join("\n\n")
 
       return {
         title: `Batch execution (${successfulCalls}/${results.length} successful)`,
@@ -192,7 +182,7 @@ export const BatchTool = Tool.define("batch", async () => {
           tools: params.tool_calls.map((c) => c.tool),
           details: results.map((result) =>
             result.success
-              ? { index: result.index, tool: result.tool, success: true, title: result.result.title, metadata: result.result.metadata }
+              ? { index: result.index, tool: result.tool, success: true, title: result.result.title }
               : { index: result.index, tool: result.tool, success: false, error: errorMessage(result.error) },
           ),
         },

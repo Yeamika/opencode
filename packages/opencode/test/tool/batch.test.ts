@@ -38,14 +38,14 @@ describe("tool.batch", () => {
         )
         expect(result.metadata.successful).toBe(1)
         expect(result.metadata.failed).toBe(1)
-        expect(result.output).toContain("1. invalid: success")
-        expect(result.output).toContain("The arguments provided to the tool are invalid: bad input")
-        expect(result.output).toContain("2. missingTool: failed")
-        expect(result.output).toContain("Tool 'missingTool' not in registry")
+        expect(result.output).toBe("Executed 1/2 tools successfully. 1 failed.")
         expect(result.metadata.details).toEqual([
-          { index: 0, tool: "invalid", success: true, title: "Invalid Tool", metadata: { truncated: false } },
+          { index: 0, tool: "invalid", success: true, title: "Invalid Tool" },
           expect.objectContaining({ index: 1, tool: "missingTool", success: false }),
         ])
+        expect(result.metadata.details[1]).toMatchObject({
+          error: expect.stringContaining("Tool 'missingTool' not in registry"),
+        })
       },
     })
   })
