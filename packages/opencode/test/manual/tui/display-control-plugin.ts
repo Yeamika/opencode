@@ -34,7 +34,8 @@ const plugin: TuiPluginModule = {
       {
         title: "Attach To Current Session",
         value: "display.attach.current",
-        description: "Attach the current display to its current running session via the attach-to-running-session chain.",
+        description:
+          "Attach the current display to its current running session via the attach-to-running-session chain.",
         enabled: !!api.display.sessionID,
         onSelect: () => {
           if (!api.display.sessionID) return

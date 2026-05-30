@@ -229,7 +229,9 @@ function liveRuntime(layer: Layer.Layer<LLM.Service>, provider = ProviderTest.fa
       Layer.provide(status),
       Layer.provide(bus),
       Layer.provide(Config.defaultLayer),
-    ) as Layer.Layer<Bus.Service | SessionStatus.Service | SessionProcessorModule.SessionProcessor.Service | SessionCompaction.Service>,
+    ) as Layer.Layer<
+      Bus.Service | SessionStatus.Service | SessionProcessorModule.SessionProcessor.Service | SessionCompaction.Service
+    >,
   )
 }
 

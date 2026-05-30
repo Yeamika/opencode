@@ -17,7 +17,12 @@ export const RgTool = Tool.define("rg", {
     pattern: z.string().describe("Regex pattern to search for"),
     root: z.string().optional().describe("Root directory for the search. Defaults to the current workspace directory."),
     path: z.string().optional().describe("File or directory to search, relative to root unless absolute."),
-    include: z.string().optional().describe("Compatibility alias for a single glob filter, for example '*.js' or '*.{ts,tsx}'. Ignored when globs is provided."),
+    include: z
+      .string()
+      .optional()
+      .describe(
+        "Compatibility alias for a single glob filter, for example '*.js' or '*.{ts,tsx}'. Ignored when globs is provided.",
+      ),
     globs: z.array(z.string()).optional().describe("Optional glob filters, for example ['*.ts', 'src/**']."),
     case_sensitive: z.boolean().optional().describe("Whether matching is case-sensitive. Defaults to true."),
     max_count: z.number().int().positive().optional().describe("Maximum number of matches to return."),
@@ -33,11 +38,7 @@ export const RgTool = Tool.define("rg", {
         ? params.root
         : path.resolve(Instance.directory, params.root)
       : Instance.directory
-    const target = params.path
-      ? path.isAbsolute(params.path)
-        ? params.path
-        : path.resolve(root, params.path)
-      : root
+    const target = params.path ? (path.isAbsolute(params.path) ? params.path : path.resolve(root, params.path)) : root
 
     if (local) {
       await ctx.ask({
@@ -57,7 +58,9 @@ export const RgTool = Tool.define("rg", {
 
     if (local) {
       await assertExternalDirectory(ctx, root, { kind: "directory" })
-      await assertExternalDirectory(ctx, target, { kind: Filesystem.stat(target)?.isDirectory() ? "directory" : "file" })
+      await assertExternalDirectory(ctx, target, {
+        kind: Filesystem.stat(target)?.isDirectory() ? "directory" : "file",
+      })
     }
 
     if (!(await RemoteExecutor.enabled())) {
@@ -70,7 +73,9 @@ export const RgTool = Tool.define("rg", {
         pattern: params.pattern,
         root,
         ...(params.path === undefined ? {} : { path: params.path }),
-        ...(params.globs === undefined && params.include === undefined ? {} : { globs: params.globs ?? [params.include] }),
+        ...(params.globs === undefined && params.include === undefined
+          ? {}
+          : { globs: params.globs ?? [params.include] }),
         ...(params.case_sensitive === undefined ? {} : { case_sensitive: params.case_sensitive }),
         ...(params.max_count === undefined ? {} : { max_count: params.max_count }),
         ...(local ? {} : { executor }),

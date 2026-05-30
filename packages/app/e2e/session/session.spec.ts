@@ -1,11 +1,5 @@
 import { test, expect } from "../fixtures"
-import {
-  openSidebar,
-  openSessionMoreMenu,
-  clickMenuItem,
-  confirmDialog,
-  withSession,
-} from "../actions"
+import { openSidebar, openSessionMoreMenu, clickMenuItem, confirmDialog, withSession } from "../actions"
 import { sessionItemSelector, inlineInputSelector } from "../selectors"
 
 type Sdk = Parameters<typeof withSession>[0]

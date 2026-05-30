@@ -94,7 +94,13 @@ export namespace Plugin {
   async function applyPlugin(load: PluginLoader.Loaded, input: PluginInput, hooks: Hooks[]) {
     const plugin = readV1Plugin(load.mod, load.spec, "server", "detect")
     if (plugin) {
-      const id = await resolvePluginId(load.source, load.spec, load.target, readPluginId(plugin.id, load.spec), load.pkg)
+      const id = await resolvePluginId(
+        load.source,
+        load.spec,
+        load.target,
+        readPluginId(plugin.id, load.spec),
+        load.pkg,
+      )
       hooks.push(await (plugin as PluginModule).server(withPlugin(input, load, id), load.options))
       return
     }

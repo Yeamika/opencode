@@ -1,13 +1,21 @@
-import { afterEach, describe, test, expect } from "bun:test"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import path from "path"
 import fs from "fs/promises"
 import { WriteTool } from "../../src/tool/write"
+import { ReadTool } from "../../src/tool/read"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
-import { SessionID, MessageID } from "../../src/session/schema"
+import { Session } from "../../src/session"
+import { MessageID } from "../../src/session/schema"
+import { mockRemoteExecutor } from "./remote_executor_mock"
 
-const ctx = {
-  sessionID: SessionID.make("ses_test-write-session"),
+let restoreRemote: (() => void) | undefined
+
+beforeEach(() => {
+  restoreRemote = mockRemoteExecutor()
+})
+
+const baseCtx = {
   messageID: MessageID.make(""),
   callID: "",
   agent: "build",
@@ -18,336 +26,90 @@ const ctx = {
 }
 
 afterEach(async () => {
+  restoreRemote?.()
+  restoreRemote = undefined
   await Instance.disposeAll()
 })
 
+async function readRef(filePath: string, ctx: typeof baseCtx & { sessionID: Session.Info["id"] }) {
+  const read = await ReadTool.init()
+  const result = await read.execute({ filePath }, ctx)
+  return result.metadata.fileRef as string
+}
+
 describe("tool.write", () => {
-  describe("new file creation", () => {
-    test("writes content to new file", async () => {
-      await using tmp = await tmpdir()
-      const filepath = path.join(tmp.path, "newfile.txt")
+  test("writes a new local text file and returns a file reference", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({ title: "write create" })
+        const ctx = { ...baseCtx, sessionID: session.id }
+        const filepath = path.join(tmp.path, "newfile.txt")
 
-      await Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          const write = await WriteTool.init()
-          const result = await write.execute(
-            {
-              filePath: filepath,
-              content: "Hello, World!",
-            },
-            ctx,
-          )
+        const write = await WriteTool.init()
+        const result = await write.execute({ filePath: filepath, content: "Hello, World!" }, ctx)
 
-          expect(result.output).toContain("Wrote file successfully")
-          expect(result.metadata.exists).toBe(false)
-
-          const content = await fs.readFile(filepath, "utf-8")
-          expect(content).toBe("Hello, World!")
-        },
-      })
-    })
-
-    test("creates parent directories if needed", async () => {
-      await using tmp = await tmpdir()
-      const filepath = path.join(tmp.path, "nested", "deep", "file.txt")
-
-      await Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          const write = await WriteTool.init()
-          await write.execute(
-            {
-              filePath: filepath,
-              content: "nested content",
-            },
-            ctx,
-          )
-
-          const content = await fs.readFile(filepath, "utf-8")
-          expect(content).toBe("nested content")
-        },
-      })
-    })
-
-    test("handles relative paths by resolving to instance directory", async () => {
-      await using tmp = await tmpdir()
-
-      await Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          const write = await WriteTool.init()
-          await write.execute(
-            {
-              filePath: "relative.txt",
-              content: "relative content",
-            },
-            ctx,
-          )
-
-          const content = await fs.readFile(path.join(tmp.path, "relative.txt"), "utf-8")
-          expect(content).toBe("relative content")
-        },
-      })
+        expect(await fs.readFile(filepath, "utf-8")).toBe("Hello, World!")
+        expect(result.metadata.exists).toBe(false)
+        expect(result.metadata.fileRef).toMatch(/^newfile\.txt #[0-9A-F]{4}$/)
+      },
     })
   })
 
-  describe("existing file overwrite", () => {
-    test("overwrites existing file content", async () => {
-      await using tmp = await tmpdir()
-      const filepath = path.join(tmp.path, "existing.txt")
-      await fs.writeFile(filepath, "old content", "utf-8")
+  test("overwrites an existing file using a read reference", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({ title: "write existing" })
+        const ctx = { ...baseCtx, sessionID: session.id }
+        const filepath = path.join(tmp.path, "existing.txt")
+        await fs.writeFile(filepath, "old content\n", "utf-8")
+        const fileRef = await readRef(filepath, ctx)
 
-      // First read the file to satisfy FileTime requirement
-      await Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          const { FileTime } = await import("../../src/file/time")
-          await FileTime.read(ctx.sessionID, filepath)
+        const write = await WriteTool.init()
+        const result = await write.execute({ filePath: fileRef, content: "new content\n" }, ctx)
 
-          const write = await WriteTool.init()
-          const result = await write.execute(
-            {
-              filePath: filepath,
-              content: "new content",
-            },
-            ctx,
-          )
-
-          expect(result.output).toContain("Wrote file successfully")
-          expect(result.metadata.exists).toBe(true)
-
-          const content = await fs.readFile(filepath, "utf-8")
-          expect(content).toBe("new content")
-        },
-      })
-    })
-
-    test("returns diff in metadata for existing files", async () => {
-      await using tmp = await tmpdir()
-      const filepath = path.join(tmp.path, "file.txt")
-      await fs.writeFile(filepath, "old", "utf-8")
-
-      await Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          const { FileTime } = await import("../../src/file/time")
-          await FileTime.read(ctx.sessionID, filepath)
-
-          const write = await WriteTool.init()
-          const result = await write.execute(
-            {
-              filePath: filepath,
-              content: "new",
-            },
-            ctx,
-          )
-
-          // Diff should be in metadata
-          expect(result.metadata).toHaveProperty("filepath", filepath)
-          expect(result.metadata).toHaveProperty("exists", true)
-        },
-      })
+        expect(await fs.readFile(filepath, "utf-8")).toBe("new content\n")
+        expect(result.metadata.exists).toBe(true)
+        expect(result.output).toContain("<fileRef>existing.txt #")
+      },
     })
   })
 
-  describe("file permissions", () => {
-    test("sets file permissions when writing sensitive data", async () => {
-      await using tmp = await tmpdir()
-      const filepath = path.join(tmp.path, "sensitive.json")
+  test("rejects overwriting existing files without a read reference", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({ title: "write requires ref" })
+        const ctx = { ...baseCtx, sessionID: session.id }
+        const filepath = path.join(tmp.path, "file.txt")
+        await fs.writeFile(filepath, "content", "utf-8")
 
-      await Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          const write = await WriteTool.init()
-          await write.execute(
-            {
-              filePath: filepath,
-              content: JSON.stringify({ secret: "data" }),
-            },
-            ctx,
-          )
-
-          // On Unix systems, check permissions
-          if (process.platform !== "win32") {
-            const stats = await fs.stat(filepath)
-            expect(stats.mode & 0o777).toBe(0o644)
-          }
-        },
-      })
+        const write = await WriteTool.init()
+        await expect(write.execute({ filePath: filepath, content: "next" }, ctx)).rejects.toThrow(
+          "Existing files must be written using a read reference",
+        )
+      },
     })
   })
 
-  describe("content types", () => {
-    test("writes JSON content", async () => {
-      await using tmp = await tmpdir()
-      const filepath = path.join(tmp.path, "data.json")
-      const data = { key: "value", nested: { array: [1, 2, 3] } }
+  test("rejects binary writes", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({ title: "write binary" })
+        const ctx = { ...baseCtx, sessionID: session.id }
+        const filepath = path.join(tmp.path, "binary.bin")
 
-      await Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          const write = await WriteTool.init()
-          await write.execute(
-            {
-              filePath: filepath,
-              content: JSON.stringify(data, null, 2),
-            },
-            ctx,
-          )
-
-          const content = await fs.readFile(filepath, "utf-8")
-          expect(JSON.parse(content)).toEqual(data)
-        },
-      })
-    })
-
-    test("writes binary-safe content", async () => {
-      await using tmp = await tmpdir()
-      const filepath = path.join(tmp.path, "binary.bin")
-      const content = "Hello\x00World\x01\x02\x03"
-
-      await Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          const write = await WriteTool.init()
-          await write.execute(
-            {
-              filePath: filepath,
-              content,
-            },
-            ctx,
-          )
-
-          const buf = await fs.readFile(filepath)
-          expect(buf.toString()).toBe(content)
-        },
-      })
-    })
-
-    test("writes empty content", async () => {
-      await using tmp = await tmpdir()
-      const filepath = path.join(tmp.path, "empty.txt")
-
-      await Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          const write = await WriteTool.init()
-          await write.execute(
-            {
-              filePath: filepath,
-              content: "",
-            },
-            ctx,
-          )
-
-          const content = await fs.readFile(filepath, "utf-8")
-          expect(content).toBe("")
-
-          const stats = await fs.stat(filepath)
-          expect(stats.size).toBe(0)
-        },
-      })
-    })
-
-    test("writes multi-line content", async () => {
-      await using tmp = await tmpdir()
-      const filepath = path.join(tmp.path, "multiline.txt")
-      const lines = ["Line 1", "Line 2", "Line 3", ""].join("\n")
-
-      await Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          const write = await WriteTool.init()
-          await write.execute(
-            {
-              filePath: filepath,
-              content: lines,
-            },
-            ctx,
-          )
-
-          const content = await fs.readFile(filepath, "utf-8")
-          expect(content).toBe(lines)
-        },
-      })
-    })
-
-    test("handles different line endings", async () => {
-      await using tmp = await tmpdir()
-      const filepath = path.join(tmp.path, "crlf.txt")
-      const content = "Line 1\r\nLine 2\r\nLine 3"
-
-      await Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          const write = await WriteTool.init()
-          await write.execute(
-            {
-              filePath: filepath,
-              content,
-            },
-            ctx,
-          )
-
-          const buf = await fs.readFile(filepath)
-          expect(buf.toString()).toBe(content)
-        },
-      })
-    })
-  })
-
-  describe("error handling", () => {
-    test("throws error when OS denies write access", async () => {
-      await using tmp = await tmpdir()
-      const readonlyPath = path.join(tmp.path, "readonly.txt")
-
-      // Create a read-only file
-      await fs.writeFile(readonlyPath, "test", "utf-8")
-      await fs.chmod(readonlyPath, 0o444)
-
-      await Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          const { FileTime } = await import("../../src/file/time")
-          await FileTime.read(ctx.sessionID, readonlyPath)
-
-          const write = await WriteTool.init()
-          await expect(
-            write.execute(
-              {
-                filePath: readonlyPath,
-                content: "new content",
-              },
-              ctx,
-            ),
-          ).rejects.toThrow()
-        },
-      })
-    })
-  })
-
-  describe("title generation", () => {
-    test("returns relative path as title", async () => {
-      await using tmp = await tmpdir()
-      const filepath = path.join(tmp.path, "src", "components", "Button.tsx")
-      await fs.mkdir(path.dirname(filepath), { recursive: true })
-
-      await Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          const write = await WriteTool.init()
-          const result = await write.execute(
-            {
-              filePath: filepath,
-              content: "export const Button = () => {}",
-            },
-            ctx,
-          )
-
-          expect(result.title).toEndWith(path.join("src", "components", "Button.tsx"))
-        },
-      })
+        const write = await WriteTool.init()
+        await expect(write.execute({ filePath: filepath, content: "00", mode: "binary" }, ctx)).rejects.toThrow(
+          "Binary write is not supported",
+        )
+      },
     })
   })
 })

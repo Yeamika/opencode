@@ -12,14 +12,12 @@ import DESCRIPTION from "./edit.txt"
 import { File } from "../file"
 import { FileWatcher } from "../file/watcher"
 import { Bus } from "../bus"
-import { FileTime } from "../file/time"
 import { Filesystem } from "../util/filesystem"
 import { Instance } from "../project/instance"
 import { Snapshot } from "@/snapshot"
 import { assertExternalDirectory } from "./external-directory"
 import { RemoteExecutor } from "./remote_executor"
-
-const MAX_DIAGNOSTICS_PER_FILE = 20
+import { SessionFileRead } from "../session/file-read"
 
 function normalizeLineEndings(text: string): string {
   return text.replaceAll("\r\n", "\n")
@@ -34,14 +32,49 @@ function convertToLineEnding(text: string, ending: "\n" | "\r\n"): string {
   return text.replaceAll("\n", "\r\n")
 }
 
+function splitLines(text: string) {
+  const normalized = normalizeLineEndings(text).replaceAll("\r", "\n")
+  if (!normalized) return []
+  return normalized.endsWith("\n") ? normalized.slice(0, -1).split("\n") : normalized.split("\n")
+}
+
+function linePatch(before: string, after: string) {
+  const oldLines = splitLines(before)
+  const newLines = splitLines(after)
+  const header = oldLines.length === 0 ? "insert -1" : `replace 1 ${oldLines.length}`
+  return [header, ...newLines.map((line) => `+${line}`)].join("\n")
+}
+
+function parseReadOutput(output: string) {
+  return output
+    .split("\n")
+    .flatMap((line) => {
+      const match = /^\d+: ?(.*)$/.exec(line)
+      return match ? [match[1]!] : []
+    })
+    .join("\n")
+}
+
+async function readCurrent(filePath: string, executor: string) {
+  if (executor === "local") return Filesystem.readText(filePath)
+  const result = await RemoteExecutor.call("read", { filePath, executor, limit: 1_000_000, hashCheckMode: true })
+  return parseReadOutput(result.output)
+}
+
+
 export const EditTool = Tool.define("edit", {
   description: DESCRIPTION,
   parameters: z.object({
-    filePath: z.string().describe("The absolute path to the file to modify"),
+    filePath: z
+      .string()
+      .describe('For existing files, the read reference to modify, for example "App.ts #A1B2". For new local files only, a file path.'),
     oldString: z.string().optional().describe("The text to replace"),
     newString: z.string().optional().describe("The text to replace it with (must be different from oldString)"),
     replaceAll: z.boolean().optional().describe("Replace all occurrences of oldString (default false)"),
-    mode: z.enum(["text", "binary"]).optional().describe("Edit mode. Defaults to text. Binary mode replaces bytes at offset."),
+    mode: z
+      .enum(["text", "binary"])
+      .optional()
+      .describe("Edit mode. Defaults to text. Binary mode is not supported by REC line patch."),
     offset: z.coerce.number().optional().describe("Byte offset for binary mode"),
     oldBytes: z.string().optional().describe("Expected old bytes as hex for binary mode"),
     newBytes: z.string().optional().describe("Replacement bytes as hex for binary mode"),
@@ -49,24 +82,28 @@ export const EditTool = Tool.define("edit", {
     executor: z.string().optional().describe("RemoteExecutor executor id. Defaults to local."),
   }),
   async execute(params, ctx) {
-    if (!params.filePath) {
-      throw new Error("filePath is required")
+    if (!params.filePath) throw new Error("filePath is required")
+    if (params.mode === "binary") throw new Error("Binary edit is not supported by REC line patch")
+    if (params.oldString === undefined) throw new Error("oldString is required")
+    if (params.newString === undefined) throw new Error("newString is required")
+    if (params.oldString === params.newString) {
+      throw new Error("No changes to apply: oldString and newString are identical.")
     }
 
-    const filePath = path.isAbsolute(params.filePath) ? params.filePath : path.join(Instance.directory, params.filePath)
-    const executor = params.executor?.trim() || "local"
-    if (params.mode === "binary") {
-      if (params.offset === undefined || params.offset < 0) throw new Error("binary edit requires non-negative offset")
-      if (params.oldBytes === undefined) throw new Error("binary edit requires oldBytes")
-      if (params.newBytes === undefined) throw new Error("binary edit requires newBytes")
-      const oldLen = hexLength(params.oldBytes)
-      const newLen = hexLength(params.newBytes)
-      const diff = `Binary edit ${filePath} @${params.offset}\n- ${params.oldBytes}\n+ ${params.newBytes}`
-      const patchText = `*** Begin Patch\n*** Binary Update File: ${filePath}\n*** Offset: ${params.offset}\n*** Old Bytes: ${params.oldBytes}\n*** New Bytes: ${params.newBytes}\n*** End Patch\n`
+    if (SessionFileRead.parseTarget(params.filePath)) {
+      const entry = SessionFileRead.resolve({ sessionID: ctx.sessionID, target: params.filePath })
+      const executor = SessionFileRead.executor(entry)
+      const filePath = entry.filePath
+      const contentOld = await readCurrent(filePath, executor)
+      const ending = detectLineEnding(contentOld)
+      const oldString = convertToLineEnding(normalizeLineEndings(params.oldString), ending)
+      const newString = convertToLineEnding(normalizeLineEndings(params.newString), ending)
+      const contentNew = replace(contentOld, oldString, newString, params.replaceAll)
+      const patchText = linePatch(contentOld, contentNew)
+      const diff = trimDiff(createTwoFilesPatch(filePath, filePath, contentOld, contentNew))
+
       if (executor === "local") {
         await assertExternalDirectory(ctx, filePath)
-        const stat = await RemoteExecutor.stat(filePath, executor).catch(() => undefined)
-        await FileTime.assert(ctx.sessionID, filePath, stat ? { executor, file: stat } : undefined)
         await ctx.ask({
           permission: "edit",
           patterns: [path.relative(Instance.worktree, filePath)],
@@ -74,200 +111,115 @@ export const EditTool = Tool.define("edit", {
           metadata: { filepath: filePath, diff },
         })
       }
-      const result = await RemoteExecutor.call("apply_patch", { patchText, ...(executor === "local" ? {} : { executor }) }, { signal: ctx.abort })
+
+      const result = await RemoteExecutor.call(
+        "apply_patch",
+        {
+          filePath,
+          patchText,
+          hashCheckMode: true,
+          hashCode: entry.hashCode,
+          ...(executor === "local" ? {} : { executor }),
+        },
+        { signal: ctx.abort },
+      )
+      const hashCode = RemoteExecutor.hashCode(result) ?? (executor === "local" ? await RemoteExecutor.fileHashCode(filePath).catch(() => undefined) : undefined)
+      const next = hashCode
+        ? SessionFileRead.retouch({ sessionID: ctx.sessionID, fileKeyRef: entry.fileKeyRef, hashCode })
+        : undefined
+      const label = next ? SessionFileRead.label(next) : SessionFileRead.label(entry)
+
       if (executor === "local") {
         Bus.publish(File.Event.Edited, { file: filePath })
         await Bus.publish(FileWatcher.Event.Updated, { file: filePath, event: "change" })
+        await LSP.touchFile(filePath, true)
       }
-      const stamp = await RemoteExecutor.stat(filePath, executor).catch(() => undefined)
-      await FileTime.read(ctx.sessionID, filePath, stamp ? { executor, file: stamp } : undefined)
+      const diagnostics = executor === "local" ? await LSP.diagnostics() : {}
+      const filediff: Snapshot.FileDiff = { file: filePath, before: contentOld, after: contentNew, additions: 0, deletions: 0 }
+      for (const change of diffLines(contentOld, contentNew)) {
+        if (change.added) filediff.additions += change.count || 0
+        if (change.removed) filediff.deletions += change.count || 0
+      }
       return {
         ...result,
         metadata: {
           ...result.metadata,
-          diagnostics: {},
+          diagnostics,
           diff,
-          binary: true,
-          encoding: params.encoding ?? "hex",
-          offset: params.offset,
-          oldBytes: oldLen,
-          newBytes: newLen,
-        },
-        output: `Binary edit applied successfully (${oldLen} -> ${newLen} bytes at offset ${params.offset}).`,
-      } as any
-    }
-
-    if (params.oldString === undefined) throw new Error("oldString is required")
-    if (params.newString === undefined) throw new Error("newString is required")
-    if (params.oldString === params.newString) {
-      throw new Error("No changes to apply: oldString and newString are identical.")
-    }
-    const oldString = params.oldString
-    const newString = params.newString
-
-    if (executor !== "local") {
-      if (params.replaceAll) throw new Error("Remote edit with replaceAll is not supported; use apply_patch instead")
-      const result = await RemoteExecutor.call(
-        "apply_patch",
-        { patchText: RemoteExecutor.patch(filePath, oldString, newString, oldString !== ""), executor },
-        { signal: ctx.abort },
-      )
-      const stamp = await RemoteExecutor.stat(filePath, executor).catch(() => undefined)
-      await FileTime.read(ctx.sessionID, filePath, stamp ? { executor, file: stamp } : undefined)
-      const item = Array.isArray(result.metadata.files) ? result.metadata.files[0] : undefined
-      const file = item && typeof item === "object" ? (item as Record<string, unknown>) : {}
-      const filediff: Snapshot.FileDiff = {
-        file: typeof file.filePath === "string" ? file.filePath : filePath,
-        before: typeof file.before === "string" ? file.before : "",
-        after: typeof file.after === "string" ? file.after : "",
-        additions: typeof file.additions === "number" ? file.additions : 0,
-        deletions: typeof file.deletions === "number" ? file.deletions : 0,
-      }
-      return {
-        ...result,
-        metadata: {
-          ...result.metadata,
-          diagnostics: {},
-          diff: typeof result.metadata.diff === "string" ? result.metadata.diff : "",
           filediff,
+          fileRef: label,
+          smallHashCode: next?.smallHashCode ?? entry.smallHashCode,
         },
+        title: label,
+        output: `Edit applied successfully.\n<fileRef>${label}</fileRef>`,
       }
+    }
+
+    const executor = params.executor?.trim() || "local"
+    const filePath =
+      executor === "local"
+        ? path.isAbsolute(params.filePath)
+          ? params.filePath
+          : path.join(Instance.directory, params.filePath)
+        : params.filePath
+
+    if (params.oldString !== "") {
+      throw new Error('Existing files must be edited using a read reference like "App.ts #A1B2". Use read first.')
+    }
+    if (executor !== "local") {
+      throw new Error("Creating remote files with edit is not supported by REC apply_patch; create the file remotely first, then read it.")
     }
 
     await assertExternalDirectory(ctx, filePath)
+    if (await Filesystem.exists(filePath)) {
+      throw new Error('Existing files must be edited using a read reference like "App.ts #A1B2". Use read first.')
+    }
 
-    let diff = ""
-    let contentOld = ""
-    let contentNew = ""
-    await FileTime.withLock(filePath, async () => {
-      if (oldString === "") {
-        const stat = await RemoteExecutor.stat(filePath, executor).catch(() => undefined)
-        const local = await Filesystem.exists(filePath)
-        const existed = stat ? stat.kind !== "missing" : local
-        contentOld = local ? await Filesystem.readText(filePath).catch(() => "") : ""
-        contentNew = newString
-        diff = trimDiff(createTwoFilesPatch(filePath, filePath, contentOld, contentNew))
-        await ctx.ask({
-          permission: "edit",
-          patterns: [path.relative(Instance.worktree, filePath)],
-          always: ["*"],
-          metadata: {
-            filepath: filePath,
-            diff,
-          },
-        })
-        await RemoteExecutor.call(
-          "apply_patch",
-          {
-            patchText: RemoteExecutor.patch(filePath, contentOld, contentNew, existed),
-            ...(params.executor === undefined ? {} : { executor: params.executor }),
-          },
-          { signal: ctx.abort },
-        )
-        Bus.publish(File.Event.Edited, { file: filePath })
-        await Bus.publish(FileWatcher.Event.Updated, {
-          file: filePath,
-          event: existed ? "change" : "add",
-        })
-        const next = await RemoteExecutor.stat(filePath, executor).catch(() => undefined)
-        await FileTime.read(ctx.sessionID, filePath, next ? { executor, file: next } : undefined)
-        return
-      }
-
-      const stats = Filesystem.stat(filePath)
-      if (!stats) throw new Error(`File ${filePath} not found`)
-      if (stats.isDirectory()) throw new Error(`Path is a directory, not a file: ${filePath}`)
-      const stat = await RemoteExecutor.stat(filePath, executor).catch(() => undefined)
-      await FileTime.assert(ctx.sessionID, filePath, stat ? { executor, file: stat } : undefined)
-      contentOld = await Filesystem.readText(filePath)
-
-      const ending = detectLineEnding(contentOld)
-      const old = convertToLineEnding(normalizeLineEndings(oldString), ending)
-      const next = convertToLineEnding(normalizeLineEndings(newString), ending)
-
-      contentNew = replace(contentOld, old, next, params.replaceAll)
-
-      diff = trimDiff(
-        createTwoFilesPatch(filePath, filePath, normalizeLineEndings(contentOld), normalizeLineEndings(contentNew)),
-      )
-      await ctx.ask({
-        permission: "edit",
-        patterns: [path.relative(Instance.worktree, filePath)],
-        always: ["*"],
-        metadata: {
-          filepath: filePath,
-          diff,
-        },
-      })
-
-      await RemoteExecutor.call(
-        "apply_patch",
-        {
-          patchText: RemoteExecutor.patch(filePath, contentOld, contentNew, true),
-          ...(params.executor === undefined ? {} : { executor: params.executor }),
-        },
-        { signal: ctx.abort },
-      )
-      Bus.publish(File.Event.Edited, { file: filePath })
-      await Bus.publish(FileWatcher.Event.Updated, {
-        file: filePath,
-        event: "change",
-      })
-      const stamp = await RemoteExecutor.stat(filePath, executor).catch(() => undefined)
-      await FileTime.read(ctx.sessionID, filePath, stamp ? { executor, file: stamp } : undefined)
+    const contentOld = ""
+    const contentNew = params.newString
+    const diff = trimDiff(createTwoFilesPatch(filePath, filePath, contentOld, contentNew))
+    await ctx.ask({
+      permission: "edit",
+      patterns: [path.relative(Instance.worktree, filePath)],
+      always: ["*"],
+      metadata: { filepath: filePath, diff },
     })
 
-    const filediff: Snapshot.FileDiff = {
-      file: filePath,
-      before: contentOld,
-      after: contentNew,
-      additions: 0,
-      deletions: 0,
-    }
+    await Filesystem.write(filePath, contentNew)
+    Bus.publish(File.Event.Edited, { file: filePath })
+    await Bus.publish(FileWatcher.Event.Updated, { file: filePath, event: "add" })
+    await LSP.touchFile(filePath, true)
+    const diagnostics = await LSP.diagnostics()
+
+    const filediff: Snapshot.FileDiff = { file: filePath, before: contentOld, after: contentNew, additions: 0, deletions: 0 }
     for (const change of diffLines(contentOld, contentNew)) {
       if (change.added) filediff.additions += change.count || 0
       if (change.removed) filediff.deletions += change.count || 0
     }
 
-    ctx.metadata({
-      metadata: {
-        diff,
-        filediff,
-        diagnostics: {},
-      },
-    })
-
-    let output = "Edit applied successfully."
-    await LSP.touchFile(filePath, true)
-    const diagnostics = await LSP.diagnostics()
-    const normalizedFilePath = Filesystem.normalizePath(filePath)
-    const issues = diagnostics[normalizedFilePath] ?? []
-    const errors = issues.filter((item) => item.severity === 1)
-    if (errors.length > 0) {
-      const limited = errors.slice(0, MAX_DIAGNOSTICS_PER_FILE)
-      const suffix =
-        errors.length > MAX_DIAGNOSTICS_PER_FILE ? `\n... and ${errors.length - MAX_DIAGNOSTICS_PER_FILE} more` : ""
-      output += `\n\nLSP errors detected in this file, please fix:\n<diagnostics file="${filePath}">\n${limited.map(LSP.Diagnostic.pretty).join("\n")}${suffix}\n</diagnostics>`
-    }
+    const readResult = await RemoteExecutor.call("read", { filePath, hashCheckMode: true, limit: 1 }, { signal: ctx.abort })
+    const stamp = RemoteExecutor.stamp(readResult.metadata.file) ?? (await RemoteExecutor.stat(filePath, executor).catch(() => undefined))
+    const hashCode = RemoteExecutor.hashCode(readResult) ?? (executor === "local" ? await RemoteExecutor.fileHashCode(filePath).catch(() => undefined) : undefined)
+    const entry =
+      stamp?.kind === "file" && hashCode
+        ? SessionFileRead.touch({ sessionID: ctx.sessionID, executor, file: stamp, hashCode, filePath })
+        : undefined
+    if (!entry) throw new Error(`Failed to register file reference for ${filePath}`)
+    const label = SessionFileRead.label(entry)
 
     return {
       metadata: {
         diagnostics,
         diff,
         filediff,
+        fileRef: label,
+        smallHashCode: entry.smallHashCode,
       },
-      title: `${path.relative(Instance.worktree, filePath)}`,
-      output,
+      title: label,
+      output: `Created file successfully.\n<fileRef>${label}</fileRef>`,
     }
   },
 })
-
-function hexLength(text: string) {
-  const compact = text.replace(/(?:0x|0X)/g, "").replace(/[\s,_]/g, "")
-  if (compact.length % 2 !== 0) throw new Error("Binary hex content must contain an even number of digits")
-  if (!/^[0-9a-fA-F]*$/.test(compact)) throw new Error("Binary hex content contains non-hex characters")
-  return compact.length / 2
-}
 
 export type Replacer = (content: string, find: string) => Generator<string, void, unknown>
 

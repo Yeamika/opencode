@@ -149,10 +149,5 @@ export function DialogMessage(props: {
     ]
   })
 
-  return (
-    <DialogSelect
-      title="Message Actions"
-      options={options()}
-    />
-  )
+  return <DialogSelect title="Message Actions" options={options()} />
 }

@@ -8,7 +8,10 @@ import { Tool } from "./tool"
 async function readDir(dir: string) {
   try {
     const entries = await fs.readdir(dir, { withFileTypes: true })
-    return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort((a, b) => a.localeCompare(b))
+    return entries
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort((a, b) => a.localeCompare(b))
   } catch {
     return []
   }
@@ -22,17 +25,23 @@ function isGlobalContext(directory: string) {
 }
 
 export const WorkspaceSkillTool = Tool.define("workspaceSkill", {
-  description:
-    "Authoritative control surface for workspace skills.",
+  description: "Authoritative control surface for workspace skills.",
   parameters: z.object({
-    mode: z.enum(["read", "write", "delete"]).describe("Read current skill folders, write one local skill directory, or delete one local skill directory."),
-    scope: z.enum(["local", "global"]).default("local").describe("Read supports local or global. Write/delete only support local."),
+    mode: z
+      .enum(["read", "write", "delete"])
+      .describe("Read current skill folders, write one local skill directory, or delete one local skill directory."),
+    scope: z
+      .enum(["local", "global"])
+      .default("local")
+      .describe("Read supports local or global. Write/delete only support local."),
     directoryPath: z.string().optional().describe("Absolute source directory path. Required for write and delete."),
   }),
   async execute(args, ctx) {
     await ctx.ask({
       permission: "workspaceSkill",
-      patterns: [args.mode === "read" ? `${args.scope} read` : `${args.scope} ${args.mode} ${args.directoryPath ?? "*"}`],
+      patterns: [
+        args.mode === "read" ? `${args.scope} read` : `${args.scope} ${args.mode} ${args.directoryPath ?? "*"}`,
+      ],
       always: ["*"],
       metadata: {
         mode: args.mode,

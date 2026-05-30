@@ -164,10 +164,18 @@ describe("file/time", () => {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          const file = { fileKey: "fid-1", canonicalPath: "/remote/file.txt", kind: "file" as const, size: 1, mtimeMs: 2 }
+          const file = {
+            fileKey: "fid-1",
+            canonicalPath: "/remote/file.txt",
+            kind: "file" as const,
+            size: 1,
+            mtimeMs: 2,
+          }
           await FileTime.read(sessionID, one, { executor: "remote", file })
           await FileTime.assert(sessionID, two, { executor: "remote", file })
-          await expect(FileTime.assert(sessionID, two, { executor: "other", file })).rejects.toThrow("You must read file")
+          await expect(FileTime.assert(sessionID, two, { executor: "other", file })).rejects.toThrow(
+            "You must read file",
+          )
           await expect(
             FileTime.assert(sessionID, two, { executor: "remote", file: { ...file, mtimeMs: 3 } }),
           ).rejects.toThrow("modified since it was last read")

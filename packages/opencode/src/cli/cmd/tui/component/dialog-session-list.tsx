@@ -137,12 +137,13 @@ export function DialogSessionList() {
         category = "Today"
       }
       const isDeleting = toDelete() === x.id
-      const isWorking = sync.data.session_status?.[x.id]?.type !== undefined && sync.data.session_status?.[x.id].type !== "idle"
+      const isWorking =
+        sync.data.session_status?.[x.id]?.type !== undefined && sync.data.session_status?.[x.id].type !== "idle"
       const dir = all() ? getFilename(x.directory) : undefined
       const dot = x.parentID ? "● " : ""
       const room = Math.max(20, 61 - (dir ? dir.length + 1 : 0))
       const ag = meta[x.id]?.agent
-      const desc = all() ? [ag, dir].filter(Boolean).join(" · ") || dir : ag ?? undefined
+      const desc = all() ? [ag, dir].filter(Boolean).join(" · ") || dir : (ag ?? undefined)
       return {
         title: isDeleting
           ? `Press ${keybind.print("session_delete")} again to confirm`
@@ -162,11 +163,7 @@ export function DialogSessionList() {
   })
 
   const top = createMemo(() => (
-    <box
-      flexDirection="row"
-      gap={1}
-      onMouseUp={toggle}
-    >
+    <box flexDirection="row" gap={1} onMouseUp={toggle}>
       <text fg={theme.text}>{all() ? "☑" : "☐"}</text>
       <text fg={theme.textMuted}>All recent</text>
     </box>
@@ -178,12 +175,16 @@ export function DialogSessionList() {
     const updated = item.time.updated ?? item.time.created
     return (
       <box flexDirection="column" gap={1}>
-        <text fg={theme.text} attributes={TextAttributes.BOLD}>Dir: {getFilename(item.directory)}</text>
+        <text fg={theme.text} attributes={TextAttributes.BOLD}>
+          Dir: {getFilename(item.directory)}
+        </text>
         <text fg={theme.text}>Agent: {meta[item.id]?.agent ?? "-"}</text>
         <text fg={theme.text}>UpdatedAt: {Locale.time(updated)}</text>
         <text fg={theme.text}>Model: {extra()?.model ?? "-"}</text>
         <text fg={theme.text}>Turns: {extra()?.turns ?? "-"}</text>
-        <text fg={theme.textMuted} wrapMode="word">{item.directory}</text>
+        <text fg={theme.textMuted} wrapMode="word">
+          {item.directory}
+        </text>
       </box>
     )
   }

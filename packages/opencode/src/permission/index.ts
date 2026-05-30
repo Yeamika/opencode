@@ -171,7 +171,10 @@ export namespace Permission {
         }),
       )
 
-      const respond = Effect.fn("Permission.respond")(function* (input: z.infer<typeof ReplyInput>, err?: TimeoutError) {
+      const respond = Effect.fn("Permission.respond")(function* (
+        input: z.infer<typeof ReplyInput>,
+        err?: TimeoutError,
+      ) {
         const { approved, pending } = yield* InstanceState.get(state)
         const existing = pending.get(input.requestID)
         if (!existing) return false

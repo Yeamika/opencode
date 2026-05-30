@@ -8,6 +8,7 @@ description: Remove demo MCP/tool/skill assets from the current workspace and ve
 Use the same repo-local asset paths that were used for installation.
 
 Suggested flow:
+
 1. Call `workspaceTool` with:
    - `mode: "delete"`
    - `filePath: <absolute path to demo.ts>`

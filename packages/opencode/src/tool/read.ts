@@ -7,7 +7,7 @@ import { assertExternalDirectory } from "./external-directory"
 import { Filesystem } from "../util/filesystem"
 import { RemoteExecutor } from "./remote_executor"
 import { Instruction } from "../session/instruction"
-import { FileTime } from "../file/time"
+import { SessionFileRead } from "../session/file-read"
 
 export const ReadTool = Tool.define("read", {
   description: DESCRIPTION,
@@ -76,10 +76,14 @@ export const ReadTool = Tool.define("read", {
       }
     }
 
+    const remoteStamp = !local ? await RemoteExecutor.stat(filepath, executor) : undefined
+    const shouldHash = local ? Boolean(stat && !stat.isDirectory()) : remoteStamp?.kind === "file"
+
     const result = await RemoteExecutor.call(
       "read",
       {
         filePath: filepath,
+        ...(shouldHash ? { hashCheckMode: true } : {}),
         ...(params.mode === undefined ? {} : { mode: params.mode }),
         ...(params.offset === undefined ? {} : { offset: params.offset }),
         ...(params.limit === undefined ? {} : { limit: params.limit }),
@@ -87,9 +91,20 @@ export const ReadTool = Tool.define("read", {
       },
       { signal: ctx.abort },
     )
-    const stamp = RemoteExecutor.stamp(result.metadata.file)
-    if (stamp?.kind === "file") await FileTime.read(ctx.sessionID, filepath, { executor, file: stamp })
-    else if (stat && !stat.isDirectory()) await FileTime.read(ctx.sessionID, filepath, { executor })
+    const stamp = RemoteExecutor.stamp(result.metadata.file) ?? remoteStamp ?? (shouldHash ? await RemoteExecutor.stat(filepath, executor).catch(() => undefined) : undefined)
+    const hashCode = RemoteExecutor.hashCode(result) ?? (local && shouldHash ? await RemoteExecutor.fileHashCode(filepath).catch(() => undefined) : undefined)
+    if (stamp?.kind === "file" && hashCode) {
+      const entry = SessionFileRead.touch({ sessionID: ctx.sessionID, executor, file: stamp, hashCode, filePath: filepath })
+      return {
+        ...result,
+        output: `${result.output}\n<fileRef>${SessionFileRead.label(entry)}</fileRef>`,
+        metadata: {
+          ...result.metadata,
+          fileRef: SessionFileRead.label(entry),
+          smallHashCode: entry.smallHashCode,
+        },
+      }
+    }
     return result
   },
 })

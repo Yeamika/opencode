@@ -62,8 +62,8 @@ it.live("tool execution produces non-empty session diff (snapshot race)", () =>
     Effect.fnUntraced(function* ({ dir, llm }) {
       const session = yield* Effect.promise(() =>
         Session.create({
-        title: "snapshot race test",
-        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+          title: "snapshot race test",
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
         }),
       )
 
@@ -74,12 +74,14 @@ it.live("tool execution produces non-empty session diff (snapshot race)", () =>
       })
       yield* llm.textMatch((hit) => JSON.stringify(hit.body).includes("write"), "done")
 
-      yield* Effect.promise(() => SessionPrompt.prompt({
-        sessionID: session.id,
-        agent: "build",
-        noReply: true,
-        parts: [{ type: "text", text: "create the file" }],
-      }))
+      yield* Effect.promise(() =>
+        SessionPrompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          noReply: true,
+          parts: [{ type: "text", text: "create the file" }],
+        }),
+      )
 
       const result = yield* Effect.promise(() => SessionPrompt.loop({ sessionID: session.id }))
       expect(result.info.role).toBe("assistant")

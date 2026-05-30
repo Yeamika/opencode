@@ -18,7 +18,10 @@ type TuiRequest = z.infer<typeof TuiRequest>
 
 const request = new AsyncQueue<TuiRequest>()
 const response = new AsyncQueue<any>()
-const pendingAcks = new Map<string, { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>()
+const pendingAcks = new Map<
+  string,
+  { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }
+>()
 
 function waitForAck(requestID: string, timeoutMs = 5000) {
   return new Promise<void>((resolve, reject) => {
@@ -350,24 +353,22 @@ export const TuiRoutes = lazy(() =>
       }),
       validator(
         "json",
-        z.union(
-          [
-            ...Object.values(TuiEvent).map((def) => {
-              return z
-                .object({
-                  type: z.literal(def.type),
-                  properties: def.properties,
-                })
-                .meta({
-                  ref: "Event" + "." + def.type,
-                })
-            }),
-            z.object({
-              type: z.string().regex(/^plugin\./),
-              properties: z.record(z.string(), z.unknown()),
-            }),
-          ],
-        ),
+        z.union([
+          ...Object.values(TuiEvent).map((def) => {
+            return z
+              .object({
+                type: z.literal(def.type),
+                properties: def.properties,
+              })
+              .meta({
+                ref: "Event" + "." + def.type,
+              })
+          }),
+          z.object({
+            type: z.string().regex(/^plugin\./),
+            properties: z.record(z.string(), z.unknown()),
+          }),
+        ]),
       ),
       async (c) => {
         const evt = c.req.valid("json")

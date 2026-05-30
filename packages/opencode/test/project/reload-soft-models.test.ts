@@ -31,7 +31,10 @@ test("soft reload refreshes local models without reloading plugins", async () =>
           },
         }),
       )
-      await Bun.write(path.join(cfg, ".gitignore"), "node_modules\npackage.json\npackage-lock.json\nbun.lock\n.gitignore\n")
+      await Bun.write(
+        path.join(cfg, ".gitignore"),
+        "node_modules\npackage.json\npackage-lock.json\nbun.lock\n.gitignore\n",
+      )
       await Bun.write(
         path.join(cfg, "node_modules", "@opencode-ai", "plugin", "package.json"),
         JSON.stringify({ name: "@opencode-ai/plugin", version: "1.0.0" }),

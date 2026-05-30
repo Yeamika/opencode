@@ -119,8 +119,8 @@ export namespace SessionRetry {
           yield* opts.set({ attempt: meta.attempt, message, next: now + wait })
           return [meta.attempt, Duration.millis(wait)] as [number, Duration.Duration]
         })
-        }),
-      )
+      }),
+    )
   }
 
   export const layer = Layer.effect(

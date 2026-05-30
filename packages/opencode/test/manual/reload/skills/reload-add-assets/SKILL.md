@@ -15,6 +15,7 @@ Use these repo-local assets:
   - `packages/opencode/test/manual/reload/assets/mcp/demo-remote.json`
 
 Suggested flow:
+
 1. Call `workspaceTool` with:
    - `mode: "write"`
    - `filePath: <absolute path to demo.ts>`

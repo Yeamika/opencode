@@ -8,12 +8,7 @@ import { useTheme as useThemeFull } from "../../context/theme"
 import { getScrollAcceleration } from "../../util/scroll"
 import { useDialog, type DialogContext } from "../../ui/dialog"
 
-export function DialogToolOutput(props: {
-  title: string
-  message: string
-  ansi?: boolean
-  filetype?: string
-}) {
+export function DialogToolOutput(props: { title: string; message: string; ansi?: boolean; filetype?: string }) {
   const dialog = useDialog()
   const { theme } = useTheme()
   const { syntax } = useThemeFull()
@@ -50,10 +45,7 @@ export function DialogToolOutput(props: {
           },
         }}
       >
-        <Show
-          when={props.filetype}
-          fallback={<text fg={theme.textMuted}>{text()}</text>}
-        >
+        <Show when={props.filetype} fallback={<text fg={theme.textMuted}>{text()}</text>}>
           <code fg={theme.text} filetype={props.filetype!} syntaxStyle={syntax()} content={text()} />
         </Show>
       </scrollbox>
@@ -73,5 +65,7 @@ DialogToolOutput.show = (
   options?: { ansi?: boolean; filetype?: string },
 ) => {
   dialog.setSize("large")
-  dialog.replace(() => <DialogToolOutput title={title} message={message} ansi={options?.ansi} filetype={options?.filetype} />)
+  dialog.replace(() => (
+    <DialogToolOutput title={title} message={message} ansi={options?.ansi} filetype={options?.filetype} />
+  ))
 }

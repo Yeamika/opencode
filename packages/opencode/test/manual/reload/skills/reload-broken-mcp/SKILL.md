@@ -10,6 +10,7 @@ Use this repo-local MCP snippet:
 - `packages/opencode/test/manual/reload/assets/mcp/broken-remote.json`
 
 Suggested flow:
+
 1. Call `workspaceMcp` with:
    - `mode: "write"`
    - `scope: "local"`

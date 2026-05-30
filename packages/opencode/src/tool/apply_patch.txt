@@ -1,39 +1,19 @@
-Use the `apply_patch` tool to edit files through RemoteExecutor. Defaults to the local executor; pass executor to apply the patch on another configured executor. Your patch language is a stripped‑down, file‑oriented diff format designed to be easy to parse and safe to apply. You can think of it as a high‑level envelope:
+Apply a REC line patch to one recently read file.
 
-*** Begin Patch
-[ one or more file sections ]
-*** End Patch
+Inputs:
+- `filePath`: use the file reference returned by the read tool, for example `App.ts #A1B2`.
+- `patchText`: REC line patch text. Do not use the old `*** Begin Patch` envelope.
 
-Within that envelope, you get a sequence of file operations.
-You MUST include a header to specify the action you are taking.
-Each operation starts with one of three headers:
+REC line patch syntax uses original 1-based line numbers:
+- `replace A B` replaces original lines A through B.
+- `delete A B` deletes original lines A through B.
+- `insert N` inserts after original line N; `insert 0` inserts at the start; `insert -1` inserts at the end.
+- Body lines are `+text` for literal new text, or `copy A B` to reuse original lines.
 
-*** Add File: <path> - create a new file. Every following line is a + line (the initial contents).
-*** Delete File: <path> - remove an existing file. Nothing follows.
-*** Update File: <path> - patch an existing file in place (optionally with a rename).
-
-Binary operations are also supported and use hex bytes:
-
-*** Binary Write File: <path> - overwrite the whole file with hex bytes. Following lines are + lines containing hex.
-*** Binary Update File: <path> - replace bytes at an offset. Requires `*** Offset:`, `*** Old Bytes:`, and `*** New Bytes:` lines.
-
-Example patch:
-
+Example:
 ```
-*** Begin Patch
-*** Add File: hello.txt
-+Hello world
-*** Update File: src/app.py
-*** Move to: src/main.py
-@@ def greet():
--print("Hi")
-+print("Hello, world!")
-*** Delete File: obsolete.txt
-*** End Patch
+replace 11 11
++new line
 ```
 
-It is important to remember:
-
-- You must include a header with your intended action (Add/Delete/Update)
-- You must prefix new lines with `+` even when creating a new file
-- Binary write lines must also be prefixed with `+`; binary update byte values are hex strings.
+The target file must have been read in this session. OpenCode resolves the `filename #ABCD` reference to the original executor and file, passes REC the full hash for stale-write protection, and returns a new `filename #WXYZ` reference after a successful patch.

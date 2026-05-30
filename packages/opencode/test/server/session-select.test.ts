@@ -127,13 +127,15 @@ describe("tui.selectSession endpoint", () => {
       fn: async () => {
         const session = await Session.create({})
         const app = Server.Default()
-        const event = new Promise<{ sessionID: string; displayID?: string; directory?: string; requestID?: string }>((resolve) => {
-          const unsub = Bus.subscribe(TuiEvent.SessionSelect, (evt) => {
-            unsub()
-            resolve(evt.properties)
-            return "done"
-          })
-        })
+        const event = new Promise<{ sessionID: string; displayID?: string; directory?: string; requestID?: string }>(
+          (resolve) => {
+            const unsub = Bus.subscribe(TuiEvent.SessionSelect, (evt) => {
+              unsub()
+              resolve(evt.properties)
+              return "done"
+            })
+          },
+        )
 
         const pending = app.request(`/tui/select-session?directory=${encodeURIComponent(tmp.path)}`, {
           method: "POST",

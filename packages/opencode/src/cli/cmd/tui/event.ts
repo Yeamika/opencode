@@ -46,7 +46,7 @@ export const TuiEvent = {
       displayID: z.string().describe("TUI display ID to target"),
       directory: z.string().optional().describe("Directory to switch the targeted TUI into before opening the session"),
       requestID: z.string().optional().describe("Request identifier used to acknowledge delivery of the control event"),
-      }),
+    }),
   ),
   TUIAttachTOrunningsession: BusEvent.define(
     "tui.attach-to-running-session",

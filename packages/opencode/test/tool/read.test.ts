@@ -443,7 +443,10 @@ describe("tool.read truncation", () => {
       init: async (dir) => {
         await Bun.write(
           path.join(dir, "image.png"),
-          Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==", "base64"),
+          Buffer.from(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==",
+            "base64",
+          ),
         )
         await Bun.write(path.join(dir, "file.pdf"), "%PDF-1.4\n")
       },
@@ -452,9 +455,9 @@ describe("tool.read truncation", () => {
       directory: tmp.path,
       fn: async () => {
         const read = await ReadTool.init()
-        await expect(read.execute({ filePath: path.join(tmp.path, "image.png"), executor: "box" }, ctx)).rejects.toThrow(
-          "Image reads require executor=local",
-        )
+        await expect(
+          read.execute({ filePath: path.join(tmp.path, "image.png"), executor: "box" }, ctx),
+        ).rejects.toThrow("Image reads require executor=local")
         await expect(read.execute({ filePath: path.join(tmp.path, "file.pdf") }, ctx)).rejects.toThrow(
           "PDF read is not supported yet",
         )

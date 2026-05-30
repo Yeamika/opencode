@@ -49,11 +49,28 @@ export namespace ExBashTask {
   export interface Interface {
     readonly ensure: (input: { sessionID: SessionID; workspace: string }) => Effect.Effect<void>
     readonly get: (input: { sessionID: SessionID; workspace: string }) => Effect.Effect<Info[]>
-    readonly one: (input: { sessionID: SessionID; workspace: string; executor: string; asyncID: string }) => Effect.Effect<Info | undefined>
+    readonly one: (input: {
+      sessionID: SessionID
+      workspace: string
+      executor: string
+      asyncID: string
+    }) => Effect.Effect<Info | undefined>
     readonly start: (input: Omit<Entry, "state" | "exitCode" | "endedAt">) => Effect.Effect<Info>
-    readonly finish: (input: { executor: string; asyncID: string; exitCode: ExitCode; endedAt: number; totalOutput?: number; error?: string }) => Effect.Effect<Info | undefined>
+    readonly finish: (input: {
+      executor: string
+      asyncID: string
+      exitCode: ExitCode
+      endedAt: number
+      totalOutput?: number
+      error?: string
+    }) => Effect.Effect<Info | undefined>
     readonly lost: (input: { executor: string; asyncID: string }) => Effect.Effect<Info | undefined>
-    readonly remove: (input: { sessionID: SessionID; workspace: string; executor: string; asyncID: string }) => Effect.Effect<void>
+    readonly remove: (input: {
+      sessionID: SessionID
+      workspace: string
+      executor: string
+      asyncID: string
+    }) => Effect.Effect<void>
   }
 
   export class Service extends ServiceMap.Service<Service, Interface>()("@opencode/SessionExBashTask") {}
@@ -71,8 +88,16 @@ export namespace ExBashTask {
       const key = (input: { executor: string; asyncID: string }) => `${input.executor}\0${input.asyncID}`
 
       const mark = (task: Entry) => {
-        idx.set(key(task), { sessionID: task.sessionID, workspace: task.workspace, executor: task.executor, scope: task.scope })
-        const map = task.scope === "workspace" ? (ws.get(task.workspace) ?? new Map<string, Entry>()) : (ses.get(task.sessionID) ?? new Map<string, Entry>())
+        idx.set(key(task), {
+          sessionID: task.sessionID,
+          workspace: task.workspace,
+          executor: task.executor,
+          scope: task.scope,
+        })
+        const map =
+          task.scope === "workspace"
+            ? (ws.get(task.workspace) ?? new Map<string, Entry>())
+            : (ses.get(task.sessionID) ?? new Map<string, Entry>())
         map.set(key(task), task)
         if (task.scope === "workspace") ws.set(task.workspace, map)
         else ses.set(task.sessionID, map)
@@ -178,81 +203,92 @@ export namespace ExBashTask {
         return merge(input.sessionID, input.workspace)
       })
 
-      const one = Effect.fn("ExBashTask.one")(function* (input: { sessionID: SessionID; workspace: string; executor: string; asyncID: string }) {
+      const one = Effect.fn("ExBashTask.one")(function* (input: {
+        sessionID: SessionID
+        workspace: string
+        executor: string
+        asyncID: string
+      }) {
         yield* ensure(input)
-        return merge(input.sessionID, input.workspace).find((item) => item.executor === input.executor && item.asyncID === input.asyncID)
+        return merge(input.sessionID, input.workspace).find(
+          (item) => item.executor === input.executor && item.asyncID === input.asyncID,
+        )
       })
 
-      const start = Effect.fn("ExBashTask.start")(
-        function* (input: Omit<Entry, "state" | "exitCode" | "endedAt">) {
-          yield* ensure({ sessionID: input.sessionID, workspace: input.workspace })
-          const task: Entry = {
-            ...input,
-            executor: input.executor ?? "local",
-            state: "running",
-            memory: true,
-          }
-          mark(task)
-          yield* Effect.sync(() =>
-            Database.use((db) =>
-              db.insert(ExBashTaskTable)
-                .values({
-                  async_id: task.asyncID,
-                  session_id: task.sessionID,
-                  workspace: task.workspace,
-                  scope: task.scope,
-                  executor: task.executor,
-                  description: task.description,
-                  command: task.command,
-                  cwd: task.cwd,
-                  time_start: task.startedAt,
-                })
-                .run(),
-            ),
-          )
-          yield* note(task.sessionID, task.workspace)
-          return view(task)
-        },
-      )
+      const start = Effect.fn("ExBashTask.start")(function* (input: Omit<Entry, "state" | "exitCode" | "endedAt">) {
+        yield* ensure({ sessionID: input.sessionID, workspace: input.workspace })
+        const task: Entry = {
+          ...input,
+          executor: input.executor ?? "local",
+          state: "running",
+          memory: true,
+        }
+        mark(task)
+        yield* Effect.sync(() =>
+          Database.use((db) =>
+            db
+              .insert(ExBashTaskTable)
+              .values({
+                async_id: task.asyncID,
+                session_id: task.sessionID,
+                workspace: task.workspace,
+                scope: task.scope,
+                executor: task.executor,
+                description: task.description,
+                command: task.command,
+                cwd: task.cwd,
+                time_start: task.startedAt,
+              })
+              .run(),
+          ),
+        )
+        yield* note(task.sessionID, task.workspace)
+        return view(task)
+      })
 
-      const finish = Effect.fn("ExBashTask.finish")(
-        function* (input: { executor: string; asyncID: string; exitCode: ExitCode; endedAt: number; totalOutput?: number; error?: string }) {
-          const ref = idx.get(key(input))
-          if (!ref) return undefined
-          const map = ref.scope === "workspace" ? ws.get(ref.workspace) : ses.get(ref.sessionID)
-          const prev = map?.get(key(input))
-          if (!prev) return undefined
-          const task = {
-            ...prev,
-            state: "stopped" as const,
-            exitCode: input.exitCode,
-            endedAt: prev.endedAt ?? input.endedAt,
-            ...(input.totalOutput === undefined ? {} : { totalOutput: input.totalOutput }),
-            ...(input.error ? { error: input.error } : {}),
-          }
-          mark(task)
-          yield* Effect.sync(() =>
-            Database.use((db) =>
-              db
-                .update(ExBashTaskTable)
-                .set({ time_end: task.endedAt, exit_code: input.exitCode as never })
-                .where(
-                  and(
-                    eq(ExBashTaskTable.async_id, input.asyncID),
-                    eq(ExBashTaskTable.executor, input.executor),
-                    eq(ExBashTaskTable.scope, ref.scope),
-                    ref.scope === "workspace"
-                      ? eq(ExBashTaskTable.workspace, ref.workspace)
-                      : eq(ExBashTaskTable.session_id, ref.sessionID),
-                  ),
-                )
-                .run(),
-            ),
-          )
-          yield* note(task.sessionID, task.workspace)
-          return view(task)
-        },
-      )
+      const finish = Effect.fn("ExBashTask.finish")(function* (input: {
+        executor: string
+        asyncID: string
+        exitCode: ExitCode
+        endedAt: number
+        totalOutput?: number
+        error?: string
+      }) {
+        const ref = idx.get(key(input))
+        if (!ref) return undefined
+        const map = ref.scope === "workspace" ? ws.get(ref.workspace) : ses.get(ref.sessionID)
+        const prev = map?.get(key(input))
+        if (!prev) return undefined
+        const task = {
+          ...prev,
+          state: "stopped" as const,
+          exitCode: input.exitCode,
+          endedAt: prev.endedAt ?? input.endedAt,
+          ...(input.totalOutput === undefined ? {} : { totalOutput: input.totalOutput }),
+          ...(input.error ? { error: input.error } : {}),
+        }
+        mark(task)
+        yield* Effect.sync(() =>
+          Database.use((db) =>
+            db
+              .update(ExBashTaskTable)
+              .set({ time_end: task.endedAt, exit_code: input.exitCode as never })
+              .where(
+                and(
+                  eq(ExBashTaskTable.async_id, input.asyncID),
+                  eq(ExBashTaskTable.executor, input.executor),
+                  eq(ExBashTaskTable.scope, ref.scope),
+                  ref.scope === "workspace"
+                    ? eq(ExBashTaskTable.workspace, ref.workspace)
+                    : eq(ExBashTaskTable.session_id, ref.sessionID),
+                ),
+              )
+              .run(),
+          ),
+        )
+        yield* note(task.sessionID, task.workspace)
+        return view(task)
+      })
 
       const lost = Effect.fn("ExBashTask.lost")(function* (input: { executor: string; asyncID: string }) {
         const ref = idx.get(key(input))
@@ -267,7 +303,12 @@ export namespace ExBashTask {
         return view(task)
       })
 
-      const remove = Effect.fn("ExBashTask.remove")(function* (input: { sessionID: SessionID; workspace: string; executor: string; asyncID: string }) {
+      const remove = Effect.fn("ExBashTask.remove")(function* (input: {
+        sessionID: SessionID
+        workspace: string
+        executor: string
+        asyncID: string
+      }) {
         yield* ensure(input)
         const ref = idx.get(key(input))
         if (!ref) return
@@ -320,7 +361,14 @@ export namespace ExBashTask {
     return runPromise((svc) => svc.start(input))
   }
 
-  export async function finish(input: { executor: string; asyncID: string; exitCode: ExitCode; endedAt: number; totalOutput?: number; error?: string }) {
+  export async function finish(input: {
+    executor: string
+    asyncID: string
+    exitCode: ExitCode
+    endedAt: number
+    totalOutput?: number
+    error?: string
+  }) {
     return runPromise((svc) => svc.finish(input))
   }
 

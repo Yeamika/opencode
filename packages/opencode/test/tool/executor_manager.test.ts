@@ -70,11 +70,16 @@ describe("tool.executorManager", () => {
       })
 
       await expect(tool.execute({ mode: "remove", id: "local" }, c)).rejects.toThrow("local executor")
-      await expect(tool.execute({ mode: "add", scope: "user", id: "shared", url: "ws://shared:9001" }, c)).rejects.toThrow("user scope")
+      await expect(
+        tool.execute({ mode: "add", scope: "user", id: "shared", url: "ws://shared:9001" }, c),
+      ).rejects.toThrow("user scope")
       await expect(tool.execute({ mode: "reconnect" }, c)).rejects.toThrow("id is required for reconnect")
       await expect(tool.execute({ mode: "reconnect", id: "missing" }, c)).rejects.toThrow("executor not configured")
 
-      await tool.execute({ mode: "add", scope: "user", id: "shared", url: "ws://shared:9001" }, await ctx("user executors", home))
+      await tool.execute(
+        { mode: "add", scope: "user", id: "shared", url: "ws://shared:9001" },
+        await ctx("user executors", home),
+      )
       result = await tool.execute({ mode: "list" }, c)
       list = JSON.parse(result.output) as Out
       expect(list.user.map((item) => item.id)).toEqual(["shared"])
@@ -86,7 +91,10 @@ describe("tool.executorManager", () => {
       list = JSON.parse(result.output) as Out
       expect(list.executors.map((item) => item.id)).toEqual(["local", "shared"])
 
-      await Bun.write(path.join(dir, ".opencode", "remote_executor_infos.json"), JSON.stringify([{ id: "legacy", url: "ws://legacy:9001" }]))
+      await Bun.write(
+        path.join(dir, ".opencode", "remote_executor_infos.json"),
+        JSON.stringify([{ id: "legacy", url: "ws://legacy:9001" }]),
+      )
       result = await tool.execute({ mode: "list" }, c)
       list = JSON.parse(result.output) as Out
       expect(list.workspace.map((item) => item.id)).toEqual(["legacy"])

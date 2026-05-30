@@ -70,8 +70,10 @@ const EXECUTOR_SESSION_PARAM = "ExecutorSessionID"
 function hasExecutorSessionParam(schema: Record<string, any>) {
   const properties = schema?.properties
   return Boolean(
-    properties && typeof properties === "object" && !Array.isArray(properties)
-    && Object.prototype.hasOwnProperty.call(properties, EXECUTOR_SESSION_PARAM),
+    properties &&
+      typeof properties === "object" &&
+      !Array.isArray(properties) &&
+      Object.prototype.hasOwnProperty.call(properties, EXECUTOR_SESSION_PARAM),
   )
 }
 
@@ -155,19 +157,19 @@ export namespace SessionPrompt {
       const getRunner = (runners: Map<string, Runner<MessageV2.WithParts>>, sessionID: SessionID) => {
         const existing = runners.get(sessionID)
         if (existing) return existing
-          const runner = Runner.make<MessageV2.WithParts>(scope, {
-            onIdle: Effect.gen(function* () {
-              const info = yield* sessions.get(sessionID).pipe(Effect.catchCause(() => Effect.succeed(undefined as any)))
-              if (info?.directory) Reload.leave(info.directory, sessionID)
-              runners.delete(sessionID)
-              yield* status.set(sessionID, SessionStatus.idle({ updatedAt: Date.now(), action: "Completed" }))
-            }),
-            onBusy: Effect.gen(function* () {
-              const info = yield* sessions.get(sessionID)
-              Reload.enter(info.directory, sessionID)
-              yield* status.set(sessionID, SessionStatus.busy({ action: "Preparing response" }))
-            }),
-            onInterrupt: lastAssistant(sessionID),
+        const runner = Runner.make<MessageV2.WithParts>(scope, {
+          onIdle: Effect.gen(function* () {
+            const info = yield* sessions.get(sessionID).pipe(Effect.catchCause(() => Effect.succeed(undefined as any)))
+            if (info?.directory) Reload.leave(info.directory, sessionID)
+            runners.delete(sessionID)
+            yield* status.set(sessionID, SessionStatus.idle({ updatedAt: Date.now(), action: "Completed" }))
+          }),
+          onBusy: Effect.gen(function* () {
+            const info = yield* sessions.get(sessionID)
+            Reload.enter(info.directory, sessionID)
+            yield* status.set(sessionID, SessionStatus.busy({ action: "Preparing response" }))
+          }),
+          onInterrupt: lastAssistant(sessionID),
           busy: () => {
             throw new Session.BusyError(sessionID)
           },
@@ -292,52 +294,51 @@ export namespace SessionPrompt {
           )
       })
 
-      const markPdfError = Effect.fn("SessionPrompt.markPdfError")(
-        function* (input: {
-          messages: MessageV2.WithParts[]
-          current: MessageV2.Assistant
-          model: Provider.Model
-          error: unknown
-        }) {
-          const parsed = MessageV2.fromError(input.error, { providerID: input.model.providerID, aborted: false })
-          const message = (() => {
-            if (MessageV2.APIError.isInstance(parsed)) return parsed.message
-            if (MessageV2.ContextOverflowError.isInstance(parsed)) return parsed.message
-            if (parsed && typeof parsed === "object" && "message" in parsed && typeof parsed.message === "string") return parsed.message
-            if (input.error instanceof Error) return input.error.message
-            return String(input.error)
-          })()
+      const markPdfError = Effect.fn("SessionPrompt.markPdfError")(function* (input: {
+        messages: MessageV2.WithParts[]
+        current: MessageV2.Assistant
+        model: Provider.Model
+        error: unknown
+      }) {
+        const parsed = MessageV2.fromError(input.error, { providerID: input.model.providerID, aborted: false })
+        const message = (() => {
+          if (MessageV2.APIError.isInstance(parsed)) return parsed.message
+          if (MessageV2.ContextOverflowError.isInstance(parsed)) return parsed.message
+          if (parsed && typeof parsed === "object" && "message" in parsed && typeof parsed.message === "string")
+            return parsed.message
+          if (input.error instanceof Error) return input.error.message
+          return String(input.error)
+        })()
 
-          if (!/pdf/i.test(message)) return false
+        if (!/pdf/i.test(message)) return false
 
-          const tool = input.messages
-            .toReversed()
-            .flatMap((msg) => msg.parts.toReversed())
-            .find(
-              (part): part is MessageV2.ToolPart & { state: MessageV2.ToolStateCompleted } =>
-                part.type === "tool" &&
-                part.state.status === "completed" &&
-                Boolean(part.state.attachments?.some((item) => item.mime === "application/pdf")),
-            )
-          if (!tool) return false
+        const tool = input.messages
+          .toReversed()
+          .flatMap((msg) => msg.parts.toReversed())
+          .find(
+            (part): part is MessageV2.ToolPart & { state: MessageV2.ToolStateCompleted } =>
+              part.type === "tool" &&
+              part.state.status === "completed" &&
+              Boolean(part.state.attachments?.some((item) => item.mime === "application/pdf")),
+          )
+        if (!tool) return false
 
-          yield* sessions.updatePart({
-            ...tool,
-            state: {
-              status: "error",
-              input: tool.state.input,
-              error: `[system: ${message}]`,
-              metadata: tool.state.metadata,
-              time: {
-                start: tool.state.time.start,
-                end: tool.state.time.end,
-              },
+        yield* sessions.updatePart({
+          ...tool,
+          state: {
+            status: "error",
+            input: tool.state.input,
+            error: `[system: ${message}]`,
+            metadata: tool.state.metadata,
+            time: {
+              start: tool.state.time.start,
+              end: tool.state.time.end,
             },
-          })
-          yield* sessions.removeMessage({ sessionID: input.current.sessionID, messageID: input.current.id })
-          return true
-        },
-      )
+          },
+        })
+        yield* sessions.removeMessage({ sessionID: input.current.sessionID, messageID: input.current.id })
+        return true
+      })
 
       const insertReminders = Effect.fn("SessionPrompt.insertReminders")(function* (input: {
         messages: MessageV2.WithParts[]
@@ -1466,249 +1467,254 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       })
 
       const runLoop = Effect.fn("SessionPrompt.run")(function* (sessionID: SessionID) {
-          const ctx = yield* InstanceState.context
-          let structured: unknown | undefined
-          let step = 0
-          const session = yield* sessions.get(sessionID)
+        const ctx = yield* InstanceState.context
+        let structured: unknown | undefined
+        let step = 0
+        const session = yield* sessions.get(sessionID)
 
-          while (true) {
-            yield* waitForReloadPoint({ sessionID, directory: session.directory })
-            yield* status.set(sessionID, SessionStatus.busy({ action: "Running session" }))
-            log.info("loop", { step, sessionID })
+        while (true) {
+          yield* waitForReloadPoint({ sessionID, directory: session.directory })
+          yield* status.set(sessionID, SessionStatus.busy({ action: "Running session" }))
+          log.info("loop", { step, sessionID })
 
-            let msgs = yield* MessageV2.filterCompactedEffect(sessionID)
+          let msgs = yield* MessageV2.filterCompactedEffect(sessionID)
 
-            let lastUser: MessageV2.User | undefined
-            let lastAssistant: MessageV2.Assistant | undefined
-            let lastFinished: MessageV2.Assistant | undefined
-            let tasks: (MessageV2.CompactionPart | MessageV2.SubtaskPart)[] = []
-            for (let i = msgs.length - 1; i >= 0; i--) {
-              const msg = msgs[i]
-              if (!lastUser && msg.info.role === "user") lastUser = msg.info
-              if (!lastAssistant && msg.info.role === "assistant") lastAssistant = msg.info
-              if (!lastFinished && msg.info.role === "assistant" && msg.info.finish) lastFinished = msg.info
-              if (lastUser && lastFinished) break
-              const task = msg.parts.filter((part) => part.type === "compaction" || part.type === "subtask")
-              if (task && !lastFinished) tasks.push(...task)
-            }
+          let lastUser: MessageV2.User | undefined
+          let lastAssistant: MessageV2.Assistant | undefined
+          let lastFinished: MessageV2.Assistant | undefined
+          let tasks: (MessageV2.CompactionPart | MessageV2.SubtaskPart)[] = []
+          for (let i = msgs.length - 1; i >= 0; i--) {
+            const msg = msgs[i]
+            if (!lastUser && msg.info.role === "user") lastUser = msg.info
+            if (!lastAssistant && msg.info.role === "assistant") lastAssistant = msg.info
+            if (!lastFinished && msg.info.role === "assistant" && msg.info.finish) lastFinished = msg.info
+            if (lastUser && lastFinished) break
+            const task = msg.parts.filter((part) => part.type === "compaction" || part.type === "subtask")
+            if (task && !lastFinished) tasks.push(...task)
+          }
 
-            if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
+          if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
 
-            const lastAssistantMsg = msgs.findLast(
-              (msg) => msg.info.role === "assistant" && msg.info.id === lastAssistant?.id,
-            )
-            // Some providers return "stop" even when the assistant message contains tool calls.
-            // Keep the loop running so tool results can be sent back to the model.
-            const hasToolCalls = lastAssistantMsg?.parts.some((part) => part.type === "tool") ?? false
+          const lastAssistantMsg = msgs.findLast(
+            (msg) => msg.info.role === "assistant" && msg.info.id === lastAssistant?.id,
+          )
+          // Some providers return "stop" even when the assistant message contains tool calls.
+          // Keep the loop running so tool results can be sent back to the model.
+          const hasToolCalls = lastAssistantMsg?.parts.some((part) => part.type === "tool") ?? false
 
-            if (
-              lastAssistant?.finish &&
-              !["tool-calls"].includes(lastAssistant.finish) &&
-              !hasToolCalls &&
-              lastUser.id < lastAssistant.id
-            ) {
-              log.info("exiting loop", { sessionID })
-              break
-            }
+          if (
+            lastAssistant?.finish &&
+            !["tool-calls"].includes(lastAssistant.finish) &&
+            !hasToolCalls &&
+            lastUser.id < lastAssistant.id
+          ) {
+            log.info("exiting loop", { sessionID })
+            break
+          }
 
-            step++
-            if (step === 1)
-              yield* title({
-                session,
-                modelID: lastUser.model.modelID,
-                providerID: lastUser.model.providerID,
-                history: msgs,
-              }).pipe(Effect.ignore, Effect.forkIn(scope))
+          step++
+          if (step === 1)
+            yield* title({
+              session,
+              modelID: lastUser.model.modelID,
+              providerID: lastUser.model.providerID,
+              history: msgs,
+            }).pipe(Effect.ignore, Effect.forkIn(scope))
 
-            const model = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
-            const task = tasks.pop()
+          const model = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
+          const task = tasks.pop()
 
-            if (task?.type === "subtask") {
-              yield* handleSubtask({ task, model, lastUser, sessionID, session, msgs })
-              continue
-            }
-
-            if (task?.type === "compaction") {
-              const result = yield* compaction.process({
-                messages: msgs,
-                parentID: lastUser.id,
-                sessionID,
-                auto: task.auto,
-                overflow: task.overflow,
-              })
-              if (result === "stop") break
-              continue
-            }
-
-            if (
-              lastFinished &&
-              lastFinished.summary !== true &&
-              (yield* compaction.isOverflow({ tokens: lastFinished.tokens, model }))
-            ) {
-              yield* compaction.create({ sessionID, agent: lastUser.agent, model: lastUser.model, auto: true })
-              continue
-            }
-
-            const agent = yield* agents.get(lastUser.agent)
-            if (!agent) {
-              const available = (yield* agents.list()).filter((a) => !a.hidden).map((a) => a.name)
-              const hint = available.length ? ` Available agents: ${available.join(", ")}` : ""
-              const error = new NamedError.Unknown({ message: `Agent not found: "${lastUser.agent}".${hint}` })
-              yield* bus.publish(Session.Event.Error, { sessionID, error: error.toObject() })
-              throw error
-            }
-            const maxSteps = agent.steps ?? Infinity
-            const isLastStep = step >= maxSteps
-            msgs = yield* insertReminders({ messages: msgs, agent, session })
-
-            const msg: MessageV2.Assistant = {
-              id: MessageID.ascending(),
-              parentID: lastUser.id,
-              role: "assistant",
-              mode: agent.name,
-              agent: agent.name,
-              variant: lastUser.variant,
-              path: { cwd: ctx.directory, root: ctx.worktree },
-              cost: 0,
-              tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-              modelID: model.id,
-              providerID: model.providerID,
-              time: { created: Date.now() },
-              sessionID,
-            }
-            yield* sessions.updateMessage(msg)
-            const handle = yield* processor.create({
-              assistantMessage: msg,
-              sessionID,
-              model,
-            })
-
-            const outcome: "break" | "continue" = yield* Effect.onExit(
-              Effect.gen(function* () {
-                const lastUserMsg = msgs.findLast((m) => m.info.role === "user")
-                const bypassAgentCheck = lastUserMsg?.parts.some((p) => p.type === "agent") ?? false
-
-                const tools = yield* resolveTools({
-                  agent,
-                  session,
-                  model,
-                  tools: lastUser.tools,
-                  processor: handle,
-                  bypassAgentCheck,
-                  messages: msgs,
-                })
-
-                if (lastUser.format?.type === "json_schema") {
-                  tools["StructuredOutput"] = createStructuredOutputTool({
-                    schema: lastUser.format.schema,
-                    onSuccess(output) {
-                      structured = output
-                    },
-                  })
-                }
-
-                if (step === 1) SessionSummary.summarize({ sessionID, messageID: lastUser.id })
-
-                if (step > 1 && lastFinished) {
-                  for (const m of msgs) {
-                    if (m.info.role !== "user" || m.info.id <= lastFinished.id) continue
-                    for (const p of m.parts) {
-                      if (p.type !== "text" || p.ignored || p.synthetic) continue
-                      if (!p.text.trim()) continue
-                      p.text = [
-                        "<opencode-system-reminder>",
-                        "The user sent the following message:",
-                        p.text,
-                        "",
-                        "Please address this message and continue with your tasks.",
-                        "</opencode-system-reminder>",
-                      ].join("\n")
-                    }
-                  }
-                }
-
-                yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
-
-                const modelMsgs = yield* Effect.gen(function* () {
-                  const result = yield* Effect.exit(Effect.promise(() => MessageV2.toModelMessages(msgs, model)))
-                  if (Exit.isSuccess(result)) return result.value
-                  const error = Cause.squash(result.cause)
-                  const marked = yield* markPdfError({ messages: msgs, current: msg, model, error })
-                  if (marked) return undefined
-                  return yield* Effect.fail(error)
-                })
-                if (!modelMsgs) return "continue" as const
-
-                const [skills, env, instructions] = yield* Effect.all([
-                  Effect.promise(() => SystemPrompt.skills(agent)),
-                  Effect.promise(() => SystemPrompt.environment(model, sessionID)),
-                  instruction.system().pipe(Effect.orDie),
-                ])
-                const system = [...env, ...(skills ? [skills] : []), ...instructions]
-                const format = lastUser.format ?? { type: "text" as const }
-                if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
-                const result = yield* handle.process({
-                  user: lastUser,
-                  agent,
-                  permission: session.permission,
-                  sessionID,
-                  parentSessionID: session.parentID,
-                  system,
-                  messages: [...modelMsgs, ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS }] : [])],
-                  tools,
-                  model,
-                  toolChoice: format.type === "json_schema" ? "required" : undefined,
-                })
-
-                if (structured !== undefined) {
-                  handle.message.structured = structured
-                  handle.message.finish = handle.message.finish ?? "stop"
-                  yield* sessions.updateMessage(handle.message)
-                  return "break" as const
-                }
-
-                const finished = handle.message.finish && !["tool-calls", "unknown"].includes(handle.message.finish)
-                if (finished && !handle.message.error) {
-                  if (format.type === "json_schema") {
-                    handle.message.error = new MessageV2.StructuredOutputError({
-                      message: "Model did not produce structured output",
-                      retries: 0,
-                    }).toObject()
-                    yield* sessions.updateMessage(handle.message)
-                    return "break" as const
-                  }
-                }
-
-                if (result === "stop") {
-                  if (handle.message.error) {
-                    const marked = yield* markPdfError({ messages: msgs, current: msg, model, error: handle.message.error })
-                    if (marked) return "continue" as const
-                  }
-                  return "break" as const
-                }
-                if (result === "compact") {
-                  yield* compaction.create({
-                    sessionID,
-                    agent: lastUser.agent,
-                    model: lastUser.model,
-                    auto: true,
-                    overflow: !handle.message.finish,
-                  })
-                }
-                return "continue" as const
-              }),
-              Effect.fnUntraced(function* (exit) {
-                if (Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)) yield* handle.abort()
-                yield* InstanceState.withALS(() => instruction.clear(handle.message.id)).pipe(Effect.flatMap((x) => x))
-              }),
-            )
-            if (outcome === "break") break
+          if (task?.type === "subtask") {
+            yield* handleSubtask({ task, model, lastUser, sessionID, session, msgs })
             continue
           }
 
-          yield* compaction.prune({ sessionID }).pipe(Effect.ignore, Effect.forkIn(scope))
-          return yield* lastAssistant(sessionID)
-        })
+          if (task?.type === "compaction") {
+            const result = yield* compaction.process({
+              messages: msgs,
+              parentID: lastUser.id,
+              sessionID,
+              auto: task.auto,
+              overflow: task.overflow,
+            })
+            if (result === "stop") break
+            continue
+          }
+
+          if (
+            lastFinished &&
+            lastFinished.summary !== true &&
+            (yield* compaction.isOverflow({ tokens: lastFinished.tokens, model }))
+          ) {
+            yield* compaction.create({ sessionID, agent: lastUser.agent, model: lastUser.model, auto: true })
+            continue
+          }
+
+          const agent = yield* agents.get(lastUser.agent)
+          if (!agent) {
+            const available = (yield* agents.list()).filter((a) => !a.hidden).map((a) => a.name)
+            const hint = available.length ? ` Available agents: ${available.join(", ")}` : ""
+            const error = new NamedError.Unknown({ message: `Agent not found: "${lastUser.agent}".${hint}` })
+            yield* bus.publish(Session.Event.Error, { sessionID, error: error.toObject() })
+            throw error
+          }
+          const maxSteps = agent.steps ?? Infinity
+          const isLastStep = step >= maxSteps
+          msgs = yield* insertReminders({ messages: msgs, agent, session })
+
+          const msg: MessageV2.Assistant = {
+            id: MessageID.ascending(),
+            parentID: lastUser.id,
+            role: "assistant",
+            mode: agent.name,
+            agent: agent.name,
+            variant: lastUser.variant,
+            path: { cwd: ctx.directory, root: ctx.worktree },
+            cost: 0,
+            tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+            modelID: model.id,
+            providerID: model.providerID,
+            time: { created: Date.now() },
+            sessionID,
+          }
+          yield* sessions.updateMessage(msg)
+          const handle = yield* processor.create({
+            assistantMessage: msg,
+            sessionID,
+            model,
+          })
+
+          const outcome: "break" | "continue" = yield* Effect.onExit(
+            Effect.gen(function* () {
+              const lastUserMsg = msgs.findLast((m) => m.info.role === "user")
+              const bypassAgentCheck = lastUserMsg?.parts.some((p) => p.type === "agent") ?? false
+
+              const tools = yield* resolveTools({
+                agent,
+                session,
+                model,
+                tools: lastUser.tools,
+                processor: handle,
+                bypassAgentCheck,
+                messages: msgs,
+              })
+
+              if (lastUser.format?.type === "json_schema") {
+                tools["StructuredOutput"] = createStructuredOutputTool({
+                  schema: lastUser.format.schema,
+                  onSuccess(output) {
+                    structured = output
+                  },
+                })
+              }
+
+              if (step === 1) SessionSummary.summarize({ sessionID, messageID: lastUser.id })
+
+              if (step > 1 && lastFinished) {
+                for (const m of msgs) {
+                  if (m.info.role !== "user" || m.info.id <= lastFinished.id) continue
+                  for (const p of m.parts) {
+                    if (p.type !== "text" || p.ignored || p.synthetic) continue
+                    if (!p.text.trim()) continue
+                    p.text = [
+                      "<opencode-system-reminder>",
+                      "The user sent the following message:",
+                      p.text,
+                      "",
+                      "Please address this message and continue with your tasks.",
+                      "</opencode-system-reminder>",
+                    ].join("\n")
+                  }
+                }
+              }
+
+              yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
+
+              const modelMsgs = yield* Effect.gen(function* () {
+                const result = yield* Effect.exit(Effect.promise(() => MessageV2.toModelMessages(msgs, model)))
+                if (Exit.isSuccess(result)) return result.value
+                const error = Cause.squash(result.cause)
+                const marked = yield* markPdfError({ messages: msgs, current: msg, model, error })
+                if (marked) return undefined
+                return yield* Effect.fail(error)
+              })
+              if (!modelMsgs) return "continue" as const
+
+              const [skills, env, instructions] = yield* Effect.all([
+                Effect.promise(() => SystemPrompt.skills(agent)),
+                Effect.promise(() => SystemPrompt.environment(model, sessionID)),
+                instruction.system().pipe(Effect.orDie),
+              ])
+              const system = [...env, ...(skills ? [skills] : []), ...instructions]
+              const format = lastUser.format ?? { type: "text" as const }
+              if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
+              const result = yield* handle.process({
+                user: lastUser,
+                agent,
+                permission: session.permission,
+                sessionID,
+                parentSessionID: session.parentID,
+                system,
+                messages: [...modelMsgs, ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS }] : [])],
+                tools,
+                model,
+                toolChoice: format.type === "json_schema" ? "required" : undefined,
+              })
+
+              if (structured !== undefined) {
+                handle.message.structured = structured
+                handle.message.finish = handle.message.finish ?? "stop"
+                yield* sessions.updateMessage(handle.message)
+                return "break" as const
+              }
+
+              const finished = handle.message.finish && !["tool-calls", "unknown"].includes(handle.message.finish)
+              if (finished && !handle.message.error) {
+                if (format.type === "json_schema") {
+                  handle.message.error = new MessageV2.StructuredOutputError({
+                    message: "Model did not produce structured output",
+                    retries: 0,
+                  }).toObject()
+                  yield* sessions.updateMessage(handle.message)
+                  return "break" as const
+                }
+              }
+
+              if (result === "stop") {
+                if (handle.message.error) {
+                  const marked = yield* markPdfError({
+                    messages: msgs,
+                    current: msg,
+                    model,
+                    error: handle.message.error,
+                  })
+                  if (marked) return "continue" as const
+                }
+                return "break" as const
+              }
+              if (result === "compact") {
+                yield* compaction.create({
+                  sessionID,
+                  agent: lastUser.agent,
+                  model: lastUser.model,
+                  auto: true,
+                  overflow: !handle.message.finish,
+                })
+              }
+              return "continue" as const
+            }),
+            Effect.fnUntraced(function* (exit) {
+              if (Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)) yield* handle.abort()
+              yield* InstanceState.withALS(() => instruction.clear(handle.message.id)).pipe(Effect.flatMap((x) => x))
+            }),
+          )
+          if (outcome === "break") break
+          continue
+        }
+
+        yield* compaction.prune({ sessionID }).pipe(Effect.ignore, Effect.forkIn(scope))
+        return yield* lastAssistant(sessionID)
+      })
 
       const loop: (input: z.infer<typeof LoopInput>) => Effect.Effect<MessageV2.WithParts> = Effect.fn(
         "SessionPrompt.loop",
@@ -1717,23 +1723,21 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         const runner = getRunner(s.runners, input.sessionID)
         return yield* runner.ensureRunning(runLoop(input.sessionID).pipe(Effect.orDie)).pipe(
           Effect.ensuring(
-            status
-              .get(input.sessionID)
-                .pipe(
-                Effect.flatMap((current) =>
-                  current.type === "idle"
-                    ? Effect.void
-                    : status.set(input.sessionID, SessionStatus.idle({ updatedAt: Date.now(), action: "Completed" })),
-                ),
-                Effect.catchCause((cause) =>
-                  Effect.sync(() =>
-                    log.error("failed to finalize session status", {
-                      sessionID: input.sessionID,
-                      error: Cause.squash(cause),
-                    }),
-                  ),
+            status.get(input.sessionID).pipe(
+              Effect.flatMap((current) =>
+                current.type === "idle"
+                  ? Effect.void
+                  : status.set(input.sessionID, SessionStatus.idle({ updatedAt: Date.now(), action: "Completed" })),
+              ),
+              Effect.catchCause((cause) =>
+                Effect.sync(() =>
+                  log.error("failed to finalize session status", {
+                    sessionID: input.sessionID,
+                    error: Cause.squash(cause),
+                  }),
                 ),
               ),
+            ),
           ),
         )
       })

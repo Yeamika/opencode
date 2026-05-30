@@ -872,14 +872,16 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
     const requestID = (evt as any).properties?.requestID as string | undefined
     if (requestID) {
       const url = new URL("/tui/ack", sdk.url)
-      void sdk.fetch(url, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(sdk.headers ?? {}),
-        },
-        body: JSON.stringify({ requestID, displayID: sdk.displayID }),
-      }).catch(() => {})
+      void sdk
+        .fetch(url, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...(sdk.headers ?? {}),
+          },
+          body: JSON.stringify({ requestID, displayID: sdk.displayID }),
+        })
+        .catch(() => {})
     }
     const nextDirectory = typeof evt.properties.directory === "string" ? evt.properties.directory.trim() : ""
     if (nextDirectory && nextDirectory !== (sync.data.path.directory || sdk.directory || "")) {
@@ -897,14 +899,16 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
     const requestID = (evt as any).properties?.requestID as string | undefined
     if (requestID) {
       const url = new URL("/tui/ack", sdk.url)
-      void sdk.fetch(url, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(sdk.headers ?? {}),
-        },
-        body: JSON.stringify({ requestID, displayID: sdk.displayID }),
-      }).catch(() => {})
+      void sdk
+        .fetch(url, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...(sdk.headers ?? {}),
+          },
+          body: JSON.stringify({ requestID, displayID: sdk.displayID }),
+        })
+        .catch(() => {})
     }
     void (async () => {
       if (evt.properties.workspaceID) {

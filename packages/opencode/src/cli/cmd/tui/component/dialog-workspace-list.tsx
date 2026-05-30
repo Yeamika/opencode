@@ -242,13 +242,13 @@ export function DialogWorkspaceList() {
   createEffect(() => {
     const workspaces = sync.data.workspaceList
     const next = ++run
-    setStats(Object.fromEntries([["__local__", undefined], ...workspaces.map((workspace) => [workspace.id, undefined])]))
-    void Promise.all(
-      [
-        read().then((item) => ["__local__", item] as const),
-        ...workspaces.map(async (workspace) => [workspace.id, await read(workspace.id)] as const),
-      ],
-    ).then((entries) => {
+    setStats(
+      Object.fromEntries([["__local__", undefined], ...workspaces.map((workspace) => [workspace.id, undefined])]),
+    )
+    void Promise.all([
+      read().then((item) => ["__local__", item] as const),
+      ...workspaces.map(async (workspace) => [workspace.id, await read(workspace.id)] as const),
+    ]).then((entries) => {
       if (run !== next) return
       setStats(Object.fromEntries(entries))
     })

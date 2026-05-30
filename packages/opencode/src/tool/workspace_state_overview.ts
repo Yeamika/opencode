@@ -25,8 +25,7 @@ async function listNames(dir: string, kind: "file" | "directory") {
 }
 
 export const WorkspaceOverviewTool = Tool.define("workspaceOverview", {
-  description:
-    "Authoritative control surface for workspace overview.",
+  description: "Authoritative control surface for workspace overview.",
   parameters: z.object({
     scope: z.enum(["local", "global"]).default("local").describe("Which workspace scope to inspect."),
   }),

@@ -81,7 +81,16 @@ export function BootstrapLoading(props: { title: string; detail?: string }) {
         evt.stopPropagation()
       }}
     >
-      <box width={72} maxWidth={dim().width - 4} alignItems="center" flexDirection="column" gap={1} paddingTop={2} paddingBottom={2} backgroundColor={theme.backgroundPanel}>
+      <box
+        width={72}
+        maxWidth={dim().width - 4}
+        alignItems="center"
+        flexDirection="column"
+        gap={1}
+        paddingTop={2}
+        paddingBottom={2}
+        backgroundColor={theme.backgroundPanel}
+      >
         <box flexDirection="column" paddingBottom={1}>
           <For each={rows()}>
             {(row) => (

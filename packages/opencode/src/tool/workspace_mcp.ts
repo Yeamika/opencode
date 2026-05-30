@@ -44,22 +44,28 @@ function flatten(issue: z.ZodIssue, value: unknown): z.ZodIssue[] {
 
 function invalid(value: unknown, error: z.ZodError) {
   const input = JSON.stringify(value, null, 2)
-  const errors = error.issues.flatMap((issue) => flatten(issue, value)).map((issue) => `=> ${addr(issue)}: ${text(issue)}`)
+  const errors = error.issues
+    .flatMap((issue) => flatten(issue, value))
+    .map((issue) => `=> ${addr(issue)}: ${text(issue)}`)
   return [input, ...errors].join("\n")
 }
 
 export const WorkspaceMcpTool = Tool.define("workspaceMcp", {
-  description:
-    "Authoritative control surface for workspace MCP.",
+  description: "Authoritative control surface for workspace MCP.",
   parameters: z.object({
-    mode: z.enum(["read", "write", "delete"]).describe("Read current entries, write one local entry, or delete one local entry."),
-    scope: z.enum(["local", "global"]).default("local").describe("Read supports local or global. Write/delete only support local."),
+    mode: z
+      .enum(["read", "write", "delete"])
+      .describe("Read current entries, write one local entry, or delete one local entry."),
+    scope: z
+      .enum(["local", "global"])
+      .default("local")
+      .describe("Read supports local or global. Write/delete only support local."),
     name: z.string().optional().describe("Entry name. Required for write and delete."),
     value: z
       .string()
       .optional()
       .describe(
-        "JSON object string for one entry value. Example: {\"type\":\"remote\",\"url\":\"http://host.docker.internal:8811/mcp\"} or {\"enabled\":true} for plugin-managed entries.",
+        'JSON object string for one entry value. Example: {"type":"remote","url":"http://host.docker.internal:8811/mcp"} or {"enabled":true} for plugin-managed entries.',
       ),
   }),
   async execute(args, ctx) {

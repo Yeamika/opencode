@@ -281,7 +281,11 @@ export type TuiState = {
     diff: (sessionID: string) => ReadonlyArray<TuiSidebarFileItem>
     todo: (sessionID: string) => ReadonlyArray<TuiSidebarTodoItem>
     exbash: (sessionID: string) => ReadonlyArray<TuiSidebarBashTaskItem>
-    exbashSnapshot: (sessionID: string, asyncID: string, executor?: string) => Promise<{ snapshot: string; attachurl?: string }>
+    exbashSnapshot: (
+      sessionID: string,
+      asyncID: string,
+      executor?: string,
+    ) => Promise<{ snapshot: string; attachurl?: string }>
     messages: (sessionID: string) => ReadonlyArray<Message>
     status: (sessionID: string) => SessionStatus | undefined
     permission: (sessionID: string) => ReadonlyArray<PermissionRequest>

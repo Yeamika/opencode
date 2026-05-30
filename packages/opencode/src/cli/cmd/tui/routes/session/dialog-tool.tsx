@@ -54,7 +54,7 @@ export function DialogTool(props: {
               description: "show full tool output",
               onSelect: async (dialog: DialogContext) => {
                 const part = await load()
-                const full = part?.state.status === "completed" ? part.state.output : props.output ?? ""
+                const full = part?.state.status === "completed" ? part.state.output : (props.output ?? "")
                 DialogToolOutput.show(dialog, `${props.tool} Output`, String(full), { ansi: true })
               },
             },
@@ -69,7 +69,9 @@ export function DialogTool(props: {
               onSelect: async (dialog: DialogContext) => {
                 const part = await load()
                 const full =
-                  part?.state.status === "running" || part?.state.status === "completed" || part?.state.status === "error"
+                  part?.state.status === "running" ||
+                  part?.state.status === "completed" ||
+                  part?.state.status === "error"
                     ? JSON.stringify(safe(part.state.metadata) ?? {}, null, 2)
                     : metadata
                 DialogToolOutput.show(dialog, `${props.tool} Metadata`, full, { filetype: "json" })

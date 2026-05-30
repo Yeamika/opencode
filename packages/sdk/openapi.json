@@ -525,6 +525,57 @@
         ]
       }
     },
+    "/project/reload": {
+      "post": {
+        "operationId": "project.reload",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Request workspace reload",
+        "description": "Request an asynchronous workspace reload for the current directory. Active sessions will continue to the next waitpoint and then observe refreshed workspace state.",
+        "responses": {
+          "200": {
+            "description": "Reload request accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "directory": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "const": "pending"
+                    }
+                  },
+                  "required": ["directory", "status"]
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.project.reload({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/project/git/init": {
       "post": {
         "operationId": "project.initGit",
@@ -1216,6 +1267,94 @@
           {
             "lang": "js",
             "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.config.providers({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/config/plugins": {
+      "get": {
+        "operationId": "config.plugins",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "List config plugins",
+        "description": "Get plugin display information prepared by the current OpenCode server.",
+        "responses": {
+          "200": {
+            "description": "List of configured plugins",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ConfigPluginInfo"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.config.plugins({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/experimental/instance": {
+      "get": {
+        "operationId": "experimental.instance.list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "List loaded instances",
+        "description": "List currently loaded server instances by directory.",
+        "responses": {
+          "200": {
+            "description": "Loaded instance directories",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.experimental.instance.list({\n  ...\n})"
           }
         ]
       }
@@ -2472,6 +2611,180 @@
         ]
       }
     },
+    "/session/{sessionID}/exbash": {
+      "get": {
+        "operationId": "session.exbash",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sessionID",
+            "schema": {
+              "type": "string",
+              "pattern": "^ses.*"
+            },
+            "required": true
+          }
+        ],
+        "summary": "Get session bash tasks",
+        "description": "Retrieve merged exbash task state for the session and its workspace from server memory.",
+        "responses": {
+          "200": {
+            "description": "Exbash tasks",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ExBashTask"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.session.exbash({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/session/{sessionID}/exbash/{asyncID}/snapshot": {
+      "get": {
+        "operationId": "session.exbashSnapshot",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sessionID",
+            "schema": {
+              "type": "string",
+              "pattern": "^ses.*"
+            },
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "asyncID",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "in": "query",
+            "name": "executor",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Get session bash task snapshot",
+        "description": "Retrieve the current plain-text PTY snapshot for one exbash task.",
+        "responses": {
+          "200": {
+            "description": "Exbash task snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "snapshot": {
+                      "type": "string"
+                    },
+                    "attachurl": {
+                      "type": "string"
+                    },
+                    "metadata": {
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "additionalProperties": {}
+                    }
+                  },
+                  "required": ["snapshot", "metadata"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.session.exbashSnapshot({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/session/{sessionID}/init": {
       "post": {
         "operationId": "session.init",
@@ -2699,9 +3012,9 @@
         ]
       }
     },
-    "/session/{sessionID}/share": {
+    "/session/{sessionID}/retry": {
       "post": {
-        "operationId": "session.share",
+        "operationId": "session.retryNow",
         "parameters": [
           {
             "in": "query",
@@ -2727,15 +3040,15 @@
             "required": true
           }
         ],
-        "summary": "Share session",
-        "description": "Create a shareable link for a session, allowing others to view the conversation.",
+        "summary": "Retry session now",
+        "description": "Skip the current retry wait and immediately resume retrying the active session.",
         "responses": {
           "200": {
-            "description": "Successfully shared session",
+            "description": "Retry wait skipped",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Session"
+                  "type": "boolean"
                 }
               }
             }
@@ -2764,12 +3077,14 @@
         "x-codeSamples": [
           {
             "lang": "js",
-            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.session.share({\n  ...\n})"
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.session.retryNow({\n  ...\n})"
           }
         ]
-      },
-      "delete": {
-        "operationId": "session.unshare",
+      }
+    },
+    "/session/{sessionID}/resume": {
+      "post": {
+        "operationId": "session.resume",
         "parameters": [
           {
             "in": "query",
@@ -2795,15 +3110,15 @@
             "required": true
           }
         ],
-        "summary": "Unshare session",
-        "description": "Remove the shareable link for a session, making it private again.",
+        "summary": "Resume session generation",
+        "description": "Resume the current session loop for interrupted or incomplete turns without resending the user prompt.",
         "responses": {
           "200": {
-            "description": "Successfully unshared session",
+            "description": "Resume requested",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Session"
+                  "type": "boolean"
                 }
               }
             }
@@ -2832,7 +3147,7 @@
         "x-codeSamples": [
           {
             "lang": "js",
-            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.session.unshare({\n  ...\n})"
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.session.resume({\n  ...\n})"
           }
         ]
       }
@@ -3033,6 +3348,14 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "preview",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "Return preview-safe parts"
           }
         ],
         "summary": "Get session messages",
@@ -6495,6 +6818,29 @@
                   },
                   {
                     "$ref": "#/components/schemas/Event.tui.session.select"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Event.tui.attach-to-running-session"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Event.tui.display.report"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "pattern": "^plugin\\."
+                      },
+                      "properties": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "additionalProperties": {}
+                      }
+                    },
+                    "required": ["type", "properties"]
                   }
                 ]
               }
@@ -6505,6 +6851,75 @@
           {
             "lang": "js",
             "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.tui.publish({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/tui/ack": {
+      "post": {
+        "operationId": "tui.ack",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Acknowledge TUI control delivery",
+        "description": "Used by a TUI client to acknowledge that it received a directed control event.",
+        "responses": {
+          "200": {
+            "description": "Ack accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "requestID": {
+                    "type": "string"
+                  },
+                  "displayID": {
+                    "type": "string"
+                  }
+                },
+                "required": ["requestID"]
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.tui.ack({\n  ...\n})"
           }
         ]
       }
@@ -6529,7 +6944,7 @@
           }
         ],
         "summary": "Select session",
-        "description": "Navigate the TUI to display the specified session.",
+        "description": "Navigate the targeted TUI display to the specified session.",
         "responses": {
           "200": {
             "description": "Session selected successfully",
@@ -6572,9 +6987,21 @@
                     "description": "Session ID to navigate to",
                     "type": "string",
                     "pattern": "^ses.*"
+                  },
+                  "displayID": {
+                    "description": "TUI display ID to target",
+                    "type": "string"
+                  },
+                  "directory": {
+                    "description": "Directory to switch the targeted TUI into before opening the session",
+                    "type": "string"
+                  },
+                  "requestID": {
+                    "description": "Request identifier used to acknowledge delivery of the control event",
+                    "type": "string"
                   }
                 },
-                "required": ["sessionID"]
+                "required": ["sessionID", "displayID"]
               }
             }
           }
@@ -6583,6 +7010,88 @@
           {
             "lang": "js",
             "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.tui.selectSession({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/tui/attach-to-running-session": {
+      "post": {
+        "operationId": "tui.attachToRunningSession",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Attach display to running session",
+        "description": "Switch the targeted TUI display to a running session and proactively align its directory/workspace before navigation.",
+        "responses": {
+          "200": {
+            "description": "Attach request published successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "sessionID": {
+                    "description": "Session ID to attach the targeted display to",
+                    "type": "string",
+                    "pattern": "^ses.*"
+                  },
+                  "displayID": {
+                    "description": "TUI display ID to target",
+                    "type": "string"
+                  }
+                },
+                "required": ["sessionID", "displayID"]
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.tui.attachToRunningSession({\n  ...\n})"
           }
         ]
       }
@@ -7426,6 +7935,12 @@
               "type": {
                 "type": "string",
                 "const": "idle"
+              },
+              "updatedAt": {
+                "type": "number"
+              },
+              "action": {
+                "type": "string"
               }
             },
             "required": ["type"]
@@ -7445,9 +7960,18 @@
               },
               "next": {
                 "type": "number"
+              },
+              "waitingAt": {
+                "type": "number"
+              },
+              "updatedAt": {
+                "type": "number"
+              },
+              "action": {
+                "type": "string"
               }
             },
-            "required": ["type", "attempt", "message", "next"]
+            "required": ["type", "attempt", "message", "next", "waitingAt", "updatedAt"]
           },
           {
             "type": "object",
@@ -7455,9 +7979,18 @@
               "type": {
                 "type": "string",
                 "const": "busy"
+              },
+              "startedAt": {
+                "type": "number"
+              },
+              "updatedAt": {
+                "type": "number"
+              },
+              "action": {
+                "type": "string"
               }
             },
-            "required": ["type"]
+            "required": ["type", "startedAt", "updatedAt"]
           }
         ]
       },
@@ -7674,6 +8207,29 @@
         },
         "required": ["type", "properties"]
       },
+      "Event.exbash.updated": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "exbash.updated"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "sessionID": {
+                "type": "string",
+                "pattern": "^ses.*"
+              },
+              "workspace": {
+                "type": "string"
+              }
+            },
+            "required": ["sessionID", "workspace"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
       "Event.file.edited": {
         "type": "object",
         "properties": {
@@ -7772,6 +8328,38 @@
         },
         "required": ["type", "properties"]
       },
+      "Event.project.reload.updated": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "project.reload.updated"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "directory": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": ["idle", "pending", "running"]
+              },
+              "totalSessions": {
+                "type": "number"
+              },
+              "readySessions": {
+                "type": "number"
+              },
+              "waitingSessions": {
+                "type": "number"
+              }
+            },
+            "required": ["directory", "status", "totalSessions", "readySessions", "waitingSessions"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
       "Event.tui.prompt.append": {
         "type": "object",
         "properties": {
@@ -7808,7 +8396,6 @@
                     "enum": [
                       "session.list",
                       "session.new",
-                      "session.share",
                       "session.interrupt",
                       "session.compact",
                       "session.page.up",
@@ -7880,9 +8467,87 @@
                 "description": "Session ID to navigate to",
                 "type": "string",
                 "pattern": "^ses.*"
+              },
+              "displayID": {
+                "description": "TUI display ID to target",
+                "type": "string"
+              },
+              "directory": {
+                "description": "Directory to switch the targeted TUI into before opening the session",
+                "type": "string"
+              },
+              "requestID": {
+                "description": "Request identifier used to acknowledge delivery of the control event",
+                "type": "string"
               }
             },
-            "required": ["sessionID"]
+            "required": ["sessionID", "displayID"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.tui.attach-to-running-session": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "tui.attach-to-running-session"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "sessionID": {
+                "description": "Session ID to attach the targeted display to",
+                "type": "string",
+                "pattern": "^ses.*"
+              },
+              "displayID": {
+                "description": "TUI display ID to target",
+                "type": "string"
+              },
+              "directory": {
+                "description": "Directory of the target running session",
+                "type": "string"
+              },
+              "workspaceID": {
+                "description": "Workspace ID of the target running session, when present",
+                "type": "string"
+              },
+              "requestID": {
+                "description": "Request identifier used to acknowledge delivery of the control event",
+                "type": "string"
+              }
+            },
+            "required": ["sessionID", "displayID"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.tui.display.report": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "tui.display.report"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "displayID": {
+                "description": "TUI display ID that is reporting status",
+                "type": "string"
+              },
+              "directory": {
+                "description": "Current directory visible to this display",
+                "type": "string"
+              },
+              "sessionID": {
+                "description": "Current session shown in this display, if any",
+                "type": "string",
+                "pattern": "^ses.*"
+              }
+            },
+            "required": ["displayID"]
           }
         },
         "required": ["type", "properties"]
@@ -9660,15 +10325,6 @@
             },
             "required": ["additions", "deletions", "files"]
           },
-          "share": {
-            "type": "object",
-            "properties": {
-              "url": {
-                "type": "string"
-              }
-            },
-            "required": ["url"]
-          },
           "title": {
             "type": "string"
           },
@@ -9842,6 +10498,9 @@
             "$ref": "#/components/schemas/Event.session.compacted"
           },
           {
+            "$ref": "#/components/schemas/Event.exbash.updated"
+          },
+          {
             "$ref": "#/components/schemas/Event.file.edited"
           },
           {
@@ -9849,6 +10508,9 @@
           },
           {
             "$ref": "#/components/schemas/Event.todo.updated"
+          },
+          {
+            "$ref": "#/components/schemas/Event.project.reload.updated"
           },
           {
             "$ref": "#/components/schemas/Event.tui.prompt.append"
@@ -9861,6 +10523,12 @@
           },
           {
             "$ref": "#/components/schemas/Event.tui.session.select"
+          },
+          {
+            "$ref": "#/components/schemas/Event.tui.attach-to-running-session"
+          },
+          {
+            "$ref": "#/components/schemas/Event.tui.display.report"
           },
           {
             "$ref": "#/components/schemas/Event.mcp.tools.changed"
@@ -10195,22 +10863,6 @@
                       }
                     ]
                   },
-                  "share": {
-                    "type": "object",
-                    "properties": {
-                      "url": {
-                        "anyOf": [
-                          {
-                            "type": "string"
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
-                      }
-                    },
-                    "required": ["url"]
-                  },
                   "title": {
                     "anyOf": [
                       {
@@ -10458,6 +11110,27 @@
                 "$ref": "#/components/schemas/PermissionRuleConfig"
               },
               "bash": {
+                "$ref": "#/components/schemas/PermissionRuleConfig"
+              },
+              "exbash": {
+                "$ref": "#/components/schemas/PermissionRuleConfig"
+              },
+              "exbash_executor": {
+                "$ref": "#/components/schemas/PermissionRuleConfig"
+              },
+              "reload": {
+                "$ref": "#/components/schemas/PermissionRuleConfig"
+              },
+              "workspaceMcp": {
+                "$ref": "#/components/schemas/PermissionRuleConfig"
+              },
+              "workspaceTool": {
+                "$ref": "#/components/schemas/PermissionRuleConfig"
+              },
+              "workspaceSkill": {
+                "$ref": "#/components/schemas/PermissionRuleConfig"
+              },
+              "workspaceOverview": {
                 "$ref": "#/components/schemas/PermissionRuleConfig"
               },
               "task": {
@@ -10941,6 +11614,33 @@
         "required": ["type", "url"],
         "additionalProperties": false
       },
+      "McpEnabledOnlyConfig": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": ["enabled"],
+        "additionalProperties": false
+      },
+      "McpEntryConfig": {
+        "anyOf": [
+          {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/McpLocalConfig"
+              },
+              {
+                "$ref": "#/components/schemas/McpRemoteConfig"
+              }
+            ]
+          },
+          {
+            "$ref": "#/components/schemas/McpEnabledOnlyConfig"
+          }
+        ]
+      },
       "LayoutConfig": {
         "description": "@deprecated Always uses stretch layout.",
         "type": "string",
@@ -11048,12 +11748,12 @@
             }
           },
           "share": {
-            "description": "Control sharing behavior:'manual' allows manual sharing via commands, 'auto' enables automatic sharing, 'disabled' disables all sharing",
+            "description": "Session sharing has been removed in this fork; this compatibility field is always treated as disabled",
             "type": "string",
             "enum": ["manual", "auto", "disabled"]
           },
           "autoshare": {
-            "description": "@deprecated Use 'share' field instead. Share newly created sessions automatically",
+            "description": "@deprecated Session sharing has been removed in this fork",
             "type": "boolean"
           },
           "autoupdate": {
@@ -11160,28 +11860,7 @@
               "type": "string"
             },
             "additionalProperties": {
-              "anyOf": [
-                {
-                  "anyOf": [
-                    {
-                      "$ref": "#/components/schemas/McpLocalConfig"
-                    },
-                    {
-                      "$ref": "#/components/schemas/McpRemoteConfig"
-                    }
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "enabled": {
-                      "type": "boolean"
-                    }
-                  },
-                  "required": ["enabled"],
-                  "additionalProperties": false
-                }
-              ]
+              "$ref": "#/components/schemas/McpEntryConfig"
             }
           },
           "formatter": {
@@ -11364,7 +12043,7 @@
                 }
               },
               "continue_loop_on_deny": {
-                "description": "Continue the agent loop when a tool call is denied",
+                "description": "Continue the agent loop when a tool call is denied. Defaults to true.",
                 "type": "boolean"
               },
               "mcp_timeout": {
@@ -11372,6 +12051,129 @@
                 "type": "integer",
                 "exclusiveMinimum": 0,
                 "maximum": 9007199254740991
+              },
+              "remote_executor": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "description": "Enable the private RemoteExecutor MCP backend. Defaults to true.",
+                    "type": "boolean"
+                  },
+                  "command": {
+                    "description": "Command and arguments used to start remote-caller-mcp",
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "cwd": {
+                    "description": "Working directory used to start remote-caller-mcp",
+                    "type": "string"
+                  },
+                  "environment": {
+                    "description": "Environment variables for remote-caller-mcp",
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  },
+                  "timeout": {
+                    "description": "Timeout in milliseconds for RemoteExecutor MCP calls",
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "additionalProperties": false
+              },
+              "exbash": {
+                "type": "object",
+                "properties": {
+                  "executors": {
+                    "type": "object",
+                    "properties": {
+                      "bash": {
+                        "description": "Path or ordered fallback paths for the bash executable used by exbash. Relative paths resolve from the session workspace directory.",
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        ]
+                      },
+                      "powershell": {
+                        "description": "Path or ordered fallback paths for the PowerShell executable used by exbash. Relative paths resolve from the session workspace directory.",
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        ]
+                      },
+                      "cmd": {
+                        "description": "Path or ordered fallback paths for the cmd executable used by exbash. Relative paths resolve from the session workspace directory.",
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        ]
+                      },
+                      "node": {
+                        "description": "Path or ordered fallback paths for the node executable used by exbash. Relative paths resolve from the session workspace directory.",
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        ]
+                      },
+                      "python": {
+                        "description": "Path or ordered fallback paths for the python executable used by exbash. Relative paths resolve from the session workspace directory.",
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
               }
             }
           }
@@ -11747,6 +12549,22 @@
         },
         "required": ["id", "name", "source", "env", "options", "models"]
       },
+      "ConfigPluginInfo": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "specifier": {
+            "type": "string"
+          }
+        },
+        "required": ["name", "specifier"],
+        "additionalProperties": false
+      },
       "ToolIDs": {
         "type": "array",
         "items": {
@@ -11931,15 +12749,6 @@
             },
             "required": ["additions", "deletions", "files"]
           },
-          "share": {
-            "type": "object",
-            "properties": {
-              "url": {
-                "type": "string"
-              }
-            },
-            "required": ["url"]
-          },
           "title": {
             "type": "string"
           },
@@ -12020,6 +12829,64 @@
           }
         },
         "required": ["name", "uri", "client"]
+      },
+      "ExBashTask": {
+        "type": "object",
+        "properties": {
+          "asyncID": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string",
+            "enum": ["local", "workspace"]
+          },
+          "executor": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "command": {
+            "type": "string"
+          },
+          "cwd": {
+            "type": "string"
+          },
+          "pid": {
+            "type": "number"
+          },
+          "totalOutput": {
+            "type": "number"
+          },
+          "startedAt": {
+            "type": "number"
+          },
+          "endedAt": {
+            "type": "number"
+          },
+          "exitCode": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["stopped", "timeout"]
+              }
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": ["running", "stopped", "unknown"]
+          },
+          "memory": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": ["asyncID", "scope", "executor", "description", "command", "cwd", "startedAt", "state"]
       },
       "TextPartInput": {
         "type": "object",

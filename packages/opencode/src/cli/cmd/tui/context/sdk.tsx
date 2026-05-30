@@ -6,11 +6,7 @@ import { batch, onCleanup, onMount } from "solid-js"
 type BaseEvent = Exclude<
   Event,
   {
-    type:
-      | "project.reload.updated"
-      | "tui.attach-to-running-session"
-      | "tui.display.report"
-      | "tui.session.select"
+    type: "project.reload.updated" | "tui.attach-to-running-session" | "tui.display.report" | "tui.session.select"
   }
 >
 

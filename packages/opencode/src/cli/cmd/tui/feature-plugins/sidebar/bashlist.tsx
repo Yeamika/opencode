@@ -61,7 +61,10 @@ function Detail(props: { api: TuiPluginApi; session_id: string; job: Job }) {
   return (
     <box paddingLeft={2} paddingRight={2} gap={1} flexDirection="column">
       <box flexDirection="row" justifyContent="space-between">
-        <text attributes={TextAttributes.BOLD} fg={theme().text}>{`${props.job.description}[${status(props.job)}]`}</text>
+        <text
+          attributes={TextAttributes.BOLD}
+          fg={theme().text}
+        >{`${props.job.description}[${status(props.job)}]`}</text>
         <text fg={theme().textMuted} onMouseUp={close}>
           esc/enter
         </text>
@@ -89,7 +92,17 @@ function Detail(props: { api: TuiPluginApi; session_id: string; job: Job }) {
           <Show when={props.job.exitCode !== undefined}>
             <box flexDirection="column">
               <text fg={theme().textMuted}>exit code</text>
-              <text fg={props.job.exitCode === 0 ? theme().success : props.job.exitCode === "stopped" ? theme().warning : theme().error}>{props.job.exitCode}</text>
+              <text
+                fg={
+                  props.job.exitCode === 0
+                    ? theme().success
+                    : props.job.exitCode === "stopped"
+                      ? theme().warning
+                      : theme().error
+                }
+              >
+                {props.job.exitCode}
+              </text>
             </box>
           </Show>
           <Show when={props.job.totalOutput !== undefined}>
@@ -164,9 +177,9 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
     <Show when={list().length > 0}>
       <box>
         <box flexDirection="row" gap={1} onMouseDown={() => list().length > 2 && setOpen((x) => !x)}>
-        <Show when={list().length > 2}>
+          <Show when={list().length > 2}>
             <text fg={theme().text}>{open() ? "▾" : "▸"}</text>
-        </Show>
+          </Show>
           <text fg={theme().text}>
             <b>Bash</b>
           </text>
@@ -181,7 +194,9 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
                   wrapMode="none"
                   onMouseUp={() => {
                     props.api.ui.dialog.setSize("large")
-                    props.api.ui.dialog.replace(() => <Detail api={props.api} session_id={props.session_id} job={job} />)
+                    props.api.ui.dialog.replace(() => (
+                      <Detail api={props.api} session_id={props.session_id} job={job} />
+                    ))
                   }}
                 >
                   {short(job)}

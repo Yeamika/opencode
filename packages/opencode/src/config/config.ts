@@ -936,10 +936,7 @@ export namespace Config {
         .describe(
           "Session sharing has been removed in this fork; this compatibility field is always treated as disabled",
         ),
-      autoshare: z
-        .boolean()
-        .optional()
-        .describe("@deprecated Session sharing has been removed in this fork"),
+      autoshare: z.boolean().optional().describe("@deprecated Session sharing has been removed in this fork"),
       autoupdate: z
         .union([z.boolean(), z.literal("notify")])
         .optional()
@@ -993,13 +990,7 @@ export namespace Config {
         .record(z.string(), Provider)
         .optional()
         .describe("Custom provider configurations and model overrides"),
-      mcp: z
-        .record(
-          z.string(),
-          McpEntry,
-        )
-        .optional()
-        .describe("MCP (Model Context Protocol) server configurations"),
+      mcp: z.record(z.string(), McpEntry).optional().describe("MCP (Model Context Protocol) server configurations"),
       formatter: z
         .union([
           z.literal(false),
@@ -1095,11 +1086,26 @@ export namespace Config {
             .describe("Timeout in milliseconds for model context protocol (MCP) requests"),
           remote_executor: z
             .object({
-              enabled: z.boolean().optional().describe("Enable the private RemoteExecutor MCP backend. Defaults to true."),
-              command: z.array(z.string()).min(1).optional().describe("Command and arguments used to start remote-caller-mcp"),
+              enabled: z
+                .boolean()
+                .optional()
+                .describe("Enable the private RemoteExecutor MCP backend. Defaults to true."),
+              command: z
+                .array(z.string())
+                .min(1)
+                .optional()
+                .describe("Command and arguments used to start remote-caller-mcp"),
               cwd: z.string().optional().describe("Working directory used to start remote-caller-mcp"),
-              environment: z.record(z.string(), z.string()).optional().describe("Environment variables for remote-caller-mcp"),
-              timeout: z.number().int().positive().optional().describe("Timeout in milliseconds for RemoteExecutor MCP calls"),
+              environment: z
+                .record(z.string(), z.string())
+                .optional()
+                .describe("Environment variables for remote-caller-mcp"),
+              timeout: z
+                .number()
+                .int()
+                .positive()
+                .optional()
+                .describe("Timeout in milliseconds for RemoteExecutor MCP calls"),
             })
             .strict()
             .optional(),

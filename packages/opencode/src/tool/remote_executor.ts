@@ -2,6 +2,7 @@ import fs from "fs"
 import fsp from "fs/promises"
 import path from "path"
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process"
+import { createHash } from "crypto"
 import z from "zod"
 import { Config } from "@/config/config"
 import { Global } from "@/global"
@@ -125,6 +126,19 @@ export namespace RemoteExecutor {
   export function stamp(value: unknown) {
     const result = FileStamp.safeParse(value)
     return result.success ? result.data : undefined
+  }
+
+  export function hashCode(result: Pick<Result, "metadata" | "output">) {
+    const metadata = result.metadata.hashCode
+    if (typeof metadata === "string") return metadata
+    const tagged = /<hashCode>(sha256:[0-9a-fA-F]{64})<\/hashCode>/.exec(result.output)
+    if (tagged) return tagged[1]
+    const line = /hashCode:\s*(sha256:[0-9a-fA-F]{64})/.exec(result.output)
+    return line?.[1]
+  }
+
+  export async function fileHashCode(filePath: string) {
+    return `sha256:${createHash("sha256").update(await fsp.readFile(filePath)).digest("hex")}`
   }
 
   export async function reload(dir = Instance.directory) {

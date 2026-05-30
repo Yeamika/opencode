@@ -916,7 +916,8 @@ describe("session.message-v2.fromError", () => {
         responseHeaders: { "content-type": "application/json" },
         responseBody: JSON.stringify({
           error: {
-            message: "Invalid schema for function 'exbash': schema must be a JSON Schema of 'type: \"object\"', got 'type: \"None\"'.",
+            message:
+              "Invalid schema for function 'exbash': schema must be a JSON Schema of 'type: \"object\"', got 'type: \"None\"'.",
           },
         }),
         isRetryable: false,

@@ -54,7 +54,10 @@ export function DialogChangeDirectory() {
         if (!listed?.data) return [dir, null] as const
         if (!status?.data) return [dir, null] as const
         const ids = new Set(listed.data.map((session) => session.id))
-        return [dir, Object.entries(status.data).filter(([id, item]) => ids.has(id) && item.type !== "idle").length] as const
+        return [
+          dir,
+          Object.entries(status.data).filter(([id, item]) => ids.has(id) && item.type !== "idle").length,
+        ] as const
       }),
     ).then((entries) => {
       if (run !== next) return

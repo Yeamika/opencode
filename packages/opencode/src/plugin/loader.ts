@@ -100,7 +100,9 @@ export namespace PluginLoader {
     return { ok: true, value: { ...plan, source: base.source, target: base.target, entry: base.entry, pkg: base.pkg } }
   }
 
-  export async function load(row: Resolved): Promise<{ ok: true; value: LoadedModule } | { ok: false; error: unknown }> {
+  export async function load(
+    row: Resolved,
+  ): Promise<{ ok: true; value: LoadedModule } | { ok: false; error: unknown }> {
     let mod
     try {
       mod = await import(row.entry)

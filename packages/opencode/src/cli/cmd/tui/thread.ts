@@ -130,7 +130,9 @@ export const TuiThreadCommand = cmd({
       const requested = (() => {
         if (args.dir && args.project) {
           const dir = Filesystem.resolve(path.isAbsolute(args.dir) ? args.dir : path.join(root, args.dir))
-          const project = Filesystem.resolve(path.isAbsolute(args.project) ? args.project : path.join(root, args.project))
+          const project = Filesystem.resolve(
+            path.isAbsolute(args.project) ? args.project : path.join(root, args.project),
+          )
           if (dir !== project) {
             UI.error("Use either --dir or [project], not both")
             return

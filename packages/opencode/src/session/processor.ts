@@ -114,10 +114,10 @@ export namespace SessionProcessor {
           })
 
         const handleEvent = Effect.fn("SessionProcessor.handleEvent")(function* (value: StreamEvent) {
-            switch (value.type) {
-              case "start":
-                yield* status.set(ctx.sessionID, SessionStatus.busy({ action: "Calling model" }))
-                return
+          switch (value.type) {
+            case "start":
+              yield* status.set(ctx.sessionID, SessionStatus.busy({ action: "Calling model" }))
+              return
 
             case "reasoning-start":
               if (value.id in ctx.reasoningMap) return

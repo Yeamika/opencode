@@ -97,10 +97,10 @@ describe("session.retry.delay", () => {
                     SessionStatus.set(
                       sessionID,
                       SessionStatus.retry({
-                      attempt: info.attempt,
-                      message: info.message,
-                      next: info.next,
-                      waitingAt: Date.now(),
+                        attempt: info.attempt,
+                        message: info.message,
+                        next: info.next,
+                        waitingAt: Date.now(),
                       }),
                     ),
                   ),

@@ -9,7 +9,9 @@ const Mode = z.enum(["add", "reload", "reconnect", "remove", "list", "save"])
 
 function global(dir: string) {
   const root = path.resolve(dir || Instance.directory)
-  return [Global.Path.home, Global.Path.config, path.join(Global.Path.home, ".opencode")].map((item) => path.resolve(item)).includes(root)
+  return [Global.Path.home, Global.Path.config, path.join(Global.Path.home, ".opencode")]
+    .map((item) => path.resolve(item))
+    .includes(root)
 }
 
 function change(mode: z.infer<typeof Mode>) {
@@ -23,13 +25,7 @@ function guard(scope: RemoteExecutor.Scope, mode: z.infer<typeof Mode>, dir: str
   throw new Error("executorManager can modify user scope only from a user-level session")
 }
 
-function info(args: {
-  id?: string
-  url?: string
-  system?: string
-  device?: string
-  labels?: Record<string, string>
-}) {
+function info(args: { id?: string; url?: string; system?: string; device?: string; labels?: Record<string, string> }) {
   if (!args.id) throw new Error("id is required for add")
   if (!args.url) throw new Error("url is required for add")
   return RemoteExecutor.Info.parse({
@@ -41,7 +37,12 @@ function info(args: {
   })
 }
 
-async function output(mode: z.infer<typeof Mode>, scope: RemoteExecutor.Scope, dir: string, rec?: Record<string, unknown>) {
+async function output(
+  mode: z.infer<typeof Mode>,
+  scope: RemoteExecutor.Scope,
+  dir: string,
+  rec?: Record<string, unknown>,
+) {
   const list = await RemoteExecutor.list(dir)
   const result = { mode, scope, ...list, ...(rec === undefined ? {} : { rec }) }
   return {
@@ -63,20 +64,30 @@ export const ExecutorManagerTool = Tool.define("executorManager", {
   ].join("\n"),
   parameters: z.object({
     mode: Mode.describe("Operation mode: add, reload, reconnect, remove, list, or save."),
-    scope: RemoteExecutor.Scope.optional().describe("Scope to modify for add/remove/save. Defaults to workspace. list and reload always show both workspace and user executors."),
-    id: z.string().optional().describe("Executor id. Required for add, remove, and reconnect. 'local' is reserved for add/remove/save."),
+    scope: RemoteExecutor.Scope.optional().describe(
+      "Scope to modify for add/remove/save. Defaults to workspace. list and reload always show both workspace and user executors.",
+    ),
+    id: z
+      .string()
+      .optional()
+      .describe("Executor id. Required for add, remove, and reconnect. 'local' is reserved for add/remove/save."),
     url: z.string().optional().describe("WebSocket URL. Required for add, for example ws://host:9001."),
     system: z.string().optional().describe("Optional system label for add."),
     device: z.string().optional().describe("Optional device label for add."),
     labels: z.record(z.string(), z.string()).optional().describe("Optional string labels for add."),
-    executors: z.array(RemoteExecutor.Info).optional().describe("Use for save: complete executor list for the selected scope. Must not include local."),
+    executors: z
+      .array(RemoteExecutor.Info)
+      .optional()
+      .describe("Use for save: complete executor list for the selected scope. Must not include local."),
   }),
   async execute(args, ctx) {
     const dir = String(ctx.directory ?? Instance.directory)
     const scope = args.scope ?? "workspace"
     await ctx.ask({
       permission: "executorManager",
-      patterns: [args.mode === "list" || args.mode === "reload" ? args.mode : `${scope} ${args.mode} ${args.id ?? "*"}`],
+      patterns: [
+        args.mode === "list" || args.mode === "reload" ? args.mode : `${scope} ${args.mode} ${args.id ?? "*"}`,
+      ],
       always: ["*"],
       metadata: {
         mode: args.mode,

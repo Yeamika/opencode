@@ -282,10 +282,16 @@ export function Prompt(props: PromptProps) {
     const user = msg.findLast((item) => item.role === "user")
     if (!user) return
 
-    const last = msg.findLast((item): item is AssistantMessage => item.role === "assistant" && item.parentID === user.id)
+    const last = msg.findLast(
+      (item): item is AssistantMessage => item.role === "assistant" && item.parentID === user.id,
+    )
     const done =
-      !!last?.time.completed && !!last.finish && !["tool-calls", "unknown"].includes(last.finish) && status().type !== "busy" && status().type !== "retry"
-    const end = done ? last?.time.completed ?? statusNow() : statusNow()
+      !!last?.time.completed &&
+      !!last.finish &&
+      !["tool-calls", "unknown"].includes(last.finish) &&
+      status().type !== "busy" &&
+      status().type !== "retry"
+    const end = done ? (last?.time.completed ?? statusNow()) : statusNow()
     const span = Math.max(0, end - user.time.created)
     const time = `${Math.floor(span / 60000)} min ${Math.floor((span % 60000) / 1000)
       .toString()
@@ -408,9 +414,10 @@ export function Prompt(props: PromptProps) {
 
           if (store.interrupt >= 2) {
             idle(props.sessionID)
-            void sdk.client.session.abort({
-              sessionID: props.sessionID,
-            })
+            void sdk.client.session
+              .abort({
+                sessionID: props.sessionID,
+              })
               .catch(() => idle(props.sessionID!))
             setStore("interrupt", 0)
           }
@@ -796,15 +803,16 @@ export function Prompt(props: PromptProps) {
 
     if (store.mode === "shell") {
       busy(sessionID)
-      void sdk.client.session.shell({
-        sessionID,
-        agent: local.agent.current().name,
-        model: {
-          providerID: selectedModel.providerID,
-          modelID: selectedModel.modelID,
-        },
-        command: inputText,
-      })
+      void sdk.client.session
+        .shell({
+          sessionID,
+          agent: local.agent.current().name,
+          model: {
+            providerID: selectedModel.providerID,
+            modelID: selectedModel.modelID,
+          },
+          command: inputText,
+        })
         .catch(() => idle(sessionID))
       setStore("mode", "normal")
     } else if (
@@ -823,21 +831,22 @@ export function Prompt(props: PromptProps) {
       const args = firstLineArgs.join(" ") + (restOfInput ? "\n" + restOfInput : "")
 
       busy(sessionID)
-      void sdk.client.session.command({
-        sessionID,
-        command: command.slice(1),
-        arguments: args,
-        agent: local.agent.current().name,
-        model: `${selectedModel.providerID}/${selectedModel.modelID}`,
-        messageID,
-        variant,
-        parts: nonTextParts
-          .filter((x) => x.type === "file")
-          .map((x) => ({
-            id: PartID.ascending(),
-            ...x,
-          })),
-      })
+      void sdk.client.session
+        .command({
+          sessionID,
+          command: command.slice(1),
+          arguments: args,
+          agent: local.agent.current().name,
+          model: `${selectedModel.providerID}/${selectedModel.modelID}`,
+          messageID,
+          variant,
+          parts: nonTextParts
+            .filter((x) => x.type === "file")
+            .map((x) => ({
+              id: PartID.ascending(),
+              ...x,
+            })),
+        })
         .catch(() => idle(sessionID))
     } else {
       busy(sessionID)

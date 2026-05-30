@@ -19,6 +19,7 @@ import { Effect, Layer, ServiceMap } from "effect"
 import { makeRuntime } from "@/effect/run-service"
 import { InstanceState } from "@/effect/instance-state"
 import { isOverflow as overflow } from "./overflow"
+import { SessionFileRead } from "./file-read"
 
 export namespace SessionCompaction {
   const log = Log.create({ service: "session.compaction" })
@@ -342,7 +343,10 @@ When constructing the summary, try to stick to this template:
         }
 
         if (processor.message.error) return "stop"
-        if (result === "continue") yield* bus.publish(Event.Compacted, { sessionID: input.sessionID })
+        if (result === "continue") {
+          yield* Effect.sync(() => SessionFileRead.clear(input.sessionID))
+          yield* bus.publish(Event.Compacted, { sessionID: input.sessionID })
+        }
         return result
       })
 

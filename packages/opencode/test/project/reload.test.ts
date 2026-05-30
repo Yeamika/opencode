@@ -31,9 +31,7 @@ describe("project.reload", () => {
           const promise = Reload.request(Instance.directory)
           Reload.arrive(Instance.directory, a)
 
-          expect(await Promise.race([promise.then(() => "done"), Bun.sleep(50).then(() => "pending")])).toBe(
-            "pending",
-          )
+          expect(await Promise.race([promise.then(() => "done"), Bun.sleep(50).then(() => "pending")])).toBe("pending")
 
           await Reload.wait(Instance.directory, b)
           await promise
@@ -63,7 +61,10 @@ describe("project.reload", () => {
             },
           }),
         )
-        await Bun.write(path.join(cfg, ".gitignore"), "node_modules\npackage.json\npackage-lock.json\nbun.lock\n.gitignore\n")
+        await Bun.write(
+          path.join(cfg, ".gitignore"),
+          "node_modules\npackage.json\npackage-lock.json\nbun.lock\n.gitignore\n",
+        )
         await Bun.write(
           path.join(cfg, "node_modules", "@opencode-ai", "plugin", "package.json"),
           JSON.stringify({ name: "@opencode-ai/plugin", version: "1.0.0" }),

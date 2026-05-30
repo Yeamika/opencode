@@ -524,7 +524,8 @@ export const SessionRoutes = lazy(() =>
       "/:sessionID/resume",
       describeRoute({
         summary: "Resume session generation",
-        description: "Resume the current session loop for interrupted or incomplete turns without resending the user prompt.",
+        description:
+          "Resume the current session loop for interrupted or incomplete turns without resending the user prompt.",
         operationId: "session.resume",
         responses: {
           200: {

@@ -697,11 +697,31 @@ describe("session.llm.stream", () => {
           abort: new AbortController().signal,
           messages: [{ role: "user", content: "Hello" }],
           tools: {
-            workspaceMcp: tool({ description: "mcp", inputSchema: z.object({}), execute: async () => ({ output: "" }) }),
-            workspaceTool: tool({ description: "tool", inputSchema: z.object({}), execute: async () => ({ output: "" }) }),
-            workspaceSkill: tool({ description: "skill", inputSchema: z.object({}), execute: async () => ({ output: "" }) }),
-            workspaceOverview: tool({ description: "overview", inputSchema: z.object({}), execute: async () => ({ output: "" }) }),
-            question: tool({ description: "question", inputSchema: z.object({}), execute: async () => ({ output: "" }) }),
+            workspaceMcp: tool({
+              description: "mcp",
+              inputSchema: z.object({}),
+              execute: async () => ({ output: "" }),
+            }),
+            workspaceTool: tool({
+              description: "tool",
+              inputSchema: z.object({}),
+              execute: async () => ({ output: "" }),
+            }),
+            workspaceSkill: tool({
+              description: "skill",
+              inputSchema: z.object({}),
+              execute: async () => ({ output: "" }),
+            }),
+            workspaceOverview: tool({
+              description: "overview",
+              inputSchema: z.object({}),
+              execute: async () => ({ output: "" }),
+            }),
+            question: tool({
+              description: "question",
+              inputSchema: z.object({}),
+              execute: async () => ({ output: "" }),
+            }),
           },
         })
 

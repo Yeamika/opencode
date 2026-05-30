@@ -95,6 +95,27 @@ export const TodoTable = sqliteTable(
   ],
 )
 
+export const SessionFileReadTable = sqliteTable(
+  "session_file_read",
+  {
+    session_id: text()
+      .$type<SessionID>()
+      .notNull()
+      .references(() => SessionTable.id, { onDelete: "cascade" }),
+    file_key_ref: text().notNull(),
+    filename: text().notNull(),
+    file_path: text().notNull(),
+    hash_code: text().notNull(),
+    small_hash_code: text().notNull(),
+    read_time: integer().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.session_id, table.file_key_ref] }),
+    index("session_file_read_lookup_idx").on(table.session_id, table.filename, table.small_hash_code),
+    index("session_file_read_lru_idx").on(table.session_id, table.read_time),
+  ],
+)
+
 export const ExBashTaskTable = sqliteTable(
   "exbash_task",
   {

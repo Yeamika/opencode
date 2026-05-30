@@ -494,9 +494,15 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
     const exit = useExit()
     const args = useArgs()
 
-    async function bootstrap(options?: { fatal?: boolean; reason?: "directory"; directory?: string; mode?: "full" | "reload" }) {
+    async function bootstrap(options?: {
+      fatal?: boolean
+      reason?: "directory"
+      directory?: string
+      mode?: "full" | "reload"
+    }) {
       console.log("bootstrapping")
-      const modal = options?.reason === "directory" ? { reason: "directory" as const, directory: options.directory } : undefined
+      const modal =
+        options?.reason === "directory" ? { reason: "directory" as const, directory: options.directory } : undefined
       const mode = options?.mode ?? "full"
       const full = mode === "full"
       batch(() => {

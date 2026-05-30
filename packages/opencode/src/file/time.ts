@@ -126,9 +126,13 @@ export namespace FileTime {
         if (!time) throw new Error(`You must read file ${filepath} before overwriting it. Use the Read tool first`)
 
         const next = yield* stamp(filepath, input)
-        const changed = input?.file && time.fileKey !== undefined
-          ? next.fileKey !== time.fileKey || next.kind !== time.kind || next.mtime !== time.mtime || next.size !== time.size
-          : next.mtime !== time.mtime || next.size !== time.size
+        const changed =
+          input?.file && time.fileKey !== undefined
+            ? next.fileKey !== time.fileKey ||
+              next.kind !== time.kind ||
+              next.mtime !== time.mtime ||
+              next.size !== time.size
+            : next.mtime !== time.mtime || next.size !== time.size
         if (!changed) return
 
         throw new Error(

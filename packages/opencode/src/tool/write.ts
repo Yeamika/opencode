@@ -7,92 +7,122 @@ import DESCRIPTION from "./write.txt"
 import { Bus } from "../bus"
 import { File } from "../file"
 import { FileWatcher } from "../file/watcher"
-import { FileTime } from "../file/time"
 import { Filesystem } from "../util/filesystem"
 import { Instance } from "../project/instance"
 import { trimDiff } from "./edit"
 import { assertExternalDirectory } from "./external-directory"
 import { RemoteExecutor } from "./remote_executor"
+import { SessionFileRead } from "../session/file-read"
 
-const MAX_DIAGNOSTICS_PER_FILE = 20
-const MAX_PROJECT_DIAGNOSTICS_FILES = 5
+function splitLines(text: string) {
+  const normalized = text.replaceAll("\r\n", "\n").replaceAll("\r", "\n")
+  if (!normalized) return []
+  return normalized.endsWith("\n") ? normalized.slice(0, -1).split("\n") : normalized.split("\n")
+}
+
+function linePatch(before: string, after: string) {
+  const oldLines = splitLines(before)
+  const newLines = splitLines(after)
+  const header = oldLines.length === 0 ? "insert -1" : `replace 1 ${oldLines.length}`
+  return [header, ...newLines.map((line) => `+${line}`)].join("\n")
+}
+
+function parseReadOutput(output: string) {
+  return output
+    .split("\n")
+    .flatMap((line) => {
+      const match = /^\d+: ?(.*)$/.exec(line)
+      return match ? [match[1]!] : []
+    })
+    .join("\n")
+}
+
+async function readCurrent(filePath: string, executor: string) {
+  if (executor === "local") return Filesystem.readText(filePath)
+  const result = await RemoteExecutor.call("read", { filePath, executor, limit: 1_000_000, hashCheckMode: true })
+  return parseReadOutput(result.output)
+}
 
 export const WriteTool = Tool.define("write", {
   description: DESCRIPTION,
   parameters: z.object({
     content: z.string().describe("The content to write to the file"),
-    filePath: z.string().describe("The absolute path to the file to write (must be absolute, not relative)"),
-    mode: z.enum(["text", "binary"]).optional().describe("Write mode. Defaults to text. Binary mode treats content as hex bytes."),
+    filePath: z
+      .string()
+      .describe('For existing files, the read reference to overwrite, for example "App.ts #A1B2". For new local files only, a file path.'),
+    mode: z
+      .enum(["text", "binary"])
+      .optional()
+      .describe("Write mode. Defaults to text. Binary mode is not supported by REC line patch."),
     encoding: z.enum(["hex"]).optional().describe("Encoding for binary content. Currently only hex is supported."),
     executor: z.string().optional().describe("RemoteExecutor executor id. Defaults to local."),
   }),
   async execute(params, ctx) {
-    const filepath = path.isAbsolute(params.filePath) ? params.filePath : path.join(Instance.directory, params.filePath)
-    const executor = params.executor?.trim() || "local"
-    if (params.mode === "binary") {
-      const bytes = hexLength(params.content)
-      const patchText = `*** Begin Patch\n*** Binary Write File: ${filepath}\n+${params.content}\n*** End Patch\n`
+    if (params.mode === "binary") throw new Error("Binary write is not supported by REC line patch")
+
+    if (SessionFileRead.parseTarget(params.filePath)) {
+      const entry = SessionFileRead.resolve({ sessionID: ctx.sessionID, target: params.filePath })
+      const executor = SessionFileRead.executor(entry)
+      const filepath = entry.filePath
+      const contentOld = await readCurrent(filepath, executor)
+      const diff = trimDiff(createTwoFilesPatch(filepath, filepath, contentOld, params.content))
       if (executor === "local") {
         await assertExternalDirectory(ctx, filepath)
-        const stat = await RemoteExecutor.stat(filepath, executor).catch(() => undefined)
-        const local = await Filesystem.exists(filepath)
-        const exists = stat ? stat.kind !== "missing" : local
-        if (exists) await FileTime.assert(ctx.sessionID, filepath, stat ? { executor, file: stat } : undefined)
         await ctx.ask({
           permission: "edit",
           patterns: [path.relative(Instance.worktree, filepath)],
           always: ["*"],
-          metadata: { filepath, diff: `Binary write ${filepath}\n+ ${bytes} bytes` },
+          metadata: { filepath, diff },
         })
       }
-      const result = await RemoteExecutor.call("apply_patch", { patchText, ...(executor === "local" ? {} : { executor }) }, { signal: ctx.abort })
+      const result = await RemoteExecutor.call(
+        "apply_patch",
+        {
+          filePath: filepath,
+          patchText: linePatch(contentOld, params.content),
+          hashCheckMode: true,
+          hashCode: entry.hashCode,
+          ...(executor === "local" ? {} : { executor }),
+        },
+        { signal: ctx.abort },
+      )
+      const hashCode = RemoteExecutor.hashCode(result) ?? (executor === "local" ? await RemoteExecutor.fileHashCode(filepath).catch(() => undefined) : undefined)
+      const next = hashCode ? SessionFileRead.retouch({ sessionID: ctx.sessionID, fileKeyRef: entry.fileKeyRef, hashCode }) : undefined
+      const label = next ? SessionFileRead.label(next) : SessionFileRead.label(entry)
       if (executor === "local") {
         Bus.publish(File.Event.Edited, { file: filepath })
         await Bus.publish(FileWatcher.Event.Updated, { file: filepath, event: "change" })
+        await LSP.touchFile(filepath, true)
       }
-      const next = await RemoteExecutor.stat(filepath, executor).catch(() => undefined)
-      await FileTime.read(ctx.sessionID, filepath, next ? { executor, file: next } : undefined)
+      const diagnostics = executor === "local" ? await LSP.diagnostics() : {}
       return {
         ...result,
+        title: label,
+        output: `Wrote file successfully.\n<fileRef>${label}</fileRef>`,
         metadata: {
           ...result.metadata,
-          diagnostics: {},
+          diagnostics,
           filepath,
-          binary: true,
-          encoding: params.encoding ?? "hex",
-          bytes,
+          exists: true,
+          diff,
+          fileRef: label,
+          smallHashCode: next?.smallHashCode ?? entry.smallHashCode,
         },
-        output: `Wrote binary file successfully (${bytes} bytes).`,
-      } as any
+      }
     }
+
+    const executor = params.executor?.trim() || "local"
     if (executor !== "local") {
-      const result = await RemoteExecutor.call(
-        "apply_patch",
-        { patchText: RemoteExecutor.patch(filepath, "", params.content, false), executor },
-        { signal: ctx.abort },
-      )
-      const next = await RemoteExecutor.stat(filepath, executor).catch(() => undefined)
-      await FileTime.read(ctx.sessionID, filepath, next ? { executor, file: next } : undefined)
-      return {
-        ...result,
-        metadata: {
-          ...result.metadata,
-          diagnostics: {},
-          filepath,
-          exists: next ? next.kind !== "missing" : undefined,
-        },
-      }
+      throw new Error("Creating remote files with write is not supported by REC apply_patch; create the file remotely first, then read it.")
     }
 
+    const filepath = path.isAbsolute(params.filePath) ? params.filePath : path.join(Instance.directory, params.filePath)
     await assertExternalDirectory(ctx, filepath)
+    if (await Filesystem.exists(filepath)) {
+      throw new Error('Existing files must be written using a read reference like "App.ts #A1B2". Use read first.')
+    }
 
-    const stat = await RemoteExecutor.stat(filepath, executor).catch(() => undefined)
-    const local = await Filesystem.exists(filepath)
-    const exists = stat ? stat.kind !== "missing" : local
-    const contentOld = local ? await Filesystem.readText(filepath) : ""
-    if (exists) await FileTime.assert(ctx.sessionID, filepath, stat ? { executor, file: stat } : undefined)
-
-    const diff = trimDiff(createTwoFilesPatch(filepath, filepath, contentOld, params.content))
+    const diff = trimDiff(createTwoFilesPatch(filepath, filepath, "", params.content))
     await ctx.ask({
       permission: "edit",
       patterns: [path.relative(Instance.worktree, filepath)],
@@ -103,57 +133,35 @@ export const WriteTool = Tool.define("write", {
       },
     })
 
-    await RemoteExecutor.call(
-      "apply_patch",
-      {
-        patchText: RemoteExecutor.patch(filepath, contentOld, params.content, exists),
-        ...(params.executor === undefined ? {} : { executor: params.executor }),
-      },
-      { signal: ctx.abort },
-    )
+    await Filesystem.write(filepath, params.content)
     Bus.publish(File.Event.Edited, { file: filepath })
-    await Bus.publish(FileWatcher.Event.Updated, {
-      file: filepath,
-      event: exists ? "change" : "add",
-    })
-    const next = await RemoteExecutor.stat(filepath, executor).catch(() => undefined)
-    await FileTime.read(ctx.sessionID, filepath, next ? { executor, file: next } : undefined)
+    await Bus.publish(FileWatcher.Event.Updated, { file: filepath, event: "add" })
 
     let output = "Wrote file successfully."
     await LSP.touchFile(filepath, true)
     const diagnostics = await LSP.diagnostics()
-    const normalizedFilepath = Filesystem.normalizePath(filepath)
-    let projectDiagnosticsCount = 0
-    for (const [file, issues] of Object.entries(diagnostics)) {
-      const errors = issues.filter((item) => item.severity === 1)
-      if (errors.length === 0) continue
-      const limited = errors.slice(0, MAX_DIAGNOSTICS_PER_FILE)
-      const suffix =
-        errors.length > MAX_DIAGNOSTICS_PER_FILE ? `\n... and ${errors.length - MAX_DIAGNOSTICS_PER_FILE} more` : ""
-      if (file === normalizedFilepath) {
-        output += `\n\nLSP errors detected in this file, please fix:\n<diagnostics file="${filepath}">\n${limited.map(LSP.Diagnostic.pretty).join("\n")}${suffix}\n</diagnostics>`
-        continue
-      }
-      if (projectDiagnosticsCount >= MAX_PROJECT_DIAGNOSTICS_FILES) continue
-      projectDiagnosticsCount++
-      output += `\n\nLSP errors detected in other files:\n<diagnostics file="${file}">\n${limited.map(LSP.Diagnostic.pretty).join("\n")}${suffix}\n</diagnostics>`
-    }
+    const readResult = await RemoteExecutor.call("read", { filePath: filepath, hashCheckMode: true, limit: 1 }, { signal: ctx.abort })
+    const stamp = RemoteExecutor.stamp(readResult.metadata.file) ?? (await RemoteExecutor.stat(filepath, executor).catch(() => undefined))
+    const hashCode = RemoteExecutor.hashCode(readResult) ?? (executor === "local" ? await RemoteExecutor.fileHashCode(filepath).catch(() => undefined) : undefined)
+    const entry =
+      stamp?.kind === "file" && hashCode
+        ? SessionFileRead.touch({ sessionID: ctx.sessionID, executor, file: stamp, hashCode, filePath: filepath })
+        : undefined
+    if (!entry) throw new Error(`Failed to register file reference for ${filepath}`)
+    const label = SessionFileRead.label(entry)
+    output += `\n<fileRef>${label}</fileRef>`
 
     return {
-      title: path.relative(Instance.worktree, filepath),
+      title: label,
       metadata: {
         diagnostics,
         filepath,
-        exists: exists,
+        exists: false,
+        diff,
+        fileRef: label,
+        smallHashCode: entry.smallHashCode,
       },
       output,
     }
   },
 })
-
-function hexLength(text: string) {
-  const compact = text.replace(/(?:0x|0X)/g, "").replace(/[\s,_]/g, "")
-  if (compact.length % 2 !== 0) throw new Error("Binary hex content must contain an even number of digits")
-  if (!/^[0-9a-fA-F]*$/.test(compact)) throw new Error("Binary hex content contains non-hex characters")
-  return compact.length / 2
-}

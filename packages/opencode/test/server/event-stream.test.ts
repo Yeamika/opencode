@@ -132,5 +132,4 @@ describe("event stream", () => {
       await stream.close()
     }
   })
-
 })

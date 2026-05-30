@@ -8,7 +8,10 @@ import { Tool } from "./tool"
 async function readDir(dir: string) {
   try {
     const entries = await fs.readdir(dir, { withFileTypes: true })
-    return entries.filter((entry) => entry.isFile()).map((entry) => entry.name).sort((a, b) => a.localeCompare(b))
+    return entries
+      .filter((entry) => entry.isFile())
+      .map((entry) => entry.name)
+      .sort((a, b) => a.localeCompare(b))
   } catch {
     return []
   }
@@ -22,11 +25,15 @@ function isGlobalContext(directory: string) {
 }
 
 export const WorkspaceToolTool = Tool.define("workspaceTool", {
-  description:
-    "Authoritative control surface for workspace tools.",
+  description: "Authoritative control surface for workspace tools.",
   parameters: z.object({
-    mode: z.enum(["read", "write", "delete"]).describe("Read current tool files, write one local tool file, or delete one local tool file."),
-    scope: z.enum(["local", "global"]).default("local").describe("Read supports local or global. Write/delete only support local."),
+    mode: z
+      .enum(["read", "write", "delete"])
+      .describe("Read current tool files, write one local tool file, or delete one local tool file."),
+    scope: z
+      .enum(["local", "global"])
+      .default("local")
+      .describe("Read supports local or global. Write/delete only support local."),
     filePath: z.string().optional().describe("Absolute source file path. Required for write and delete."),
   }),
   async execute(args, ctx) {
@@ -48,9 +55,7 @@ export const WorkspaceToolTool = Tool.define("workspaceTool", {
       throw new Error("workspaceTool refuses to modify local tools when the current session is in the global context")
     }
     const root =
-      args.scope === "global"
-        ? path.join(Global.Path.config, "tools")
-        : path.join(rootDirectory, ".opencode", "tools")
+      args.scope === "global" ? path.join(Global.Path.config, "tools") : path.join(rootDirectory, ".opencode", "tools")
     const sourcePath = args.filePath ? path.resolve(args.filePath) : undefined
 
     if ((args.mode === "write" || args.mode === "delete") && !sourcePath) {

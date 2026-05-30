@@ -367,7 +367,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
           systemTheme = undefined
           syncThemes()
           if (store.active === "system") {
-              setStore("active", "aura")
+            setStore("active", "aura")
           }
         })
     }

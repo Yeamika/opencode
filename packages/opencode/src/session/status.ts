@@ -30,15 +30,9 @@ export namespace SessionStatus {
     action: z.string().optional(),
   })
 
-  export const Info = z
-    .union([
-      Idle,
-      Retry,
-      Busy,
-    ])
-    .meta({
-      ref: "SessionStatus",
-    })
+  export const Info = z.union([Idle, Retry, Busy]).meta({
+    ref: "SessionStatus",
+  })
   export type Info = z.infer<typeof Info>
 
   export function idle(input?: { action?: string; updatedAt?: number }): Extract<Info, { type: "idle" }> {
@@ -49,7 +43,11 @@ export namespace SessionStatus {
     }
   }
 
-  export function busy(input?: { action?: string; startedAt?: number; updatedAt?: number }): Extract<Info, { type: "busy" }> {
+  export function busy(input?: {
+    action?: string
+    startedAt?: number
+    updatedAt?: number
+  }): Extract<Info, { type: "busy" }> {
     const now = input?.updatedAt ?? Date.now()
     return {
       type: "busy",

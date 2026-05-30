@@ -76,12 +76,7 @@ function text(prev: Snapshot, next: Snapshot, agent: string, logPath?: string) {
 }
 
 async function snapshot() {
-  const [tool, status, mcp, skill] = await Promise.all([
-    ToolRegistry.ids(),
-    MCP.status(),
-    MCP.tools(),
-    Skill.all(),
-  ])
+  const [tool, status, mcp, skill] = await Promise.all([ToolRegistry.ids(), MCP.status(), MCP.tools(), Skill.all()])
   const mcpStatus = status as Record<string, { status: string }>
   return {
     tool: sort(tool),
