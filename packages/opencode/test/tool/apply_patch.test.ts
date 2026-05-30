@@ -83,6 +83,37 @@ describe("tool.apply_patch REC line patch", () => {
     })
   })
 
+  test("applies a binary patch to a recently read binary file", async () => {
+    await using fixture = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const target = path.join(fixture.path, "target.bin")
+        await fs.writeFile(target, Buffer.from([0x00, 0x01, 0x02, 0x03, 0x04]))
+        const session = await Session.create({ title: "apply patch binary" })
+        const ctx = { ...baseCtx, sessionID: session.id }
+        const read = await ReadTool.init()
+        const readResult = await read.execute({ filePath: target, mode: "binary", offset: 0 }, ctx)
+        const fileRef = readResult.metadata.fileRef as string
+
+        const tool = await ApplyPatchTool.init()
+        const result = await tool.execute(
+          {
+            filePath: fileRef,
+            patchMode: "binary",
+            patchText: "insert 0\n+FE\nreplace 1 2\n+AA BB\ndelete 4 1\ninsert -1\n+CC\n+DD",
+          },
+          ctx,
+        )
+
+        expect(Array.from(await fs.readFile(target))).toEqual([0xfe, 0x00, 0xaa, 0xbb, 0x03, 0xcc, 0xdd])
+        expect(result.output).toContain("<fileRef>target.bin #")
+        expect(result.metadata.fileRef).toMatch(/^target\.bin #[0-9A-F]{4}$/)
+        expect(result.metadata.files[0].type).toBe("binary-update")
+      },
+    })
+  })
+
   test("rejects stale hashes", async () => {
     await using fixture = await tmpdir({ git: true })
     await Instance.provide({

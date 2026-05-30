@@ -17,13 +17,23 @@ export const ReadTool = Tool.define("read", {
       .enum(["text", "binary"])
       .optional()
       .describe("Read mode. Defaults to text. Binary mode returns a hex dump and reads at most 128 bytes."),
-    offset: z.coerce.number().describe("The line number to start reading from (1-indexed)").optional(),
-    limit: z.coerce.number().describe("The maximum number of lines to read (defaults to 2000)").optional(),
+    offset: z.coerce
+      .number()
+      .describe("Text mode: 1-based line offset. Binary mode: 0-based byte offset.")
+      .optional(),
+    limit: z.coerce
+      .number()
+      .describe("Text mode: maximum lines to read (defaults to 2000). Binary mode: maximum bytes to read, capped by REC.")
+      .optional(),
     executor: z.string().optional().describe("RemoteExecutor executor id. Defaults to local."),
   }),
   async execute(params, ctx) {
-    if (params.offset !== undefined && params.offset < 1) {
-      throw new Error("offset must be greater than or equal to 1")
+    if (params.offset !== undefined) {
+      if (params.mode === "binary") {
+        if (params.offset < 0) throw new Error("binary offset must be greater than or equal to 0")
+      } else if (params.offset < 1) {
+        throw new Error("offset must be greater than or equal to 1")
+      }
     }
     const executor = params.executor?.trim() || "local"
     const local = executor === "local"

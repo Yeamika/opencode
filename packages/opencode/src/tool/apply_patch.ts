@@ -25,7 +25,11 @@ type ViewFile = {
 
 const PatchParams = z.object({
   filePath: z.string().optional().describe('Target file read label returned by read, for example "App.ts #A1B2"'),
-  patchText: z.string().describe("REC line patch text, for example `replace 3 3\n+new line`"),
+  patchMode: z
+    .enum(["text", "binary"])
+    .optional()
+    .describe("Patch mode. Defaults to text. Binary mode uses 0-based byte-offset hex patchText."),
+  patchText: z.string().describe("REC patch text. Text example: `replace 3 3\n+new line`. Binary example: `replace 0 1\n+FF`."),
   executor: z.string().optional().describe("Ignored for file references; executor is resolved from the read table."),
 })
 
@@ -61,6 +65,7 @@ export const ApplyPatchTool = Tool.define("apply_patch", {
       {
         filePath,
         patchText: params.patchText,
+        ...(params.patchMode === undefined ? {} : { patchMode: params.patchMode }),
         hashCheckMode: true,
         hashCode: entry.hashCode,
         ...(local ? {} : { executor }),

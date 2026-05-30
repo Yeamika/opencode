@@ -5,9 +5,55 @@ import { RemoteExecutor } from "../../src/tool/remote_executor"
 import { ReadTool } from "../../src/tool/read"
 import { Session } from "../../src/session"
 import { tmpdir } from "../fixture/fixture"
+import path from "path"
+import * as fs from "fs/promises"
 
 afterEach(async () => {
   await Instance.disposeAll()
+})
+
+test("allows binary reads from byte offset zero", async () => {
+  const calls: Array<{ tool: string; args: Record<string, unknown> }> = []
+  const call = spyOn(RemoteExecutor, "call").mockImplementation(async (tool, args) => {
+    calls.push({ tool, args })
+    return {
+      title: "Binary read",
+      output: "binary",
+      metadata: {
+        file: {
+          fileKey: "local-binary-key",
+          canonicalPath: String(args.filePath),
+          kind: "file",
+        },
+        hashCode: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      },
+    }
+  })
+
+  try {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const target = path.join(tmp.path, "binary.dat")
+        await fs.writeFile(target, Buffer.from([0x00, 0x01]))
+        const session = await Session.create({ title: "read binary zero" })
+        const read = await ReadTool.init()
+        await read.execute({ filePath: target, mode: "binary", offset: 0, limit: 1 }, { ...ctx, sessionID: session.id })
+      },
+    })
+
+    expect(calls[0]).toMatchObject({
+      tool: "read",
+      args: {
+        mode: "binary",
+        offset: 0,
+        limit: 1,
+      },
+    })
+  } finally {
+    call.mockRestore()
+  }
 })
 
 const ctx = {
