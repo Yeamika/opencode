@@ -88,6 +88,7 @@ export namespace RemoteExecutor {
   }
 
   let state: State | undefined
+  const queues = new Map<string, Promise<void>>()
 
   export async function enabled() {
     return (await Config.get()).experimental?.remote_executor?.enabled !== false
@@ -98,10 +99,20 @@ export namespace RemoteExecutor {
     args: Record<string, unknown>,
     opts?: { signal?: AbortSignal; timeout?: number; executor?: string },
   ): Promise<Result> {
+    const executor = target(args, opts?.executor)
+    if (tool === "apply_patch") return queue(`apply_patch:${executor}`, () => invoke(tool, args, opts, executor))
+    return invoke(tool, args, opts, executor)
+  }
+
+  async function invoke(
+    tool: string,
+    args: Record<string, unknown>,
+    opts: { signal?: AbortSignal; timeout?: number; executor?: string } | undefined,
+    executor: string,
+  ): Promise<Result> {
     const cfg = await config()
     if (!cfg) throw new Error("Remote executor is not enabled")
     const timeout = opts?.timeout ?? cfg.timeout
-    const executor = target(args, opts?.executor)
     const dir = directory(args, executor)
     const proc = start(cfg)
     await proc.ready
@@ -117,6 +128,23 @@ export namespace RemoteExecutor {
       opts?.signal,
     )
     return output(tool, result)
+  }
+
+  async function queue<T>(key: string, run: () => Promise<T>) {
+    const prev = queues.get(key) ?? Promise.resolve()
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const next = prev.catch(() => {}).then(() => gate)
+    queues.set(key, next)
+    await prev.catch(() => {})
+    try {
+      return await run()
+    } finally {
+      release()
+      if (queues.get(key) === next) queues.delete(key)
+    }
   }
 
   export async function stat(filePath: string, executor = "local") {

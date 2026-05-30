@@ -15,10 +15,11 @@ Good Use Cases:
 - Read many files
 - grep + glob + read combos
 - Multiple bash commands
-- Multi-part edits; on the same, or different files
+- Independent edits on different files
 
 When NOT to Use:
 - Operations that depend on prior tool output (e.g. create then read same file)
 - Ordered stateful mutations where sequence matters
+- Multiple edits/patches to the same file; each edit returns a new file reference/hash and the next edit must use that refreshed reference
 
 Batching tool calls was proven to yield 2–5x efficiency gain and provides much better UX.

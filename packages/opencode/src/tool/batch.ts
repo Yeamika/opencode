@@ -42,7 +42,7 @@ export const BatchTool = Tool.define("batch", async () => {
       const availableTools = await ToolRegistry.tools({ modelID: ModelID.make(""), providerID: ProviderID.make("") })
       const toolMap = new Map(availableTools.map((t) => [t.id, t]))
 
-      const executeCall = async (call: (typeof toolCalls)[0]) => {
+      const executeCall = async (call: (typeof toolCalls)[0], index: number) => {
         const callStartTime = Date.now()
         const partID = PartID.ascending()
 
@@ -107,7 +107,7 @@ export const BatchTool = Tool.define("batch", async () => {
             },
           })
 
-          return { success: true as const, tool: call.tool, result }
+          return { success: true as const, tool: call.tool, index, result }
         } catch (error) {
           await Session.updatePart({
             id: partID,
@@ -127,11 +127,15 @@ export const BatchTool = Tool.define("batch", async () => {
             },
           })
 
-          return { success: false as const, tool: call.tool, error }
+          return { success: false as const, tool: call.tool, index, error }
         }
       }
 
-      const results = await Promise.all(toolCalls.map((call) => executeCall(call)))
+      const settled = await Promise.allSettled(toolCalls.map((call, index) => executeCall(call, index)))
+      const results = settled.map((item, index) => {
+        if (item.status === "fulfilled") return item.value
+        return { success: false as const, tool: toolCalls[index]!.tool, index, error: item.reason }
+      })
 
       // Add discarded calls as errors
       const now = Date.now()
@@ -154,6 +158,7 @@ export const BatchTool = Tool.define("batch", async () => {
         results.push({
           success: false as const,
           tool: call.tool,
+          index: results.length,
           error: new Error("Maximum of 25 tools allowed in batch"),
         })
       }
@@ -161,10 +166,20 @@ export const BatchTool = Tool.define("batch", async () => {
       const successfulCalls = results.filter((r) => r.success).length
       const failedCalls = results.length - successfulCalls
 
-      const outputMessage =
+      const summary =
         failedCalls > 0
           ? `Executed ${successfulCalls}/${results.length} tools successfully. ${failedCalls} failed.`
           : `All ${successfulCalls} tools executed successfully.\n\nKeep using the batch tool for optimal performance in your next response!`
+      const outputMessage = [
+        summary,
+        "",
+        ...results.map((result) => {
+          const header = `${result.index + 1}. ${result.tool}: ${result.success ? "success" : "failed"}`
+          if (!result.success) return `${header}\n${errorMessage(result.error)}`
+          const title = result.result.title ? `title: ${result.result.title}\n` : ""
+          return `${header}\n${title}${result.result.output}`
+        }),
+      ].join("\n\n")
 
       return {
         title: `Batch execution (${successfulCalls}/${results.length} successful)`,
@@ -175,7 +190,11 @@ export const BatchTool = Tool.define("batch", async () => {
           successful: successfulCalls,
           failed: failedCalls,
           tools: params.tool_calls.map((c) => c.tool),
-          details: results.map((r) => ({ tool: r.tool, success: r.success })),
+          details: results.map((result) =>
+            result.success
+              ? { index: result.index, tool: result.tool, success: true, title: result.result.title, metadata: result.result.metadata }
+              : { index: result.index, tool: result.tool, success: false, error: errorMessage(result.error) },
+          ),
         },
       }
     },
