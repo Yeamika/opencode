@@ -79,6 +79,8 @@ describe("tool.apply_patch REC line patch", () => {
         expect(await fs.readFile(target, "utf-8")).toBe("line1\nchanged\n")
         expect(result.output).toContain("<fileRef>target.txt #")
         expect(result.metadata.fileRef).toMatch(/^target\.txt #[0-9A-F]{4}$/)
+        expect(result.metadata.files[0].before).toBe("")
+        expect(result.metadata.files[0].after).toBe("")
       },
     })
   })
@@ -112,8 +114,10 @@ describe("tool.apply_patch REC line patch", () => {
         expect(result.metadata.files[0].type).toBe("binary-update")
         expect(result.metadata.files[0].diff).toContain("--- target.bin")
         expect(result.metadata.files[0].diff).toContain("+++ target.bin")
-        expect(result.metadata.files[0].diff).toContain("-00000000  00 01 02 03 04")
-        expect(result.metadata.files[0].diff).toContain("+00000000  FE 00 AA BB 03 CC DD")
+        expect(result.metadata.files[0].diff).toContain("-Binary before: 00 01 02 03 04")
+        expect(result.metadata.files[0].diff).toContain("+Binary after:  FE 00 AA BB 03 CC DD")
+        expect(result.metadata.files[0].before).toBe("")
+        expect(result.metadata.files[0].after).toBe("")
       },
     })
   })

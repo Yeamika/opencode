@@ -49,28 +49,28 @@ function hexBytes(input: string) {
   return bytes
 }
 
-function hexDump(bytes: Uint8Array | number[]) {
-  const rows = []
-  for (let offset = 0; offset < bytes.length; offset += 16) {
-    const slice = Array.from(bytes.slice(offset, offset + 16))
-    const hex = slice.map((byte) => byte.toString(16).padStart(2, "0").toUpperCase()).join(" ").padEnd(47, " ")
-    const ascii = slice.map((byte) => (byte >= 0x20 && byte <= 0x7e ? String.fromCharCode(byte) : ".")).join("")
-    rows.push(`${offset.toString(16).padStart(8, "0").toUpperCase()}  ${hex}  |${ascii}|`)
-  }
-  return rows.join("\n") + (rows.length ? "\n" : "")
+function bytesHex(bytes: Uint8Array, max = 128) {
+  const value = Array.from(bytes.slice(0, max))
+    .map((byte) => byte.toString(16).padStart(2, "0").toUpperCase())
+    .join(" ")
+  return bytes.length > max ? `${value} ...` : value
 }
 
-function binaryDiff(filePath: string, beforeHex: string, afterHex: string) {
-  return createTwoFilesPatch(filePath, filePath, hexDump(hexBytes(beforeHex)), hexDump(hexBytes(afterHex)))
+function binarySummaryDiff(filePath: string, beforeHex: string, afterHex: string) {
+  return createTwoFilesPatch(
+    filePath,
+    filePath,
+    `Binary before: ${beforeHex}\n`,
+    `Binary after:  ${afterHex}\n`,
+  )
 }
 
-function binaryFile(file: ViewFile) {
-  if (file.type !== "binary-update") return file
-  try {
-    return { ...file, diff: binaryDiff(file.relativePath || file.filePath, file.before, file.after), before: "", after: "" }
-  } catch {
-    return { ...file, before: "", after: "" }
+function sanitizeFile(file: ViewFile) {
+  let diff = file.diff
+  if (file.type === "binary-update") {
+    diff = binarySummaryDiff(file.relativePath || file.filePath, file.before, file.after)
   }
+  return { ...file, diff, before: "", after: "" }
 }
 
 function applyBinaryPatch(before: Uint8Array, patchText: string) {
@@ -151,7 +151,7 @@ export const ApplyPatchTool = Tool.define("apply_patch", {
       const permissionDiff =
         params.patchMode === "binary"
           ? await fs.readFile(filePath).then((before) =>
-              binaryDiff(filePath, before.toString("hex"), Buffer.from(applyBinaryPatch(before, params.patchText)).toString("hex")),
+              binarySummaryDiff(filePath, bytesHex(before), bytesHex(Buffer.from(applyBinaryPatch(before, params.patchText)))),
             )
           : params.patchText
       await ctx.ask({
@@ -179,7 +179,7 @@ export const ApplyPatchTool = Tool.define("apply_patch", {
     const next = hashCode ? SessionFileRead.retouch({ sessionID: ctx.sessionID, fileKeyRef: entry.fileKeyRef, hashCode }) : undefined
     const label = next ? SessionFileRead.label(next) : SessionFileRead.label(entry)
     const file = fileMeta(result.metadata.file)
-    const viewFile = file ? binaryFile(file) : undefined
+    const viewFile = file ? sanitizeFile(file) : undefined
     const files = viewFile ? [viewFile] : []
 
     if (local) {
