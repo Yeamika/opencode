@@ -470,9 +470,13 @@ it.live("session.processor effect tests publish retry status updates", () =>
         const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
         const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
         const states: number[] = []
+        const callingAttempts: number[] = []
         const off = yield* bus.subscribeCallback(SessionStatus.Event.Status, (evt) => {
           if (evt.properties.sessionID !== chat.id) return
           if (evt.properties.status.type === "retry") states.push(evt.properties.status.attempt)
+          if (evt.properties.status.type === "busy" && evt.properties.status.action === "Calling model") {
+            callingAttempts.push(evt.properties.status.attempt ?? 0)
+          }
         })
         const handle = yield* processors.create({
           assistantMessage: msg,
@@ -502,6 +506,8 @@ it.live("session.processor effect tests publish retry status updates", () =>
         expect(value).toBe("continue")
         expect(yield* llm.calls).toBe(2)
         expect(states).toStrictEqual([1])
+        expect(callingAttempts).toContain(0)
+        expect(callingAttempts).toContain(1)
       }),
     { git: true, config: (url) => providerCfg(url) },
   ),

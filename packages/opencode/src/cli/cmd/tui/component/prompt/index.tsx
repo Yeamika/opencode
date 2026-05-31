@@ -134,6 +134,8 @@ export function Prompt(props: PromptProps) {
     const duration = formatDuration(Math.max(0, Math.round((statusNow() - current.startedAt) / 1000)))
     const parts = duration ? [duration] : []
     parts.push(current.action ?? "Running")
+    const attempt = "attempt" in current && typeof current.attempt === "number" ? current.attempt : undefined
+    if (attempt) parts.push(`attempt #${attempt}`)
     return parts.join(" · ")
   })
 

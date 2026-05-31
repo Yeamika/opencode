@@ -52,6 +52,7 @@ export namespace SessionProcessor {
     needsCompaction: boolean
     currentText: MessageV2.TextPart | undefined
     reasoningMap: Record<string, MessageV2.ReasoningPart>
+    attempt: number
   }
 
   type StreamEvent = Event
@@ -104,6 +105,7 @@ export namespace SessionProcessor {
           needsCompaction: false,
           currentText: undefined,
           reasoningMap: {},
+          attempt: 0,
         }
         let aborted = false
 
@@ -116,7 +118,10 @@ export namespace SessionProcessor {
         const handleEvent = Effect.fn("SessionProcessor.handleEvent")(function* (value: StreamEvent) {
           switch (value.type) {
             case "start":
-              yield* status.set(ctx.sessionID, SessionStatus.busy({ action: "Calling model" }))
+              yield* status.set(
+                ctx.sessionID,
+                SessionStatus.busy({ action: "Calling model", ...(ctx.attempt > 0 ? { attempt: ctx.attempt } : {}) }),
+              )
               return
 
             case "reasoning-start":
@@ -264,7 +269,10 @@ export namespace SessionProcessor {
               throw value.error
 
             case "start-step":
-              yield* status.set(ctx.sessionID, SessionStatus.busy({ action: "Calling model" }))
+              yield* status.set(
+                ctx.sessionID,
+                SessionStatus.busy({ action: "Calling model", ...(ctx.attempt > 0 ? { attempt: ctx.attempt } : {}) }),
+              )
               if (!ctx.snapshot) ctx.snapshot = yield* snapshot.track()
               yield* session.updatePart({
                 id: PartID.ascending(),
@@ -482,6 +490,7 @@ export namespace SessionProcessor {
             yield* Effect.gen(function* () {
               let attempt = 0
               while (true) {
+                ctx.attempt = attempt
                 const exit = yield* runAttempt.pipe(Effect.exit)
                 if (Exit.isSuccess(exit)) break
                 if (Cause.hasInterruptsOnly(exit.cause)) {

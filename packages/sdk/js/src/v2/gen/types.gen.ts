@@ -143,6 +143,7 @@ export type SessionStatus =
       startedAt: number
       updatedAt: number
       action?: string
+      attempt?: number
     }
 
 export type EventSessionStatus = {
