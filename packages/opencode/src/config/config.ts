@@ -1025,6 +1025,7 @@ export namespace Config {
           ),
         ])
         .optional()
+        .describe("Language server configuration. Disabled by default; set to {} to enable built-in LSP servers.")
         .refine(
           (data) => {
             if (!data) return true

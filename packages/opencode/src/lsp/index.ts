@@ -169,7 +169,7 @@ export namespace LSP {
 
           const servers: Record<string, LSPServer.Info> = {}
 
-          if (cfg.lsp === false) {
+          if (cfg.lsp === undefined || cfg.lsp === false) {
             log.info("all LSPs are disabled")
           } else {
             for (const server of Object.values(LSPServer)) {

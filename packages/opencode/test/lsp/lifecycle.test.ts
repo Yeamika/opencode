@@ -4,10 +4,11 @@ import * as Lsp from "../../src/lsp/index"
 import { LSPServer } from "../../src/lsp/server"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
+import type { Config } from "../../src/config/config"
 
-function withInstance(fn: (dir: string) => Promise<void>) {
+function withInstance(fn: (dir: string) => Promise<void>, options?: { config?: Partial<Config.Info> }) {
   return async () => {
-    await using tmp = await tmpdir()
+    await using tmp = await tmpdir(options)
     try {
       await Instance.provide({
         directory: tmp.path,
@@ -56,11 +57,22 @@ describe("LSP service lifecycle", () => {
   )
 
   test(
-    "hasClients() returns true for .ts files in instance",
+    "hasClients() returns false by default",
     withInstance(async (dir) => {
       const result = await Lsp.LSP.hasClients(path.join(dir, "test.ts"))
-      expect(result).toBe(true)
+      expect(result).toBe(false)
     }),
+  )
+
+  test(
+    "hasClients() returns true for .ts files when LSP is explicitly enabled",
+    withInstance(
+      async (dir) => {
+        const result = await Lsp.LSP.hasClients(path.join(dir, "test.ts"))
+        expect(result).toBe(true)
+      },
+      { config: { lsp: {} } },
+    ),
   )
 
   test(

@@ -7,7 +7,7 @@ import { tmpdir } from "../fixture/fixture"
 
 describe("lsp.spawn", () => {
   test("does not spawn builtin LSP for files outside instance", async () => {
-    await using tmp = await tmpdir()
+    await using tmp = await tmpdir({ config: { lsp: {} } })
     const spy = spyOn(LSPServer.Typescript, "spawn").mockResolvedValue(undefined)
 
     try {
@@ -31,7 +31,7 @@ describe("lsp.spawn", () => {
   })
 
   test("would spawn builtin LSP for files inside instance", async () => {
-    await using tmp = await tmpdir()
+    await using tmp = await tmpdir({ config: { lsp: {} } })
     const spy = spyOn(LSPServer.Typescript, "spawn").mockResolvedValue(undefined)
 
     try {
