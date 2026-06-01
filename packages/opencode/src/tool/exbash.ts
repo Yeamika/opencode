@@ -356,7 +356,7 @@ export const ExBashTool = Tool.define("exbash", {
         ? mode === "runexe"
           ? await command(ctx, data)
           : await shellCommand(ctx, data)
-        : (data.workdir ?? Instance.directory)
+        : data.workdir
       const limit = budget(data.read_timeout)
       const body = {
         command: data.command,
@@ -364,12 +364,12 @@ export const ExBashTool = Tool.define("exbash", {
         ...(local(exec) ? {} : { executor: exec }),
         ...(data.timeout === undefined ? {} : { timeout: data.timeout }),
         ...(data.read_timeout === undefined ? {} : { read_timeout: data.read_timeout }),
-        directory: dir,
+        ...(dir === undefined ? {} : { directory: dir }),
       }
       const opts = { signal: ctx.abort, ...(limit === undefined ? {} : { timeout: limit }) }
       const result = await RemoteExecutor.call(mode === "runexe" ? "exbash" : "exbash_shell", body, opts)
       if (mode === "run") result.metadata.command = data.command
-      const task = await save(ctx, result, { ...data, cwd: dir })
+      const task = await save(ctx, result, { ...data, cwd: dir ?? "" })
       if (!task) return result
       return {
         ...result,
@@ -450,7 +450,7 @@ export const ExBashTool = Tool.define("exbash", {
             ? {}
             : { filePath: local(exec) ? await input(ctx, data.filePath) : data.filePath }),
           ...(read_timeout === undefined ? {} : { read_timeout }),
-          directory: workspace(ctx),
+          ...(local(exec) ? { directory: workspace(ctx) } : {}),
         },
         { signal: ctx.abort, ...(limit === undefined ? {} : { timeout: limit }) },
       )

@@ -312,9 +312,9 @@ export namespace RemoteExecutor {
   }
 
   function directory(args: Record<string, unknown>, executor = "local") {
-    const dir =
-      typeof args.dir === "string" ? args.dir : typeof args.directory === "string" ? args.directory : Instance.directory
-    if (executor !== "local") return dir
+    const explicit = typeof args.dir === "string" ? args.dir : typeof args.directory === "string" ? args.directory : undefined
+    if (executor !== "local") return explicit
+    const dir = explicit ?? Instance.directory
     return path.resolve(dir)
   }
 
@@ -329,11 +329,11 @@ export namespace RemoteExecutor {
     return next?.trim() || "local"
   }
 
-  function argsWithDir(args: Record<string, unknown>, timeout: number, executor: string, dir: string) {
+  function argsWithDir(args: Record<string, unknown>, timeout: number, executor: string, dir: string | undefined) {
     const { dir: _, directory: _dir, executor: _exec, targetExecutor: _target, toolTimeoutMs: _timeout, ...rest } = args
     return {
       ...rest,
-      directory: dir,
+      ...(dir === undefined ? {} : { directory: dir }),
       targetExecutor: executor,
       toolTimeoutMs: typeof args.toolTimeoutMs === "number" ? args.toolTimeoutMs : timeout,
     }

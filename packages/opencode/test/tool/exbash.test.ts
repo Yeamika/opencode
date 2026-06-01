@@ -355,6 +355,7 @@ describe("tool.exbash", () => {
         }
 
         expect(calls[0]).toMatchObject({ tool: "exbash_shell", args: { executor: "box" } })
+        expect(calls[0]!.args).not.toHaveProperty("directory")
         expect(calls).toContainEqual(
           expect.objectContaining({ tool: "exbash_list", args: { executor: "box", asyncID: id } }),
         )
@@ -362,6 +363,27 @@ describe("tool.exbash", () => {
         expect(all.runs).toMatchObject([{ asyncID: id, executor: "box" }])
         expect(local.runs).toHaveLength(0)
         expect(remote.runs).toMatchObject([{ asyncID: id, executor: "box" }])
+      })
+    } finally {
+      call.mockRestore()
+    }
+  })
+
+  test.serial("passes remote workdir through without local resolution", async () => {
+    const call = mock()
+    try {
+      await repo(async (dir) => {
+        const tool = await ExBashTool.init()
+        const c = await ctx("remote workdir", dir)
+        await tool.execute({ command: "sleep 1", read_timeout: 0, executor: "box", workdir: "E:/remote/project" }, c)
+
+        expect(calls[0]).toMatchObject({
+          tool: "exbash_shell",
+          args: {
+            executor: "box",
+            directory: "E:/remote/project",
+          },
+        })
       })
     } finally {
       call.mockRestore()
