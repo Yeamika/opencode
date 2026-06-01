@@ -116,3 +116,97 @@ test("passes remote file paths through unchanged", async () => {
     call.mockRestore()
   }
 })
+
+test("resolves local read refs back to file paths", async () => {
+  const calls: Array<{ tool: string; args: Record<string, unknown> }> = []
+  const call = spyOn(RemoteExecutor, "call").mockImplementation(async (tool, args) => {
+    calls.push({ tool, args })
+    return {
+      title: "Local read",
+      output: "local",
+      metadata: {
+        file: {
+          fileKey: "local-ref-key",
+          canonicalPath: String(args.filePath),
+          kind: "file",
+        },
+        hashCode: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      },
+    }
+  })
+
+  try {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const target = path.join(tmp.path, "local.txt")
+        await fs.writeFile(target, "hello")
+        const session = await Session.create({ title: "read local ref" })
+        const read = await ReadTool.init()
+        const first = await read.execute({ filePath: target }, { ...ctx, sessionID: session.id })
+        const ref = first.metadata.fileRef as string
+        await read.execute({ filePath: ref, executor: "box" }, { ...ctx, sessionID: session.id })
+
+        expect(calls[1]).toMatchObject({ tool: "read", args: { filePath: target } })
+        expect(calls[1]!.args).not.toHaveProperty("executor")
+      },
+    })
+  } finally {
+    call.mockRestore()
+  }
+})
+
+test("resolves remote read refs back to executor and file path", async () => {
+  const calls: Array<{ tool: string; args: Record<string, unknown> }> = []
+  const stats: Array<{ filePath: string; executor?: string }> = []
+  const stat = spyOn(RemoteExecutor, "stat").mockImplementation(async (filePath, executor) => {
+    stats.push({ filePath, executor })
+    return {
+      fileKey: `remote:${filePath}`,
+      canonicalPath: filePath,
+      kind: "file",
+    }
+  })
+  const call = spyOn(RemoteExecutor, "call").mockImplementation(async (tool, args) => {
+    calls.push({ tool, args })
+    return {
+      title: "Remote read",
+      output: "remote",
+      metadata: {
+        file: {
+          fileKey: `remote:${args.filePath}`,
+          canonicalPath: String(args.filePath),
+          kind: "file",
+        },
+        hashCode: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      },
+    }
+  })
+
+  try {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({ title: "read remote ref" })
+        const read = await ReadTool.init()
+        const first = await read.execute({ filePath: "/remote/project/a.txt", executor: "box" }, { ...ctx, sessionID: session.id })
+        const ref = first.metadata.fileRef as string
+        calls.length = 0
+        stats.length = 0
+
+        await read.execute({ filePath: ref, limit: 10 }, { ...ctx, sessionID: session.id })
+
+        expect(stats[0]).toEqual({ filePath: "/remote/project/a.txt", executor: "box" })
+        expect(calls[0]).toMatchObject({
+          tool: "read",
+          args: { filePath: "/remote/project/a.txt", executor: "box", hashCheckMode: true, limit: 10 },
+        })
+      },
+    })
+  } finally {
+    stat.mockRestore()
+    call.mockRestore()
+  }
+})

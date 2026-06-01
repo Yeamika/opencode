@@ -12,7 +12,7 @@ import { SessionFileRead } from "../session/file-read"
 export const ReadTool = Tool.define("read", {
   description: DESCRIPTION,
   parameters: z.object({
-    filePath: z.string().describe("The absolute path to the file or directory to read"),
+    filePath: z.string().describe('The absolute path to the file or directory to read, or a session file reference like "App.ts #A1B2"'),
     mode: z
       .enum(["text", "binary"])
       .optional()
@@ -35,13 +35,17 @@ export const ReadTool = Tool.define("read", {
         throw new Error("offset must be greater than or equal to 1")
       }
     }
-    const executor = params.executor?.trim() || "local"
+    const entry = SessionFileRead.parseTarget(params.filePath)
+      ? SessionFileRead.resolve({ sessionID: ctx.sessionID, target: params.filePath })
+      : undefined
+    const executor = entry ? SessionFileRead.executor(entry) : params.executor?.trim() || "local"
+    const target = entry?.filePath ?? params.filePath
     const local = executor === "local"
     const file = local
-      ? path.isAbsolute(params.filePath)
-        ? params.filePath
-        : path.resolve(Instance.directory, params.filePath)
-      : params.filePath
+      ? path.isAbsolute(target)
+        ? target
+        : path.resolve(Instance.directory, target)
+      : target
     const filepath = local && process.platform === "win32" ? Filesystem.normalizePath(file) : file
     const stat = local ? Filesystem.stat(filepath) : undefined
 
