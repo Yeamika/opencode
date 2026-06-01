@@ -33,12 +33,15 @@ export const RgTool = Tool.define("rg", {
     const executor = params.executor?.trim() || "local"
     const local = executor === "local"
 
-    const root = params.root
-      ? path.isAbsolute(params.root)
-        ? params.root
-        : path.resolve(Instance.directory, params.root)
-      : Instance.directory
-    const target = params.path ? (path.isAbsolute(params.path) ? params.path : path.resolve(root, params.path)) : root
+    const base = local
+      ? params.root
+        ? path.isAbsolute(params.root)
+          ? params.root
+          : path.resolve(Instance.directory, params.root)
+        : Instance.directory
+      : ""
+    const root = local ? base : params.root
+    const target = local ? (params.path ? (path.isAbsolute(params.path) ? params.path : path.resolve(base, params.path)) : base) : undefined
 
     if (local) {
       await ctx.ask({
@@ -47,7 +50,7 @@ export const RgTool = Tool.define("rg", {
         always: ["*"],
         metadata: {
           pattern: params.pattern,
-          root,
+          ...(root === undefined ? {} : { root }),
           path: params.path,
           globs: params.globs ?? (params.include === undefined ? undefined : [params.include]),
           case_sensitive: params.case_sensitive,
@@ -57,9 +60,10 @@ export const RgTool = Tool.define("rg", {
     }
 
     if (local) {
-      await assertExternalDirectory(ctx, root, { kind: "directory" })
-      await assertExternalDirectory(ctx, target, {
-        kind: Filesystem.stat(target)?.isDirectory() ? "directory" : "file",
+      const file = target ?? base
+      await assertExternalDirectory(ctx, base, { kind: "directory" })
+      await assertExternalDirectory(ctx, file, {
+        kind: Filesystem.stat(file)?.isDirectory() ? "directory" : "file",
       })
     }
 
@@ -71,7 +75,7 @@ export const RgTool = Tool.define("rg", {
       "rg",
       {
         pattern: params.pattern,
-        root,
+        ...(root === undefined ? {} : { root }),
         ...(params.path === undefined ? {} : { path: params.path }),
         ...(params.globs === undefined && params.include === undefined
           ? {}

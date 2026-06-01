@@ -263,7 +263,7 @@ export const SessionRoutes = lazy(() =>
         const param = c.req.valid("param")
         const query = c.req.valid("query")
         const session = await Session.get(param.sessionID)
-        const exec = query.executor ?? "local"
+        const exec = query.executor?.trim() || "local"
         const task = await ExBashTask.one({
           sessionID: param.sessionID,
           workspace: session.directory,
@@ -275,9 +275,8 @@ export const SessionRoutes = lazy(() =>
         if (task.state === "unknown") throw new Error(`Async run state unknown: ${param.asyncID}`)
         const result = await RemoteExecutor.call("exbash_attach", {
           asyncID: param.asyncID,
-          ...(query.executor === undefined ? {} : { executor: query.executor }),
+          ...(exec === "local" ? { directory: session.directory } : { executor: exec }),
           read_timeout: 0,
-          directory: session.directory,
         })
         const list = await RemoteExecutor.call("list_executor", {}, { signal: c.req.raw.signal })
         const hit = (Array.isArray(list.metadata.executors) ? list.metadata.executors : []).find((item) => {

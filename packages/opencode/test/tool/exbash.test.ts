@@ -375,15 +375,18 @@ describe("tool.exbash", () => {
       await repo(async (dir) => {
         const tool = await ExBashTool.init()
         const c = await ctx("remote workdir", dir)
-        await tool.execute({ command: "sleep 1", read_timeout: 0, executor: "box", workdir: "E:/remote/project" }, c)
+        for (const root of ["/remote/project", "E:/remote/project"]) {
+          calls.length = 0
+          await tool.execute({ command: "sleep 1", read_timeout: 0, executor: "box", workdir: root }, c)
 
-        expect(calls[0]).toMatchObject({
-          tool: "exbash_shell",
-          args: {
-            executor: "box",
-            directory: "E:/remote/project",
-          },
-        })
+          expect(calls[0]).toMatchObject({
+            tool: "exbash_shell",
+            args: {
+              executor: "box",
+              directory: root,
+            },
+          })
+        }
       })
     } finally {
       call.mockRestore()
@@ -416,6 +419,7 @@ describe("tool.exbash", () => {
             args: expect.objectContaining({ executor: "box", asyncID: id }),
           }),
         )
+        expect(calls.find((item) => item.tool === "exbash_attach")?.args).not.toHaveProperty("directory")
         expect(calls).toContainEqual(
           expect.objectContaining({
             tool: "exbash_stop",

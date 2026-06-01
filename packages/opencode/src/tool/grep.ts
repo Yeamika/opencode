@@ -32,16 +32,18 @@ export const GrepTool = Tool.define("grep", {
       })
     }
 
-    const search = path.isAbsolute(params.path ?? Instance.directory)
-      ? (params.path ?? Instance.directory)
-      : path.resolve(Instance.directory, params.path!)
+    const search = local
+      ? path.isAbsolute(params.path ?? Instance.directory)
+        ? (params.path ?? Instance.directory)
+        : path.resolve(Instance.directory, params.path!)
+      : params.path
     if (local) await assertExternalDirectory(ctx, search, { kind: "directory" })
 
     const result = await RemoteExecutor.call(
       "grep",
       {
         pattern: params.pattern,
-        path: search,
+        ...(search === undefined ? {} : { path: search }),
         ...(params.include === undefined ? {} : { include: params.include }),
         ...(local ? {} : { executor }),
       },
