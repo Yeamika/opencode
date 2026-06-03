@@ -501,6 +501,13 @@ export namespace RemoteExecutor {
     state.pending.clear()
   }
 
+  function outputString(value: unknown) {
+    if (typeof value === "string") return value
+    const obj = record(value)
+    if (!obj) return undefined
+    const parts = [obj.message, obj.text, obj.info].filter((item): item is string => typeof item === "string" && item.length > 0)
+    return parts.length ? parts.join("\n") : undefined
+  }
   function output(tool: string, result: unknown): Result {
     const obj = record(result) ?? {}
     if (obj.isError) throw new Error(text(obj.content) || `remote executor ${tool} failed`)
@@ -508,7 +515,7 @@ export namespace RemoteExecutor {
     return {
       title: typeof data.title === "string" ? data.title : tool,
       metadata: record(data.metadata) ?? {},
-      output: typeof data.output === "string" ? data.output : text(obj.content),
+      output: outputString(data.output) ?? text(obj.content),
     }
   }
 
