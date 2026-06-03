@@ -127,6 +127,12 @@ export function Prompt(props: PromptProps) {
     })
   })
 
+  const busyAttempt = createMemo(() => {
+    const current = status()
+    if (current.type !== "busy") return undefined
+    return "attempt" in current && typeof current.attempt === "number" ? current.attempt : undefined
+  })
+
   const busyText = createMemo(() => {
     const current = status()
     if (current.type !== "busy") return ""
@@ -134,8 +140,6 @@ export function Prompt(props: PromptProps) {
     const duration = formatDuration(Math.max(0, Math.round((statusNow() - current.startedAt) / 1000)))
     const parts = duration ? [duration] : []
     parts.push(current.action ?? "Running")
-    const attempt = "attempt" in current && typeof current.attempt === "number" ? current.attempt : undefined
-    if (attempt) parts.push(`attempt #${attempt}`)
     return parts.join(" · ")
   })
 
@@ -1031,6 +1035,7 @@ export function Prompt(props: PromptProps) {
     }
 
     if (status().type === "busy") {
+      const attempt = busyAttempt()
       return (
         <box flexDirection="row" gap={1} minWidth={0}>
           <Show when={kv.get("animations_enabled", true)} fallback={<text fg={theme.textMuted}>[⋯]</text>}>
@@ -1039,6 +1044,16 @@ export function Prompt(props: PromptProps) {
           <text fg={theme.textMuted} wrapMode="none" overflow="hidden">
             {busyText()}
           </text>
+          <Show when={attempt}>
+            <text fg={theme.textMuted} wrapMode="none">
+              ·
+            </text>
+            <box onMouseUp={() => DialogAlert.show(dialog, "Model Attempt", `${busyText()} · attempt #${attempt}`)}>
+              <text fg={theme.primary} wrapMode="none">
+                attempt #{attempt}
+              </text>
+            </box>
+          </Show>
         </box>
       )
     }
