@@ -9,12 +9,9 @@
  *   const result = await RefsBridge.call("FileAction", { mode: "create", ... }, { signal: ctx.abort })
  */
 
-import {
-  createSessionMcp,
-  defaultDbPath,
-  type SessionMcpHandle,
-  type ToolCallResult,
-} from "@opencode-ai/refs-opencode"
+import type { SessionMcpHandle, ToolCallResult } from "./refs-opencode"
+// @ts-ignore - native addon loaded at runtime
+import { createSessionMcp, defaultDbPath } from "@opencode-ai/refs-opencode"
 import { Database } from "@/storage/db"
 import { Instance } from "@/project/instance"
 

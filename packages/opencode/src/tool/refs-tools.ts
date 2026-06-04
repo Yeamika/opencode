@@ -5,10 +5,7 @@
  * OpenCode Tool.Info objects. No hand-written schemas - everything comes
  * from the Rust SDK's mcptooldefs.rs via tools/list.
  *
- * Special case: `read` tool gets an image/PDF wrapper before SDK delegation.
- *
- * Exports type-compatible stubs (ReadTool, RgTool, ExBashTool, ExecutorManagerTool)
- * for code that needs Tool.InferParameters<typeof XXX> type inference.
+ * Exports type-compatible stubs for code that needs Tool.InferParameters<T>.
  */
 
 import z from "zod"
@@ -19,10 +16,14 @@ import { Instance } from "../project/instance"
 import { Filesystem } from "../util/filesystem"
 import { Instruction } from "../session/instruction"
 import { assertExternalDirectory } from "./external-directory"
-import {
-  getSdkToolDefinitions,
-  type ToolDefinition,
-} from "@opencode-ai/refs-opencode"
+
+// ─── Local types (avoid importing from native addon) ───
+
+interface ToolDefinition {
+  name: string
+  description: string | null
+  inputSchema: Record<string, unknown>
+}
 
 // ─── Map SDK tool names ───
 
@@ -42,12 +43,9 @@ const TOOL_ID_MAP: Record<string, string> = {
   RemoteExecutorManager: "executorManager",
 }
 
-// Permissive Zod schema - SDK handles validation
 const passthroughSchema = z.object({}).passthrough()
 
 // ─── Type stubs for Tool.InferParameters<T> ───
-// These match the SDK's mcptooldefs.rs schemas. They're only used for
-// TypeScript type inference, not at runtime.
 
 const readParams = z.object({
   filePath: z.string().optional(),
@@ -70,7 +68,7 @@ const rgParams = z.object({
 })
 
 const exbashParams = z.object({
-  mode: z.enum(["run", "shell", "attach", "list", "stop", "remove"]).optional(),
+  mode: z.enum(["run", "runexe", "shell", "attach", "list", "stop", "remove"]).optional(),
   command: z.string().optional(),
   description: z.string().optional(),
   workdir: z.string().optional(),
@@ -99,49 +97,46 @@ const executorManagerParams = z.object({
 export const ReadTool = Tool.define("read", {
   description: "Read a file via REC. Supports file references and direct paths.",
   parameters: readParams,
-  execute: async () => ({ title: "", output: "", metadata: {} }),
+  execute: async () => ({ title: "", output: "", metadata: {} as Record<string, any> }),
 })
 
 export const RgTool = Tool.define("rg", {
   description: "Ripgrep-style search powered by RemoteExecutor.",
   parameters: rgParams,
-  execute: async () => ({ title: "", output: "", metadata: {} }),
+  execute: async () => ({ title: "", output: "", metadata: {} as Record<string, any> }),
 })
 
 export const ExBashTool = Tool.define("exbash", {
   description: "Extended PTY command control surface backed by RemoteExecutor.",
   parameters: exbashParams,
-  execute: async () => ({ title: "", output: "", metadata: {} }),
+  execute: async () => ({ title: "", output: "", metadata: {} as Record<string, any> }),
 })
 
 export const ExecutorManagerTool = Tool.define("executorManager", {
   description: "Manage RemoteExecutor executor links for the current workspace.",
   parameters: executorManagerParams,
-  execute: async () => ({ title: "", output: "", metadata: {} }),
+  execute: async () => ({ title: "", output: "", metadata: {} as Record<string, any> }),
 })
 
 // ─── Dynamic tool creation ───
 
-/**
- * Extract output from SDK JSON-RPC response.
- */
 function extractOutput(parsed: {
   error?: { code: number; message: string }
   result?: { content: Array<{ type: string; text: string }>; structuredContent?: unknown }
-}): { title: string; metadata: Record<string, unknown>; output: string } {
+}): { title: string; metadata: Record<string, any>; output: string } {
   if (parsed.error) throw new Error(parsed.error.message || "SDK call failed")
   const result = parsed.result
   if (!result) throw new Error("SDK returned no result")
 
-  const sc = (result.structuredContent ?? {}) as Record<string, unknown>
-  const meta = (sc.metadata ?? {}) as Record<string, unknown>
+  const sc = (result.structuredContent ?? {}) as Record<string, any>
+  const meta = (sc.metadata ?? {}) as Record<string, any>
   const title = typeof sc.title === "string" ? sc.title : "tool"
 
   let output: string
   if (typeof sc.output === "string") {
     output = sc.output
   } else if (sc.output && typeof sc.output === "object") {
-    const obj = sc.output as Record<string, unknown>
+    const obj = sc.output as Record<string, any>
     const parts = [obj.message, obj.text, obj.info]
       .filter((p): p is string => typeof p === "string" && p.length > 0)
     output = parts.length ? parts.join("\n") : result.content?.[0]?.text ?? ""
@@ -152,9 +147,6 @@ function extractOutput(parsed: {
   return { title, metadata: meta, output }
 }
 
-/**
- * Create a generic OpenCode Tool.Info from an MCP tool definition.
- */
 function mcpToolToInfo(def: ToolDefinition): Tool.Info {
   const toolId = TOOL_ID_MAP[def.name] ?? def.name
   const permission = PERMISSION_MAP[def.name]
@@ -180,9 +172,6 @@ function mcpToolToInfo(def: ToolDefinition): Tool.Info {
   }
 }
 
-/**
- * Create the `read` tool with image/PDF handling.
- */
 function createReadTool(def: ToolDefinition): Tool.Info {
   return {
     id: "read",
@@ -190,18 +179,15 @@ function createReadTool(def: ToolDefinition): Tool.Info {
       description: def.description ?? "",
       parameters: passthroughSchema,
       execute: async (args, ctx) => {
-        const filePath = (args as Record<string, unknown>).filePath as string | undefined
-        const fileKey = (args as Record<string, unknown>).fileKey as string | undefined
-        const target = filePath ?? fileKey ?? ""
-        const executor = ((args as Record<string, unknown>).executor as string) ?? "local"
+        const a = args as Record<string, any>
+        const target = a.filePath ?? a.fileKey ?? ""
+        const executor = a.executor ?? "local"
         const local = executor === "local"
         const isHashRef = /\s+#[0-9a-fA-F]{4}$/.test(target)
 
         const resolvedPath =
           local && !isHashRef
-            ? path.isAbsolute(target)
-              ? target
-              : path.resolve(Instance.directory, target)
+            ? path.isAbsolute(target) ? target : path.resolve(Instance.directory, target)
             : target
 
         if (local && !isHashRef) {
@@ -209,25 +195,15 @@ function createReadTool(def: ToolDefinition): Tool.Info {
             bypass: Boolean(ctx.extra?.["bypassCwdCheck"]),
             kind: Filesystem.stat(resolvedPath)?.isDirectory() ? "directory" : "file",
           })
-          await ctx.ask({
-            permission: "read",
-            patterns: [resolvedPath],
-            always: ["*"],
-            metadata: {},
-          })
+          await ctx.ask({ permission: "read", patterns: [resolvedPath], always: ["*"], metadata: {} })
         }
 
         if (local && !isHashRef) {
           const stat = Filesystem.stat(resolvedPath)
-          const mode = (args as Record<string, unknown>).mode as string | undefined
-          if (stat && !stat.isDirectory() && mode !== "binary") {
+          if (stat && !stat.isDirectory() && a.mode !== "binary") {
             const mime = Filesystem.mimeType(resolvedPath)
-            const image =
-              mime.startsWith("image/") &&
-              mime !== "image/svg+xml" &&
-              mime !== "image/vnd.fastbidsheet"
+            const image = mime.startsWith("image/") && mime !== "image/svg+xml" && mime !== "image/vnd.fastbidsheet"
             const pdf = mime === "application/pdf"
-
             if (image || pdf) {
               if (pdf) throw new Error("PDF read is not supported yet")
               const msg = "Image read successfully"
@@ -235,20 +211,8 @@ function createReadTool(def: ToolDefinition): Tool.Info {
               return {
                 title: path.relative(Instance.worktree, resolvedPath),
                 output: msg,
-                metadata: {
-                  preview: msg,
-                  truncated: false,
-                  loaded: instructions.map((item) => item.filepath),
-                },
-                attachments: [
-                  {
-                    type: "file" as const,
-                    mime,
-                    url: `data:${mime};base64,${Buffer.from(
-                      await Filesystem.readBytes(resolvedPath),
-                    ).toString("base64")}`,
-                  },
-                ],
+                metadata: { preview: msg, truncated: false, loaded: instructions.map((i) => i.filepath) },
+                attachments: [{ type: "file" as const, mime, url: `data:${mime};base64,${Buffer.from(await Filesystem.readBytes(resolvedPath)).toString("base64")}` }],
               }
             }
           }
@@ -265,10 +229,13 @@ function createReadTool(def: ToolDefinition): Tool.Info {
 
 /**
  * Get all REFS-backed tools by reading tools/list from the MCP.
+ * Requires RefsBridge to be initialized first.
  */
 export function getRefsTools(): Tool.Info[] {
   const handle = getHandle()
-  const defs = getSdkToolDefinitions(handle)
+  const json = handle.listTools()
+  const parsed = JSON.parse(json)
+  const defs: ToolDefinition[] = parsed?.result?.tools ?? []
   return defs.map((def) => (def.name === "read" ? createReadTool(def) : mcpToolToInfo(def)))
 }
 
