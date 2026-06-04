@@ -6,10 +6,10 @@
  *
  * Tool schemas are the single source of truth from the Rust SDK's `mcptooldefs.rs`,
  * read dynamically via `tools/list` - never duplicated in TS.
+ *
+ * Native addon is loaded lazily at runtime - the .node file must be built
+ * by napi-rs before use. If not available, functions will throw.
  */
-
-// @ts-ignore - native addon (built by napi-rs)
-import refsAddon from "../refs-opencode.linux-x64-gnu.node" assert { type: "native" }
 
 export interface ToolDefinition {
   name: string
@@ -30,34 +30,48 @@ export interface SessionMcpHandle {
   handleRaw(request: string): string
 }
 
+// Lazy-loaded native addon reference
+let _addon: any = undefined
+
+/**
+ * Load the native addon. Throws if not built.
+ * The .node file is resolved by Bun/Node at runtime from the package directory.
+ */
+function getAddon(): any {
+  if (_addon) return _addon
+  // Dynamic require so the import doesn't fail at module load time
+  // when the .node file hasn't been built yet
+  try {
+    // Bun resolves .node files from the package root
+    _addon = require("../refs-opencode.linux-x64-gnu.node")
+    return _addon
+  } catch {
+    throw new Error(
+      "REFS-opencode native addon not found. Run `napi build --platform` in packages/REFS-opencode first.",
+    )
+  }
+}
+
 /**
  * Create a session MCP handler backed by OpenCode's SQLite database.
- *
- * @param dbPath - path to the SQLite database file
- * @param sessionId - the current session ID
- * @param workdir - the current working directory
  */
 export function createSessionMcp(
   dbPath: string,
   sessionId: string,
   workdir: string,
 ): SessionMcpHandle {
-  return refsAddon.createSessionMcp(dbPath, sessionId, workdir)
+  return getAddon().createSessionMcp(dbPath, sessionId, workdir)
 }
 
 /**
  * Get the default SQLite database path used by OpenCode.
  */
 export function defaultDbPath(): string {
-  return refsAddon.defaultDbPath()
+  return getAddon().defaultDbPath()
 }
 
 /**
  * Get SDK tool definitions by calling tools/list on the MCP handle.
- * Returns parsed tool definitions with name, description, and JSON Schema.
- *
- * This is the single source of truth for tool schemas - they come from
- * the Rust SDK's `mcptooldefs.rs` and should NOT be duplicated in TS.
  */
 export function getSdkToolDefinitions(handle: SessionMcpHandle): ToolDefinition[] {
   const json = handle.listTools()

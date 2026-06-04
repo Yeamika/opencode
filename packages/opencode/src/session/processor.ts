@@ -57,6 +57,28 @@ export namespace SessionProcessor {
 
   type StreamEvent = Event
 
+  function recoverableStreamValidationError(error: unknown) {
+    const seen = new Set<unknown>()
+    let current = error
+    while (current && typeof current === "object" && !seen.has(current)) {
+      seen.add(current)
+      const item = current as Record<string, unknown>
+      const name = typeof item.name === "string" ? item.name : undefined
+      const message = typeof item.message === "string" ? item.message : undefined
+      const isValidationError = name?.includes("TypeValidationError") || message?.startsWith("Type validation failed")
+
+      if (isValidationError && "value" in item) {
+        return {
+          name,
+          message,
+          value: item.value,
+        }
+      }
+
+      current = item.cause
+    }
+  }
+
   export class Service extends ServiceMap.Service<Service, Interface>()("@opencode/SessionProcessor") {}
 
   export const layer: Layer.Layer<
@@ -265,8 +287,23 @@ export namespace SessionProcessor {
               return
             }
 
-            case "error":
+            case "error": {
+              const validation = recoverableStreamValidationError(value.error)
+              if (validation) {
+                log.warn("ignored invalid stream chunk", {
+                  sessionID: ctx.sessionID,
+                  providerID: ctx.model.providerID,
+                  modelID: ctx.model.id,
+                  error: {
+                    name: validation.name,
+                    message: validation.message,
+                  },
+                  value: validation.value,
+                })
+                return
+              }
               throw value.error
+            }
 
             case "start-step":
               yield* status.set(
