@@ -1,13 +1,9 @@
 import { PlanExitTool } from "./plan"
 import { QuestionTool } from "./question"
 import { BashTool } from "./bash"
-import { ExBashTool } from "./exbash"
 import { EditTool } from "./edit"
 import { GlobTool } from "./glob"
-import { RgTool } from "./rg"
-import { ExecutorManagerTool } from "./executor_manager"
 import { BatchTool } from "./batch"
-import { ReadTool } from "./read"
 import { TaskTool } from "./task"
 import { TodoWriteTool } from "./todo"
 import { WebFetchTool } from "./webfetch"
@@ -41,6 +37,7 @@ import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
 import { Env } from "../env"
 import { Question } from "../question"
+import { getRefsTools } from "./refs-tools"
 
 export namespace ToolRegistry {
   const log = Log.create({ service: "tool.registry" })
@@ -129,16 +126,12 @@ export namespace ToolRegistry {
       const invalid = yield* build(InvalidTool)
       const ask = yield* build(QuestionTool)
       const bash = yield* build(BashTool)
-      const exbash = yield* build(ExBashTool)
       const reload = yield* build(ReloadTool)
       const workspaceMcp = yield* build(WorkspaceMcpTool)
       const workspaceTool = yield* build(WorkspaceToolTool)
       const workspaceSkill = yield* build(WorkspaceSkillTool)
       const workspaceOverview = yield* build(WorkspaceOverviewTool)
-      const read = yield* build(ReadTool)
       const glob = yield* build(GlobTool)
-      const rg = yield* build(RgTool)
-      const executor = yield* build(ExecutorManagerTool)
       const edit = yield* build(EditTool)
       const write = yield* build(WriteTool)
       const task = yield* build(TaskTool)
@@ -152,6 +145,12 @@ export namespace ToolRegistry {
       const batch = yield* build(BatchTool)
       const plan = yield* build(PlanExitTool)
 
+      // REFS-backed tools: read from MCP tools/list dynamically
+      // Replaces hand-written ReadTool, RgTool, ExBashTool, ExecutorManagerTool
+      const refsTools = getRefsTools()
+      const refsMap = new Map(refsTools.map((t) => [t.id, t]))
+      const read = refsMap.get("read")!
+
       const all = Effect.fn("ToolRegistry.all")(function* (custom: Tool.Info[]) {
         const cfg = yield* config.get()
 
@@ -159,16 +158,13 @@ export namespace ToolRegistry {
           invalid,
           ask,
           bash,
-          exbash,
+          ...refsTools, // FileAction, read, rg, exbash, executorManager
           reload,
           workspaceOverview,
           workspaceMcp,
           workspaceTool,
           workspaceSkill,
-          read,
           glob,
-          ...(cfg.experimental?.remote_executor?.enabled === false ? [] : [rg]),
-          ...(cfg.experimental?.remote_executor?.enabled === false ? [] : [executor]),
           edit,
           write,
           task,

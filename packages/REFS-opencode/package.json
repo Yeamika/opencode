@@ -1,0 +1,25 @@
+{
+  "name": "@opencode-ai/refs-opencode",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform",
+    "artifacts": "napi artifacts"
+  },
+  "napi": {
+    "name": "refs-opencode",
+    "triples": {
+      "defaults": true,
+      "additional": ["aarch64-apple-darwin", "x86_64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"]
+    }
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^2"
+  }
+}
