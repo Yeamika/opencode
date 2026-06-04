@@ -4,7 +4,7 @@ import { Project } from "../../src/project/project"
 import { Session } from "../../src/session"
 import { MessageID } from "../../src/session/schema"
 import { Instance } from "../../src/project/instance"
-import { ExecutorManagerTool } from "../../src/tool/executor_manager"
+import { ExecutorManagerTool } from "../../src/tool/refs-tools"
 import { tmpdir } from "../fixture/fixture"
 
 type Out = {

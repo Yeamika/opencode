@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test"
 import { GlobTool } from "../../src/tool/glob"
 import { GrepTool } from "../../src/tool/grep"
-import { RgTool } from "../../src/tool/rg"
+import { RgTool } from "../../src/tool/refs-tools"
 import { RemoteExecutor } from "../../src/tool/remote_executor"
 import { Instance } from "../../src/project/instance"
 import { MessageID, SessionID } from "../../src/session/schema"

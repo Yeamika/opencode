@@ -1,5 +1,5 @@
 import { BashTool } from "@/tool/bash"
-import { ExBashTool } from "@/tool/exbash"
+import { ExBashTool } from "@/tool/refs-tools"
 import type { Tool } from "@/tool/tool"
 
 type Input = Partial<Tool.InferParameters<typeof BashTool>> | Partial<Tool.InferParameters<typeof ExBashTool>>

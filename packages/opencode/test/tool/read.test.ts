@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import path from "path"
-import { ReadTool } from "../../src/tool/read"
+import { ReadTool } from "../../src/tool/refs-tools"
 import { Instance } from "../../src/project/instance"
 import { Filesystem } from "../../src/util/filesystem"
 import { tmpdir } from "../fixture/fixture"
