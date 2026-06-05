@@ -152,109 +152,25 @@ function callRefsTool(def: ToolDefinition, args: unknown, ctx: Tool.Context) {
   }).callTool(def.name, JSON.stringify(values))
 }
 
-// ─── Type stubs for Tool.InferParameters<T> ───
+type RefsToolStubParams = ReturnType<typeof z.any>
 
-const readParams = z
-  .object({
-    filePath: z.string().optional(),
-    fileKey: z.string().optional(),
-    mode: z.enum(["text", "binary"]).optional(),
-    offset: z.number().optional(),
-    limit: z.number().optional(),
-    executor: z.string().optional(),
-  })
-  .passthrough()
+function refsToolStub(sdkName: string): Tool.Info<RefsToolStubParams> {
+  return {
+    id: sdkName,
+    init: async (ctx) => {
+      const info = getRefsTool(sdkName)
+      if (!info) throw new Error(`REFS tool not available: ${sdkName}`)
+      return (await info.init(ctx)) as Tool.Def<RefsToolStubParams, Record<string, any>>
+    },
+  }
+}
 
-const fileActionParams = z
-  .object({
-    mode: z.enum(["patch", "create", "delete", "rename"]).optional(),
-    fileKey: z.string().optional(),
-    filePath: z.string().optional(),
-    newFilePath: z.string().optional(),
-    patchText: z.string().optional(),
-    content: z.string().optional(),
-    patchMode: z.enum(["text", "binary"]).optional(),
-    executor: z.string().optional(),
-    targetExecutor: z.string().optional(),
-  })
-  .passthrough()
-
-const rgParams = z
-  .object({
-    pattern: z.string().describe("Regex pattern to search for."),
-    root: z.string().optional().describe("Legacy search root alias."),
-    path: z.string().optional().describe("Specific file or directory to search."),
-    include: z.string().optional().describe("Legacy include glob alias."),
-    globs: z.array(z.string()).optional().describe("Glob filters."),
-    case_sensitive: z.boolean().optional().describe("Case-sensitive matching."),
-    max_count: z.number().int().optional().describe("Maximum number of matches to return."),
-    executor: z.string().optional().describe("Target executor id."),
-  })
-  .passthrough()
-
-const exbashParams = z
-  .object({
-    mode: z.enum(["run", "runexe", "shell", "attach", "list", "stop", "remove"]).optional(),
-    command: z.string().optional(),
-    description: z.string().optional(),
-    workdir: z.string().optional(),
-    executor: z.string().optional(),
-    timeout: z.number().optional(),
-    scope: z.enum(["local", "workspace", "remote"]).optional(),
-    read_timeout: z.number().optional(),
-    asyncID: z.string().optional(),
-    text: z.string().optional(),
-    filePath: z.string().optional(),
-    shell: z.string().optional(),
-  })
-  .passthrough()
-
-const executorManagerParams = z
-  .object({
-    mode: z.enum(["add", "reload", "reconnect", "remove", "list", "save"]).optional(),
-    method: z.enum(["list_executor", "connect_to_executor", "list_shells", "set_executor_shell"]).optional(),
-    scope: z.enum(["workspace", "user"]).optional(),
-    executor: z.string().optional(),
-    id: z.string().optional(),
-    url: z.string().optional(),
-    system: z.string().optional(),
-    device: z.string().optional(),
-    labels: z.record(z.string(), z.string()).optional(),
-    shell: z.string().optional(),
-    executors: z.array(z.any()).optional(),
-  })
-  .passthrough()
-
-/** Type-compatible stubs for code that needs Tool.InferParameters<T>. */
-export const ReadTool = Tool.define("read", {
-  description: "Read a file via REC. Supports file references and direct paths.",
-  parameters: readParams,
-  execute: async () => ({ title: "", output: "", metadata: {} as Record<string, any> }),
-})
-
-export const FileActionTool = Tool.define("FileAction", {
-  description: "Create, patch, rename, or delete a file via REC.",
-  parameters: fileActionParams,
-  execute: async () => ({ title: "", output: "", metadata: {} as Record<string, any> }),
-})
-
-export const RgTool = Tool.define("rg", {
-  description: "Ripgrep-style search powered by RemoteExecutor.",
-  parameters: rgParams,
-  execute: async () => ({ title: "", output: "", metadata: {} as Record<string, any> }),
-})
-
-export const ExBashTool = Tool.define("exbash", {
-  description: "Extended PTY command control surface backed by RemoteExecutor.",
-  parameters: exbashParams,
-  execute: async () => ({ title: "", output: "", metadata: {} as Record<string, any> }),
-})
-
-export const ExecutorManagerTool = Tool.define("RemoteExecutorManager", {
-  description: "Manage RemoteExecutor executor links for the current workspace.",
-  parameters: executorManagerParams,
-  execute: async () => ({ title: "", output: "", metadata: {} as Record<string, any> }),
-})
+/** Compatibility exports for code that refers to core REFS tools by name. */
+export const ReadTool = refsToolStub("read")
+export const FileActionTool = refsToolStub("FileAction")
+export const RgTool = refsToolStub("rg")
+export const ExBashTool = refsToolStub("exbash")
+export const ExecutorManagerTool = refsToolStub("RemoteExecutorManager")
 
 // ─── Dynamic tool creation ───
 

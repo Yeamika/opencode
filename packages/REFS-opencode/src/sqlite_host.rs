@@ -6,7 +6,7 @@ use std::sync::Mutex;
 
 use remote_executor_for_session::host::{
     ExbashSessionStore, ExbashSyncInput, ExbashWorkdirStore, HashRefSessionStore,
-    RemoteExecutorConfigStore, SessionWorkdirProvider,
+    RemoteExecutorConfigStore, SessionWorkdirProvider, EXBASH_TASK_STACK_FULL_MESSAGE,
 };
 use remote_executor_for_session::refs::{make_entry_parts, parse_hash_ref, small_hash_code};
 use remote_executor_for_session::types::{
@@ -50,6 +50,8 @@ pub struct SqliteSessionHost {
     workdir: String,
     conn: Mutex<Connection>,
 }
+
+const EXBASH_TASK_LIMIT: i64 = 10;
 
 impl SqliteSessionHost {
     pub fn new(_session_id: String, workdir: String, db_path: PathBuf) -> anyhow::Result<Self> {
@@ -296,6 +298,42 @@ fn exbash_state(time_end: Option<i64>) -> Option<String> {
 impl ExbashSessionStore for SqliteSessionHost {
     type Error = String;
 
+    async fn check_session_exbash_create(
+        &self,
+        session_id: &str,
+        input: &ExbashSyncInput,
+    ) -> Result<(), Self::Error> {
+        let executor = input.executor.as_deref().unwrap_or("local");
+        let conn = self.conn.lock().unwrap();
+        if let Some(async_id) = input.async_id.as_deref().filter(|value| !value.is_empty()) {
+            let existing: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*)
+                     FROM exbash_task
+                     WHERE session_id = ?1 AND executor = ?2 AND async_id = ?3 AND scope = 'local'",
+                    rusqlite::params![session_id, executor, async_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+            if existing > 0 {
+                return Ok(());
+            }
+        }
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM exbash_task
+                 WHERE session_id = ?1 AND scope = 'local'",
+                rusqlite::params![session_id],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        if count >= EXBASH_TASK_LIMIT {
+            return Err(EXBASH_TASK_STACK_FULL_MESSAGE.to_string());
+        }
+        Ok(())
+    }
+
     async fn session_exbash_snapshot(
         &self,
         session_id: &str,
@@ -444,6 +482,43 @@ impl ExbashSessionStore for SqliteSessionHost {
 #[async_trait]
 impl ExbashWorkdirStore for SqliteSessionHost {
     type Error = String;
+
+    async fn check_workdir_exbash_create(
+        &self,
+        _session_id: &str,
+        workdir: &str,
+        input: &ExbashSyncInput,
+    ) -> Result<(), Self::Error> {
+        let executor = input.executor.as_deref().unwrap_or("local");
+        let conn = self.conn.lock().unwrap();
+        if let Some(async_id) = input.async_id.as_deref().filter(|value| !value.is_empty()) {
+            let existing: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*)
+                     FROM exbash_task
+                     WHERE workspace = ?1 AND executor = ?2 AND async_id = ?3 AND scope = 'workspace'",
+                    rusqlite::params![workdir, executor, async_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+            if existing > 0 {
+                return Ok(());
+            }
+        }
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM exbash_task
+                 WHERE workspace = ?1 AND scope = 'workspace'",
+                rusqlite::params![workdir],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        if count >= EXBASH_TASK_LIMIT {
+            return Err(EXBASH_TASK_STACK_FULL_MESSAGE.to_string());
+        }
+        Ok(())
+    }
 
     async fn workdir_exbash_snapshot(
         &self,

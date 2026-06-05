@@ -1,7 +1,12 @@
-import { ExBashTool } from "@/tool/refs-tools"
-import type { Tool } from "@/tool/tool"
-
-type Input = Partial<Tool.InferParameters<typeof ExBashTool>>
+type Input = {
+  mode?: "run" | "shell" | "attach" | "list" | "stop" | "remove"
+  command?: string
+  description?: string
+  workdir?: string
+  asyncID?: string
+  text?: string
+  filePath?: string
+}
 
 export function shellinput(input: Input, norm: (value?: string) => string) {
   const text = (value?: string) => {
@@ -16,12 +21,12 @@ export function shellinput(input: Input, norm: (value?: string) => string) {
     return norm(value)
   }
 
-  if (input.mode === undefined || input.mode === "run" || input.mode === "runexe") {
+  if (input.mode === undefined || input.mode === "run" || input.mode === "shell") {
     return {
-      icon: input.mode === "runexe" ? "▶" : "$",
+      icon: "$",
       mode: input.mode,
       command: input.command,
-      description: input.description ?? (input.mode === "runexe" ? "Run executable" : undefined),
+      description: input.description,
       workdir: input.workdir,
     }
   }
