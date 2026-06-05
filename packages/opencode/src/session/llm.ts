@@ -25,7 +25,6 @@ const TOOLS = {
   workspaceTool: "workspaceTool",
   workspaceSkill: "workspaceSkill",
   workspaceOverview: "workspaceOverview",
-  exbash: "bash",
 } as const
 
 export namespace LLM {

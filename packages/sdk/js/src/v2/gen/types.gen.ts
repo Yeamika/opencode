@@ -1959,7 +1959,7 @@ export type ExBashTask = {
   startedAt: number
   endedAt?: number
   exitCode?: number | "stop" | "stopped" | "timeout"
-  state: "running" | "stop" | "timeout" | "unknown" | `exit:${number}`
+  state: "running" | "stop" | "timeout" | "unknown" | string
   memory?: boolean
   error?: string
 }
