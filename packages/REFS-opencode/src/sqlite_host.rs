@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -77,8 +77,17 @@ fn now_ms() -> i64 {
 #[async_trait]
 impl SessionWorkdirProvider for SqliteSessionHost {
     type Error = String;
-    async fn session_workdir(&self, _session_id: &str) -> Result<String, Self::Error> {
-        Ok(self.workdir.clone())
+    async fn session_workdir(&self, session_id: &str) -> Result<String, Self::Error> {
+        let conn = self.conn.lock().unwrap();
+        let Ok(mut stmt) = conn.prepare("SELECT directory FROM session WHERE id = ?1 LIMIT 1")
+        else {
+            return Ok(self.workdir.clone());
+        };
+        let directory = stmt
+            .query_row(rusqlite::params![session_id], |row| row.get::<_, String>(0))
+            .optional()
+            .map_err(|e| e.to_string())?;
+        Ok(directory.unwrap_or_else(|| self.workdir.clone()))
     }
 }
 

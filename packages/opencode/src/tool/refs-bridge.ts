@@ -39,7 +39,7 @@ type HandleInput = {
 }
 
 function handleKey(input: Required<HandleInput>) {
-  return `${input.dbPath}\n${input.sessionID}\n${input.workdir}`
+  return `${input.dbPath}\n${input.workdir}`
 }
 
 /**
