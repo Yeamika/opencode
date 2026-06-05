@@ -40,12 +40,12 @@ describe("tool.refs schema conversion", () => {
     expect(jsonSchema.properties.method.enum).toEqual(["list_executor", "connect_to_executor"])
 
     const parsed = parameters.parse({
-        method: "connect_to_executor",
-        timeout: null,
-        labels: { device: "remote" },
-        mode: "shell",
-        value: 8096,
-        futureField: true,
+      method: "connect_to_executor",
+      timeout: null,
+      labels: { device: "remote" },
+      mode: "shell",
+      value: 8096,
+      futureField: true,
     }) as Record<string, unknown>
     expect(parsed.futureField).toBe(true)
 

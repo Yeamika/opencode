@@ -73,12 +73,14 @@ export function jsonSchemaToZod(schema: unknown): z.ZodTypeAny {
 
   const types = Array.isArray(s.type)
     ? s.type.filter((value: unknown): value is string => typeof value === "string")
-    : typeof s.type === "string" ? [s.type] : []
+    : typeof s.type === "string"
+      ? [s.type]
+      : []
 
   if (types.length > 1) {
     return withJsonSchemaMetadata(
       s,
-      zodUnion(types.map((type) => type === "null" ? z.null() : jsonSchemaToZod({ ...s, type }))),
+      zodUnion(types.map((type) => (type === "null" ? z.null() : jsonSchemaToZod({ ...s, type })))),
     )
   }
 
@@ -106,7 +108,11 @@ export function jsonSchemaToZod(schema: unknown): z.ZodTypeAny {
     }
 
     const objectSchema = z.object(shape)
-    if (s.additionalProperties && typeof s.additionalProperties === "object" && !Array.isArray(s.additionalProperties)) {
+    if (
+      s.additionalProperties &&
+      typeof s.additionalProperties === "object" &&
+      !Array.isArray(s.additionalProperties)
+    ) {
       return withJsonSchemaMetadata(s, objectSchema.catchall(jsonSchemaToZod(s.additionalProperties)))
     }
 
@@ -148,66 +154,76 @@ function callRefsTool(def: ToolDefinition, args: unknown, ctx: Tool.Context) {
 
 // ─── Type stubs for Tool.InferParameters<T> ───
 
-const readParams = z.object({
-  filePath: z.string().optional(),
-  fileKey: z.string().optional(),
-  mode: z.enum(["text", "binary"]).optional(),
-  offset: z.number().optional(),
-  limit: z.number().optional(),
-  executor: z.string().optional(),
-}).passthrough()
+const readParams = z
+  .object({
+    filePath: z.string().optional(),
+    fileKey: z.string().optional(),
+    mode: z.enum(["text", "binary"]).optional(),
+    offset: z.number().optional(),
+    limit: z.number().optional(),
+    executor: z.string().optional(),
+  })
+  .passthrough()
 
-const fileActionParams = z.object({
-  mode: z.enum(["patch", "create", "delete", "rename"]).optional(),
-  fileKey: z.string().optional(),
-  filePath: z.string().optional(),
-  newFilePath: z.string().optional(),
-  patchText: z.string().optional(),
-  content: z.string().optional(),
-  patchMode: z.enum(["text", "binary"]).optional(),
-  executor: z.string().optional(),
-  targetExecutor: z.string().optional(),
-}).passthrough()
+const fileActionParams = z
+  .object({
+    mode: z.enum(["patch", "create", "delete", "rename"]).optional(),
+    fileKey: z.string().optional(),
+    filePath: z.string().optional(),
+    newFilePath: z.string().optional(),
+    patchText: z.string().optional(),
+    content: z.string().optional(),
+    patchMode: z.enum(["text", "binary"]).optional(),
+    executor: z.string().optional(),
+    targetExecutor: z.string().optional(),
+  })
+  .passthrough()
 
-const rgParams = z.object({
-  pattern: z.string().describe("Regex pattern to search for."),
-  root: z.string().optional().describe("Legacy search root alias."),
-  path: z.string().optional().describe("Specific file or directory to search."),
-  include: z.string().optional().describe("Legacy include glob alias."),
-  globs: z.array(z.string()).optional().describe("Glob filters."),
-  case_sensitive: z.boolean().optional().describe("Case-sensitive matching."),
-  max_count: z.number().int().optional().describe("Maximum number of matches to return."),
-  executor: z.string().optional().describe("Target executor id."),
-}).passthrough()
+const rgParams = z
+  .object({
+    pattern: z.string().describe("Regex pattern to search for."),
+    root: z.string().optional().describe("Legacy search root alias."),
+    path: z.string().optional().describe("Specific file or directory to search."),
+    include: z.string().optional().describe("Legacy include glob alias."),
+    globs: z.array(z.string()).optional().describe("Glob filters."),
+    case_sensitive: z.boolean().optional().describe("Case-sensitive matching."),
+    max_count: z.number().int().optional().describe("Maximum number of matches to return."),
+    executor: z.string().optional().describe("Target executor id."),
+  })
+  .passthrough()
 
-const exbashParams = z.object({
-  mode: z.enum(["run", "runexe", "shell", "attach", "list", "stop", "remove"]).optional(),
-  command: z.string().optional(),
-  description: z.string().optional(),
-  workdir: z.string().optional(),
-  executor: z.string().optional(),
-  timeout: z.number().optional(),
-  scope: z.enum(["local", "workspace", "remote"]).optional(),
-  read_timeout: z.number().optional(),
-  asyncID: z.string().optional(),
-  text: z.string().optional(),
-  filePath: z.string().optional(),
-  shell: z.string().optional(),
-}).passthrough()
+const exbashParams = z
+  .object({
+    mode: z.enum(["run", "runexe", "shell", "attach", "list", "stop", "remove"]).optional(),
+    command: z.string().optional(),
+    description: z.string().optional(),
+    workdir: z.string().optional(),
+    executor: z.string().optional(),
+    timeout: z.number().optional(),
+    scope: z.enum(["local", "workspace", "remote"]).optional(),
+    read_timeout: z.number().optional(),
+    asyncID: z.string().optional(),
+    text: z.string().optional(),
+    filePath: z.string().optional(),
+    shell: z.string().optional(),
+  })
+  .passthrough()
 
-const executorManagerParams = z.object({
-  mode: z.enum(["add", "reload", "reconnect", "remove", "list", "save"]).optional(),
-  method: z.enum(["list_executor", "connect_to_executor", "list_shells", "set_executor_shell"]).optional(),
-  scope: z.enum(["workspace", "user"]).optional(),
-  executor: z.string().optional(),
-  id: z.string().optional(),
-  url: z.string().optional(),
-  system: z.string().optional(),
-  device: z.string().optional(),
-  labels: z.record(z.string(), z.string()).optional(),
-  shell: z.string().optional(),
-  executors: z.array(z.any()).optional(),
-}).passthrough()
+const executorManagerParams = z
+  .object({
+    mode: z.enum(["add", "reload", "reconnect", "remove", "list", "save"]).optional(),
+    method: z.enum(["list_executor", "connect_to_executor", "list_shells", "set_executor_shell"]).optional(),
+    scope: z.enum(["workspace", "user"]).optional(),
+    executor: z.string().optional(),
+    id: z.string().optional(),
+    url: z.string().optional(),
+    system: z.string().optional(),
+    device: z.string().optional(),
+    labels: z.record(z.string(), z.string()).optional(),
+    shell: z.string().optional(),
+    executors: z.array(z.any()).optional(),
+  })
+  .passthrough()
 
 /** Type-compatible stubs for code that needs Tool.InferParameters<T>. */
 export const ReadTool = Tool.define("read", {
@@ -292,9 +308,7 @@ function createReadTool(def: ToolDefinition): Tool.Info {
         const isHashRef = /\s+#[0-9a-fA-F]{4}$/.test(target)
 
         const resolvedPath =
-          local && !isHashRef
-            ? path.isAbsolute(target) ? target : path.resolve(Instance.directory, target)
-            : target
+          local && !isHashRef ? (path.isAbsolute(target) ? target : path.resolve(Instance.directory, target)) : target
 
         if (local && !isHashRef) {
           await assertExternalDirectory(ctx, resolvedPath, {
@@ -318,7 +332,13 @@ function createReadTool(def: ToolDefinition): Tool.Info {
                 title: path.relative(Instance.worktree, resolvedPath),
                 output: msg,
                 metadata: { preview: msg, truncated: false, loaded: instructions.map((i) => i.filepath) },
-                attachments: [{ type: "file" as const, mime, url: `data:${mime};base64,${Buffer.from(await Filesystem.readBytes(resolvedPath)).toString("base64")}` }],
+                attachments: [
+                  {
+                    type: "file" as const,
+                    mime,
+                    url: `data:${mime};base64,${Buffer.from(await Filesystem.readBytes(resolvedPath)).toString("base64")}`,
+                  },
+                ],
               }
             }
           }

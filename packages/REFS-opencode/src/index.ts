@@ -54,11 +54,7 @@ function getAddon(): any {
 /**
  * Create a session MCP handler backed by OpenCode's SQLite database.
  */
-export function createSessionMcp(
-  dbPath: string,
-  sessionId: string,
-  workdir: string,
-): SessionMcpHandle {
+export function createSessionMcp(dbPath: string, sessionId: string, workdir: string): SessionMcpHandle {
   return getAddon().createSessionMcp(dbPath, sessionId, workdir)
 }
 

@@ -239,29 +239,6 @@ export type EventSessionCompacted = {
   }
 }
 
-export type EventExbashUpdated = {
-  type: "exbash.updated"
-  properties: {
-    sessionID: string
-    workspace: string
-  }
-}
-
-export type EventFileEdited = {
-  type: "file.edited"
-  properties: {
-    file: string
-  }
-}
-
-export type EventFileWatcherUpdated = {
-  type: "file.watcher.updated"
-  properties: {
-    file: string
-    event: "add" | "change" | "unlink"
-  }
-}
-
 export type Todo = {
   /**
    * Brief description of the task
@@ -523,6 +500,21 @@ export type EventSessionError = {
   }
 }
 
+export type EventFileEdited = {
+  type: "file.edited"
+  properties: {
+    file: string
+  }
+}
+
+export type EventFileWatcherUpdated = {
+  type: "file.watcher.updated"
+  properties: {
+    file: string
+    event: "add" | "change" | "unlink"
+  }
+}
+
 export type EventVcsBranchUpdated = {
   type: "vcs.branch.updated"
   properties: {
@@ -541,6 +533,14 @@ export type EventWorkspaceFailed = {
   type: "workspace.failed"
   properties: {
     message: string
+  }
+}
+
+export type EventExbashUpdated = {
+  type: "exbash.updated"
+  properties: {
+    sessionID: string
+    workspace: string
   }
 }
 
@@ -1061,9 +1061,6 @@ export type Event =
   | EventQuestionReplied
   | EventQuestionRejected
   | EventSessionCompacted
-  | EventExbashUpdated
-  | EventFileEdited
-  | EventFileWatcherUpdated
   | EventTodoUpdated
   | EventProjectReloadUpdated
   | EventTuiPromptAppend
@@ -1077,9 +1074,12 @@ export type Event =
   | EventCommandExecuted
   | EventSessionDiff
   | EventSessionError
+  | EventFileEdited
+  | EventFileWatcherUpdated
   | EventVcsBranchUpdated
   | EventWorkspaceReady
   | EventWorkspaceFailed
+  | EventExbashUpdated
   | EventPtyCreated
   | EventPtyUpdated
   | EventPtyExited
@@ -1542,7 +1542,7 @@ export type Config = {
     ignore?: Array<string>
   }
   /**
-   * Enable or disable snapshot tracking. When false, filesystem snapshots are not recorded and undoing or reverting will not undo/redo file changes. Defaults to true.
+   * Enable snapshot tracking. Disabled by default; set to true to record filesystem snapshots for undo/revert when VCS is enabled.
    */
   snapshot?: boolean
   plugin?: Array<
@@ -1705,30 +1705,6 @@ export type Config = {
      * Timeout in milliseconds for model context protocol (MCP) requests
      */
     mcp_timeout?: number
-    remote_executor?: {
-      /**
-       * Enable the private RemoteExecutor MCP backend. Defaults to true.
-       */
-      enabled?: boolean
-      /**
-       * Command and arguments used to start remote-caller-mcp
-       */
-      command?: Array<string>
-      /**
-       * Working directory used to start remote-caller-mcp
-       */
-      cwd?: string
-      /**
-       * Environment variables for remote-caller-mcp
-       */
-      environment?: {
-        [key: string]: string
-      }
-      /**
-       * Timeout in milliseconds for RemoteExecutor MCP calls
-       */
-      timeout?: number
-    }
     exbash?: {
       executors?: {
         /**

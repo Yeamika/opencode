@@ -124,26 +124,31 @@ export async function enabled(): Promise<boolean> {
 
 /**
  */
-export async function list(dir?: string, sessionID?: string): Promise<{ executors: ExecutorListItem[]; default?: string }> {
+export async function list(
+  dir?: string,
+  sessionID?: string,
+): Promise<{ executors: ExecutorListItem[]; default?: string }> {
   const mcp = getHandle({ workdir: dir, sessionID })
   const parsed = JSON.parse(mcp.listExecutorsJson()) as { executors?: unknown; default?: unknown }
   const defaultExecutor = typeof parsed.default === "string" ? parsed.default : undefined
   const executors = Array.isArray(parsed.executors)
     ? parsed.executors.flatMap((item) => {
-      if (!item || typeof item !== "object" || Array.isArray(item)) return []
-      const record = item as Record<string, unknown>
-      if (typeof record.id !== "string") return []
-      return [{
-        id: record.id,
-        ...(record.system === undefined || typeof record.system !== "string" ? {} : { system: record.system }),
-        ...(record.device === undefined || typeof record.device !== "string" ? {} : { device: record.device }),
-        ...(record.url === undefined || typeof record.url !== "string" ? {} : { url: record.url }),
-        ...(record.labels && typeof record.labels === "object" && !Array.isArray(record.labels)
-          ? { labels: record.labels as Record<string, string> }
-          : {}),
-        ...(record.id === defaultExecutor ? { default: true } : {}),
-      } satisfies ExecutorListItem]
-    })
+        if (!item || typeof item !== "object" || Array.isArray(item)) return []
+        const record = item as Record<string, unknown>
+        if (typeof record.id !== "string") return []
+        return [
+          {
+            id: record.id,
+            ...(record.system === undefined || typeof record.system !== "string" ? {} : { system: record.system }),
+            ...(record.device === undefined || typeof record.device !== "string" ? {} : { device: record.device }),
+            ...(record.url === undefined || typeof record.url !== "string" ? {} : { url: record.url }),
+            ...(record.labels && typeof record.labels === "object" && !Array.isArray(record.labels)
+              ? { labels: record.labels as Record<string, string> }
+              : {}),
+            ...(record.id === defaultExecutor ? { default: true } : {}),
+          } satisfies ExecutorListItem,
+        ]
+      })
     : []
   return { executors, ...(defaultExecutor ? { default: defaultExecutor } : {}) }
 }

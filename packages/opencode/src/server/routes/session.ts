@@ -273,15 +273,19 @@ export const SessionRoutes = lazy(() =>
         if (!task) throw new Error(`Async run not found: ${param.asyncID}`)
         if (!task.memory) throw new Error(`Async run snapshot unavailable: ${param.asyncID}`)
         if (task.state === "unknown") throw new Error(`Async run state unknown: ${param.asyncID}`)
-        const result = await RefsBridge.call("exbash", {
-          mode: "attach",
-          asyncID: param.asyncID,
-          ...(exec === "local" ? { workdir: session.directory } : { executor: exec }),
-          read_timeout: 0,
-        }, {
-          sessionID: param.sessionID,
-          workdir: session.directory,
-        })
+        const result = await RefsBridge.call(
+          "exbash",
+          {
+            mode: "attach",
+            asyncID: param.asyncID,
+            ...(exec === "local" ? { workdir: session.directory } : { executor: exec }),
+            read_timeout: 0,
+          },
+          {
+            sessionID: param.sessionID,
+            workdir: session.directory,
+          },
+        )
         const list = await RefsBridge.list(session.directory, param.sessionID)
         const hit = list.executors.find((item) => item.id === exec)
         const url = typeof hit?.url === "string" ? hit.url : undefined

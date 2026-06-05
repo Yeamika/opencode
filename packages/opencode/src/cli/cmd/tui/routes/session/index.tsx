@@ -2113,9 +2113,7 @@ function ExBash(props: ToolProps<typeof ExBashTool>) {
           }
         >
           <box gap={1}>
-            <text fg={theme.text}>
-              $ {command()}
-            </text>
+            <text fg={theme.text}>$ {command()}</text>
             <Show when={output() && !overflow()}>
               <text fg={theme.text}>{output()}</text>
             </Show>
@@ -2174,11 +2172,7 @@ function Read(props: ToolProps<typeof ReadTool>) {
           </InlineTool>
         }
       >
-        <BlockTool
-          title={`# Read binary ${normalizePath(target())}`}
-          part={props.part}
-          suffix={executor(props.input)}
-        >
+        <BlockTool title={`# Read binary ${normalizePath(target())}`} part={props.part} suffix={executor(props.input)}>
           <text fg={theme.text}>{preview()}</text>
         </BlockTool>
       </Show>

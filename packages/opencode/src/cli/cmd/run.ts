@@ -159,7 +159,9 @@ function fileAction(info: ToolProps<typeof FileActionTool>) {
     from,
     to ? `-> ${to}` : undefined,
     info.input.executor && info.input.executor !== "local" ? `on ${info.input.executor}` : undefined,
-  ].filter(Boolean).join(" ")
+  ]
+    .filter(Boolean)
+    .join(" ")
   block(
     {
       icon: "←",
@@ -370,7 +372,7 @@ export const RunCommand = cmd({
       return result.data?.id
     }
 
-      async function execute(sdk: OpencodeClient) {
+    async function execute(sdk: OpencodeClient) {
       function tool(part: ToolPart) {
         try {
           if (part.tool === "rg") return rg(props<typeof RgTool>(part))
