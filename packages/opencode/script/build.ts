@@ -177,10 +177,25 @@ const targets = singleFlag
 
 type Target = (typeof allTargets)[number]
 
+const targetFilter = process.env.OPENCODE_BUILD_TARGETS
+  ? new Set(process.env.OPENCODE_BUILD_TARGETS.split(",").map((item) => item.trim()).filter(Boolean))
+  : undefined
+
+const buildTargets = targetFilter
+  ? targets.filter((item) => {
+      const key = `${item.os}-${item.arch}${item.abi ? `-${item.abi}` : ""}${item.avx2 === false ? "-baseline" : ""}`
+      return targetFilter.has(key)
+    })
+  : targets
+
 const recRoot = process.env.OPENCODE_REMOTE_EXECUTOR_DIST
   ? path.resolve(process.env.OPENCODE_REMOTE_EXECUTOR_DIST)
   : undefined
 const recRequired = process.env.OPENCODE_REMOTE_EXECUTOR_REQUIRED === "1"
+const refsRoot = process.env.OPENCODE_REFS_OPENCODE_DIST
+  ? path.resolve(process.env.OPENCODE_REFS_OPENCODE_DIST)
+  : path.resolve(dir, ".refs-opencode")
+const refsRequired = process.env.OPENCODE_REFS_OPENCODE_REQUIRED === "1"
 
 function recPackage(item: Target) {
   if (item.os === "linux") {
@@ -216,6 +231,38 @@ async function bundleRec(item: Target, bin: string) {
   }
 }
 
+function refsBinding(item: Target) {
+  if (item.os === "win32" && item.arch === "x64") return "refs-opencode.win32-x64-msvc.node"
+  if (item.os === "win32" && item.arch === "arm64") return "refs-opencode.win32-arm64-msvc.node"
+  if (item.os === "linux" && item.arch === "x64") {
+    return item.abi === "musl" ? "refs-opencode.linux-x64-musl.node" : "refs-opencode.linux-x64-gnu.node"
+  }
+  if (item.os === "linux" && item.arch === "arm64") {
+    return item.abi === "musl" ? "refs-opencode.linux-arm64-musl.node" : "refs-opencode.linux-arm64-gnu.node"
+  }
+  if (item.os === "darwin") return `refs-opencode.darwin-${item.arch}.node`
+}
+
+async function bundleRefs(item: Target, bin: string) {
+  const filename = refsBinding(item)
+  if (!filename) return
+  const direct = path.join(refsRoot, filename)
+  const src: string | undefined = fs.existsSync(direct)
+    ? direct
+    : Array.from(new Bun.Glob(`**/${filename}`).scanSync({ cwd: refsRoot }))
+        .map((file) => path.join(refsRoot, file))
+        .find((file) => fs.existsSync(file))
+  if (!src) {
+    const msg = `REFS-opencode native addon ${filename} not found in ${refsRoot}`
+    if (refsRequired) throw new Error(msg)
+    console.warn(msg)
+    return
+  }
+  const dest = path.join(bin, filename)
+  await fs.promises.copyFile(src, dest)
+  console.log(`bundled REFS-opencode ${filename}: ${dest}`)
+}
+
 await $`rm -rf dist`
 
 const binaries: Record<string, string> = {}
@@ -223,7 +270,7 @@ if (!skipInstall) {
   await $`bun install --os="*" --cpu="*" @opentui/core@${pkg.dependencies["@opentui/core"]}`
   await $`bun install --os="*" --cpu="*" @parcel/watcher@${pkg.dependencies["@parcel/watcher"]}`
 }
-for (const item of targets) {
+for (const item of buildTargets) {
   const name = [
     pkg.name,
     // changing to win32 flags npm for some reason
@@ -275,6 +322,7 @@ for (const item of targets) {
   })
 
   await bundleRec(item, `dist/${name}/bin`)
+  await bundleRefs(item, `dist/${name}/bin`)
 
   // Smoke test: only run if binary is for current platform
   if (item.os === process.platform && item.arch === process.arch && !item.abi) {

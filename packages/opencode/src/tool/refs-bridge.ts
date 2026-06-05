@@ -10,10 +10,10 @@
  */
 
 import type { SessionMcpHandle, ToolCallResult } from "./refs-opencode"
-// @ts-ignore - native addon loaded at runtime
-import { createSessionMcp } from "@opencode-ai/refs-opencode"
 import { Database } from "@/storage/db"
 import { Instance } from "@/project/instance"
+import { existsSync } from "fs"
+import { dirname, join } from "path"
 
 type Result = {
   title: string
@@ -31,6 +31,8 @@ export type ExecutorListItem = {
 }
 
 const handles = new Map<string, SessionMcpHandle>()
+type RefsAddon = { createSessionMcp(dbPath: string, sessionID: string, workdir: string): SessionMcpHandle }
+let addon: RefsAddon | undefined
 
 type HandleInput = {
   dbPath?: string
@@ -42,6 +44,38 @@ function handleKey(input: Required<HandleInput>) {
   return `${input.dbPath}\n${input.workdir}`
 }
 
+function linuxBinding() {
+  if (process.platform !== "linux") return
+  const report = process.report?.getReport?.() as { header?: { glibcVersionRuntime?: string } } | undefined
+  const isMusl = !report?.header?.glibcVersionRuntime
+  if (process.arch === "x64") return isMusl ? "refs-opencode.linux-x64-musl.node" : "refs-opencode.linux-x64-gnu.node"
+  if (process.arch === "arm64") return isMusl ? "refs-opencode.linux-arm64-musl.node" : "refs-opencode.linux-arm64-gnu.node"
+}
+
+function bindingName() {
+  if (process.platform === "linux") return linuxBinding()
+  if (process.platform === "win32" && process.arch === "x64") return "refs-opencode.win32-x64-msvc.node"
+  if (process.platform === "win32" && process.arch === "arm64") return "refs-opencode.win32-arm64-msvc.node"
+  if (process.platform === "darwin" && process.arch === "x64") return "refs-opencode.darwin-x64.node"
+  if (process.platform === "darwin" && process.arch === "arm64") return "refs-opencode.darwin-arm64.node"
+}
+
+function loadAddon(): RefsAddon {
+  if (addon) return addon
+  const filename = bindingName()
+  if (!filename) throw new Error(`REFS-opencode native addon is not available for ${process.platform}-${process.arch}.`)
+  const candidates = [
+    process.execPath ? join(dirname(process.execPath), filename) : undefined,
+    join(process.cwd(), filename),
+  ].filter((item): item is string => !!item)
+  for (const file of candidates) {
+    if (!existsSync(file)) continue
+    addon = require(file) as RefsAddon
+    return addon
+  }
+  throw new Error(`REFS-opencode native addon ${filename} not found next to the opencode binary.`)
+}
+
 /**
  * Initialize the REFS MCP handle. Call once at startup.
  * Reads the same SQLite database that OpenCode uses.
@@ -51,7 +85,7 @@ export function init(dbPath?: string, sessionID?: string, workdir?: string): Ses
   const sid = sessionID ?? "default"
   const dir = workdir ?? Instance.directory
   const key = handleKey({ dbPath: db, sessionID: sid, workdir: dir })
-  const handle = createSessionMcp(db, sid, dir)
+  const handle = loadAddon().createSessionMcp(db, sid, dir)
   handles.set(key, handle)
   return handle
 }

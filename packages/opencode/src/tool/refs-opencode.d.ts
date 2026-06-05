@@ -1,6 +1,6 @@
 /**
- * Type declarations for @opencode-ai/refs-opencode native addon.
- * The actual module is a napi-rs native addon loaded at runtime.
+ * Type declarations for the REFS-opencode native addon ABI.
+ * The .node file is built by packages/REFS-opencode and loaded at runtime.
  */
 
 export interface ToolDefinition {
