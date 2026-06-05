@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::runtime::{Builder, Runtime};
 
+use remote_executor::SettingsStore;
 use remote_executor_for_session::jsonrpc::JsonRpcEndpoint;
 use remote_executor_for_session::mcp::{
     create_session_mcp_with_manager, EmbeddedMcp, SessionMcpHandler,
@@ -13,7 +14,6 @@ use remote_executor_for_session::mcp::{
 use remote_executor_for_session::rec::{
     manager_handle, new_manager, Caller, ExecutorRequest, ShellManager, ToolContext,
 };
-use remote_executor::SettingsStore;
 
 mod sqlite_host;
 use sqlite_host::SqliteSessionHost;
@@ -33,7 +33,9 @@ impl SessionMcpHandle {
     /// Returns JSON: `{ "tools": [ { "name": "...", "description": "...", "inputSchema": {...} } ] }`
     #[napi]
     pub fn list_tools(&self) -> napi::Result<String> {
-        let resp = self.runtime.block_on(self.ep.handle_value(serde_json::json!({
+        let resp = self
+            .runtime
+            .block_on(self.ep.handle_value(serde_json::json!({
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "tools/list"
@@ -48,7 +50,9 @@ impl SessionMcpHandle {
     pub fn call_tool(&self, name: String, arguments: String) -> napi::Result<String> {
         let args: Value =
             serde_json::from_str(&arguments).unwrap_or_else(|_| serde_json::json!({}));
-        let resp = self.runtime.block_on(self.ep.handle_value(serde_json::json!({
+        let resp = self
+            .runtime
+            .block_on(self.ep.handle_value(serde_json::json!({
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "tools/call",
@@ -56,21 +60,18 @@ impl SessionMcpHandle {
                     "name": name,
                     "arguments": args
                 }
-            }))
-        );
+            })));
         serde_json::to_string_pretty(&resp).map_err(|e| napi::Error::from_reason(e.to_string()))
     }
 
     /// Call an MCP tool and return only the content[0].text (the model-visible output).
     #[napi]
-    pub fn call_tool_text(
-        &self,
-        name: String,
-        arguments: String,
-    ) -> napi::Result<String> {
+    pub fn call_tool_text(&self, name: String, arguments: String) -> napi::Result<String> {
         let args: Value =
             serde_json::from_str(&arguments).unwrap_or_else(|_| serde_json::json!({}));
-        let resp = self.runtime.block_on(self.ep.handle_value(serde_json::json!({
+        let resp = self
+            .runtime
+            .block_on(self.ep.handle_value(serde_json::json!({
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "tools/call",
@@ -78,8 +79,7 @@ impl SessionMcpHandle {
                     "name": name,
                     "arguments": args
                 }
-            }))
-        );
+            })));
         let text = resp
             .pointer("/result/content/0/text")
             .and_then(|v| v.as_str())
@@ -118,8 +118,7 @@ impl SessionMcpHandle {
             .and_then(|result| result.get("metadata"))
             .cloned()
             .unwrap_or_else(|| serde_json::json!({ "executors": [] }));
-        serde_json::to_string_pretty(&metadata)
-            .map_err(|e| napi::Error::from_reason(e.to_string()))
+        serde_json::to_string_pretty(&metadata).map_err(|e| napi::Error::from_reason(e.to_string()))
     }
 
     /// Handle a raw JSON-RPC request (supports batch).

@@ -106,8 +106,7 @@ impl HashRefSessionStore for SqliteSessionHost {
         session_id: &str,
         target: &str,
     ) -> Result<FileRefEntry, Self::Error> {
-        let parsed =
-            parse_hash_ref(target).ok_or_else(|| format!("invalid hashRef: {target}"))?;
+        let parsed = parse_hash_ref(target).ok_or_else(|| format!("invalid hashRef: {target}"))?;
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn
             .prepare(
@@ -230,13 +229,7 @@ impl HashRefSessionStore for SqliteSessionHost {
             "UPDATE session_file_read
              SET hash_code = ?1, small_hash_code = ?2, read_time = ?3
              WHERE session_id = ?4 AND file_key_ref = ?5",
-            rusqlite::params![
-                hash_code,
-                new_small,
-                read_time,
-                session_id,
-                file_key_ref
-            ],
+            rusqlite::params![hash_code, new_small, read_time, session_id, file_key_ref],
         )
         .map_err(|e| e.to_string())?;
 
@@ -270,11 +263,12 @@ fn exbash_row_to_snapshot(row: &rusqlite::Row) -> rusqlite::Result<ExbashTaskSna
     let executor: String = row.get(1)?;
     let session_id: String = row.get(2)?;
     let _scope: String = row.get(3)?;
-    let state: Option<String> = row.get(4)?;
+    let _state: Option<String> = row.get(4)?;
     let exit_code_str: Option<String> = row.get(5)?;
-    let exit_code: Option<i32> = exit_code_str.and_then(|s| s.parse().ok());
     let time_start: i64 = row.get(6)?;
     let time_end: Option<i64> = row.get(7)?;
+    let state = exbash_state(time_end, exit_code_str.as_deref());
+    let exit_code: Option<i32> = exit_code_str.as_deref().and_then(|s| s.parse().ok());
     let command: String = row.get(8)?;
     let description: String = row.get(9)?;
     let workspace: String = row.get(10)?;
@@ -295,12 +289,57 @@ fn exbash_row_to_snapshot(row: &rusqlite::Row) -> rusqlite::Result<ExbashTaskSna
     })
 }
 
-fn exbash_state(time_end: Option<i64>) -> Option<String> {
-    if time_end.is_some() {
-        Some("stopped".into())
-    } else {
-        Some("running".into())
+fn exbash_state(time_end: Option<i64>, exit_code: Option<&str>) -> Option<String> {
+    if time_end.is_none() {
+        return Some("running".into());
     }
+    let Some(value) = exit_code.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Some("unknown".into());
+    };
+    match value {
+        "timeout" => Some("timeout".into()),
+        "stop" | "stopped" => Some("stop".into()),
+        other => other
+            .parse::<i32>()
+            .map(|code| format!("exit:{code}"))
+            .ok()
+            .or_else(|| Some("unknown".into())),
+    }
+}
+
+fn exbash_exit_storage(input: &ExbashSyncInput) -> Option<String> {
+    if let Some(code) = input.exit_code {
+        return Some(code.to_string());
+    }
+    let state = input.state.as_deref()?.trim();
+    match state {
+        "timeout" => Some("timeout".into()),
+        "stop" | "stopped" => Some("stop".into()),
+        value if value.starts_with("exit:") => value
+            .trim_start_matches("exit:")
+            .parse::<i32>()
+            .map(|code| code.to_string())
+            .ok(),
+        _ => None,
+    }
+}
+
+fn exbash_exit_storage_is_terminal(exit_code: Option<&str>) -> bool {
+    exit_code
+        .map(|value| {
+            let value = value.trim();
+            value == "timeout"
+                || value == "stop"
+                || value == "stopped"
+                || value.parse::<i32>().is_ok()
+        })
+        .unwrap_or(false)
+}
+
+fn exbash_time_end(input: &ExbashSyncInput, exit_code: Option<&str>) -> Option<i64> {
+    input
+        .ended_at
+        .or_else(|| exbash_exit_storage_is_terminal(exit_code).then(now_ms))
 }
 
 #[async_trait]
@@ -353,7 +392,7 @@ impl ExbashSessionStore for SqliteSessionHost {
         let result = conn
             .prepare(
                 "SELECT async_id, executor, session_id, scope,
-                        CASE WHEN time_end IS NULL THEN 'running' ELSE 'stopped' END as state,
+                        NULL as state,
                         exit_code, time_start, time_end, command, description, workspace
                  FROM exbash_task
                  WHERE session_id = ?1 AND async_id = ?2 AND executor = ?3 AND scope = 'local'",
@@ -383,13 +422,10 @@ impl ExbashSessionStore for SqliteSessionHost {
         let async_id = input.async_id.clone().unwrap_or_default();
         let executor = input.executor.clone().unwrap_or_else(|| "local".into());
         let command = input.command.clone().unwrap_or_default();
-        let description = input
-            .description
-            .clone()
-            .unwrap_or_else(|| command.clone());
+        let description = input.description.clone().unwrap_or_else(|| command.clone());
         let time_start = input.started_at.unwrap_or_else(now_ms);
-        let time_end = input.ended_at;
-        let exit_code = input.exit_code.map(|c| c.to_string());
+        let exit_code = exbash_exit_storage(&input);
+        let time_end = exbash_time_end(&input, exit_code.as_deref());
         let ts = now_ms();
 
         let conn = self.conn.lock().unwrap();
@@ -422,7 +458,7 @@ impl ExbashSessionStore for SqliteSessionHost {
             executor,
             session_id: Some(session_id),
             workdir: Some(workdir),
-            state: exbash_state(time_end),
+            state: exbash_state(time_end, exit_code.as_deref()),
             pid: input.pid,
             exit_code: input.exit_code,
             started_at: Some(time_start),
@@ -441,14 +477,14 @@ impl ExbashSessionStore for SqliteSessionHost {
         let conn = self.conn.lock().unwrap();
         let sql = if executor.is_some() {
             "SELECT async_id, executor, session_id, scope,
-                    CASE WHEN time_end IS NULL THEN 'running' ELSE 'stopped' END as state,
+                    NULL as state,
                     exit_code, time_start, time_end, command, description, workspace
              FROM exbash_task
              WHERE session_id = ?1 AND executor = ?2 AND scope = 'local'
              ORDER BY time_start ASC"
         } else {
             "SELECT async_id, executor, session_id, scope,
-                    CASE WHEN time_end IS NULL THEN 'running' ELSE 'stopped' END as state,
+                    NULL as state,
                     exit_code, time_start, time_end, command, description, workspace
              FROM exbash_task
              WHERE session_id = ?1 AND scope = 'local'
@@ -456,9 +492,12 @@ impl ExbashSessionStore for SqliteSessionHost {
         };
         let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
         let rows = if let Some(executor) = executor {
-            stmt.query_map(rusqlite::params![session_id, executor], exbash_row_to_snapshot)
-                .map_err(|e| e.to_string())?
-                .collect::<Result<Vec<_>, _>>()
+            stmt.query_map(
+                rusqlite::params![session_id, executor],
+                exbash_row_to_snapshot,
+            )
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
         } else {
             stmt.query_map(rusqlite::params![session_id], exbash_row_to_snapshot)
                 .map_err(|e| e.to_string())?
@@ -540,7 +579,7 @@ impl ExbashWorkdirStore for SqliteSessionHost {
         let result = conn
             .prepare(
                 "SELECT async_id, executor, session_id, scope,
-                        CASE WHEN time_end IS NULL THEN 'running' ELSE 'stopped' END as state,
+                        NULL as state,
                         exit_code, time_start, time_end, command, description, workspace
                  FROM exbash_task
                  WHERE workspace = ?1 AND async_id = ?2 AND executor = ?3 AND scope = 'workspace'",
@@ -563,13 +602,10 @@ impl ExbashWorkdirStore for SqliteSessionHost {
         let async_id = input.async_id.clone().unwrap_or_default();
         let executor = input.executor.clone().unwrap_or_else(|| "local".into());
         let command = input.command.clone().unwrap_or_default();
-        let description = input
-            .description
-            .clone()
-            .unwrap_or_else(|| command.clone());
+        let description = input.description.clone().unwrap_or_else(|| command.clone());
         let time_start = input.started_at.unwrap_or_else(now_ms);
-        let time_end = input.ended_at;
-        let exit_code = input.exit_code.map(|c| c.to_string());
+        let exit_code = exbash_exit_storage(&input);
+        let time_end = exbash_time_end(&input, exit_code.as_deref());
         let session_id = input
             .session_id
             .clone()
@@ -612,7 +648,7 @@ impl ExbashWorkdirStore for SqliteSessionHost {
             executor,
             session_id: Some(session_id),
             workdir: Some(workdir.to_string()),
-            state: exbash_state(time_end),
+            state: exbash_state(time_end, exit_code.as_deref()),
             pid: input.pid,
             exit_code: input.exit_code,
             started_at: Some(time_start),
@@ -632,14 +668,14 @@ impl ExbashWorkdirStore for SqliteSessionHost {
         let conn = self.conn.lock().unwrap();
         let sql = if executor.is_some() {
             "SELECT async_id, executor, session_id, scope,
-                    CASE WHEN time_end IS NULL THEN 'running' ELSE 'stopped' END as state,
+                    NULL as state,
                     exit_code, time_start, time_end, command, description, workspace
              FROM exbash_task
              WHERE workspace = ?1 AND executor = ?2 AND scope = 'workspace'
              ORDER BY time_start ASC"
         } else {
             "SELECT async_id, executor, session_id, scope,
-                    CASE WHEN time_end IS NULL THEN 'running' ELSE 'stopped' END as state,
+                    NULL as state,
                     exit_code, time_start, time_end, command, description, workspace
              FROM exbash_task
              WHERE workspace = ?1 AND scope = 'workspace'

@@ -334,8 +334,8 @@ export type TuiSidebarBashTaskItem = {
   totalOutput?: number
   startedAt: number
   endedAt?: number
-  exitCode?: number | "stopped" | "timeout"
-  state: "running" | "stopped" | "unknown"
+  exitCode?: number | "stop" | "stopped" | "timeout"
+  state: "running" | "stop" | "timeout" | "unknown" | `exit:${number}`
   memory?: boolean
   error?: string
 }

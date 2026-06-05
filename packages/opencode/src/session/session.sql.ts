@@ -10,7 +10,7 @@ import { Timestamps } from "../storage/schema.sql"
 
 type PartData = Omit<MessageV2.Part, "id" | "sessionID" | "messageID">
 type InfoData = Omit<MessageV2.Info, "id" | "sessionID">
-type ExBashExitCode = number | "stopped" | "timeout"
+type ExBashExitCode = number | "stop" | "stopped" | "timeout"
 
 export const SessionTable = sqliteTable(
   "session",

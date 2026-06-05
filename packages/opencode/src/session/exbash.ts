@@ -10,9 +10,12 @@ import { SessionID } from "./schema"
 export namespace ExBashTask {
   export const Scope = z.enum(["local", "workspace"])
   export type Scope = z.infer<typeof Scope>
-  export const State = z.enum(["running", "stopped", "unknown"])
+  export const State = z.union([
+    z.enum(["running", "stop", "timeout", "unknown"]),
+    z.string().regex(/^exit:-?\d+$/),
+  ])
   export type State = z.infer<typeof State>
-  export const ExitCode = z.union([z.number(), z.enum(["stopped", "timeout"])])
+  export const ExitCode = z.union([z.number(), z.enum(["stop", "stopped", "timeout"])])
   export type ExitCode = z.infer<typeof ExitCode>
 
   export const Info = z
@@ -114,13 +117,47 @@ export namespace ExBashTask {
 
       const note = (sessionID: SessionID, workspace: string) => bus.publish(Event.Updated, { sessionID, workspace })
 
-      const state = (r: typeof ExBashTaskTable.$inferSelect) => (r.time_end === null ? "unknown" : "stopped") as State
-
       const exit = (value: unknown) => {
         if (typeof value === "string" && /^-?\d+$/.test(value)) return Number(value)
+        if (value === "stopped") return "stop"
         const result = ExitCode.safeParse(value)
         return result.success ? result.data : undefined
       }
+
+      const state = (r: typeof ExBashTaskTable.$inferSelect): State => {
+        if (r.time_end === null) return "running"
+        const code = exit(r.exit_code)
+        if (typeof code === "number") return `exit:${code}`
+        if (code === "timeout") return "timeout"
+        if (code === "stop" || code === "stopped") return "stop"
+        return "unknown"
+      }
+
+      const stateFromExit = (code: ExitCode): State => {
+        if (typeof code === "number") return `exit:${code}`
+        if (code === "timeout") return "timeout"
+        return "stop"
+      }
+
+      const exitStorage = (code: ExitCode) => (code === "stopped" ? "stop" : code)
+
+      const isLocalStaleRunning = (r: typeof ExBashTaskTable.$inferSelect) =>
+        r.executor === "local" && r.time_end === null
+
+      const removeRow = (r: typeof ExBashTaskTable.$inferSelect) =>
+        Database.use((db) =>
+          db
+            .delete(ExBashTaskTable)
+            .where(
+              and(
+                eq(ExBashTaskTable.session_id, r.session_id),
+                eq(ExBashTaskTable.workspace, r.workspace),
+                eq(ExBashTaskTable.executor, r.executor),
+                eq(ExBashTaskTable.async_id, r.async_id),
+              ),
+            )
+            .run(),
+        )
 
       const row = (r: typeof ExBashTaskTable.$inferSelect): Entry => ({
         asyncID: r.async_id,
@@ -179,8 +216,17 @@ export namespace ExBashTask {
                 .all(),
             ),
           )
-          rows.map(row).forEach(mark)
+          let cleaned = false
+          rows.forEach((r) => {
+            if (isLocalStaleRunning(r)) {
+              removeRow(r)
+              cleaned = true
+              return
+            }
+            mark(row(r))
+          })
           sid.add(input.sessionID)
+          if (cleaned) yield* note(input.sessionID, input.workspace)
         }
         if (!wid.has(input.workspace)) {
           const rows = yield* Effect.sync(() =>
@@ -193,8 +239,17 @@ export namespace ExBashTask {
                 .all(),
             ),
           )
-          rows.map(row).forEach(mark)
+          let cleaned = false
+          rows.forEach((r) => {
+            if (isLocalStaleRunning(r)) {
+              removeRow(r)
+              cleaned = true
+              return
+            }
+            mark(row(r))
+          })
           wid.add(input.workspace)
+          if (cleaned) yield* note(input.sessionID, input.workspace)
         }
       })
 
@@ -261,8 +316,8 @@ export namespace ExBashTask {
         if (!prev) return undefined
         const task = {
           ...prev,
-          state: "stopped" as const,
-          exitCode: input.exitCode,
+          state: stateFromExit(input.exitCode),
+          exitCode: exit(input.exitCode),
           endedAt: prev.endedAt ?? input.endedAt,
           ...(input.totalOutput === undefined ? {} : { totalOutput: input.totalOutput }),
           ...(input.error ? { error: input.error } : {}),
@@ -272,7 +327,7 @@ export namespace ExBashTask {
           Database.use((db) =>
             db
               .update(ExBashTaskTable)
-              .set({ time_end: task.endedAt, exit_code: input.exitCode as never })
+              .set({ time_end: task.endedAt, exit_code: exitStorage(input.exitCode) as never })
               .where(
                 and(
                   eq(ExBashTaskTable.async_id, input.asyncID),
