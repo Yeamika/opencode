@@ -6,25 +6,18 @@ import { cmd } from "./cmd"
 import { bootstrap } from "../bootstrap"
 import { EOL } from "os"
 import { Filesystem } from "../../util/filesystem"
-import { createOpencodeClient, type Message, type OpencodeClient, type ToolPart } from "@opencode-ai/sdk/v2"
+import { createOpencodeClient, type OpencodeClient, type ToolPart } from "@opencode-ai/sdk/v2"
 import { Server } from "../../server/server"
 import { Provider } from "../../provider/provider"
 import { Agent } from "../../agent/agent"
 import { Permission } from "../../permission"
 import { Tool } from "../../tool/tool"
-import { GlobTool } from "../../tool/glob"
-import { GrepTool } from "../../tool/grep"
-import { RgTool } from "../../tool/refs-tools"
-import { ListTool } from "../../tool/ls"
-import { ReadTool } from "../../tool/refs-tools"
+import { ExecutorManagerTool, ExBashTool, FileActionTool, ReadTool, RgTool } from "../../tool/refs-tools"
 import { WebFetchTool } from "../../tool/webfetch"
-import { EditTool } from "../../tool/edit"
-import { WriteTool } from "../../tool/write"
 import { CodeSearchTool } from "../../tool/codesearch"
 import { WebSearchTool } from "../../tool/websearch"
 import { TaskTool } from "../../tool/task"
 import { SkillTool } from "../../tool/skill"
-import { BashTool } from "../../tool/bash"
 import { TodoWriteTool } from "../../tool/todo"
 import { Locale } from "../../util/locale"
 
@@ -74,34 +67,6 @@ function fallback(part: ToolPart) {
   })
 }
 
-function glob(info: ToolProps<typeof GlobTool>) {
-  const root = info.input.path ?? ""
-  const title = `Glob "${info.input.pattern}"`
-  const suffix = root ? `in ${normalizePath(root)}` : ""
-  const num = info.metadata.count
-  const description =
-    num === undefined ? suffix : `${suffix}${suffix ? " · " : ""}${num} ${num === 1 ? "match" : "matches"}`
-  inline({
-    icon: "✱",
-    title,
-    ...(description && { description }),
-  })
-}
-
-function grep(info: ToolProps<typeof GrepTool>) {
-  const root = info.input.path ?? ""
-  const title = `Grep "${info.input.pattern}"`
-  const suffix = root ? `in ${normalizePath(root)}` : ""
-  const num = info.metadata.matches
-  const description =
-    num === undefined ? suffix : `${suffix}${suffix ? " · " : ""}${num} ${num === 1 ? "match" : "matches"}`
-  inline({
-    icon: "✱",
-    title,
-    ...(description && { description }),
-  })
-}
-
 function rg(info: ToolProps<typeof RgTool>) {
   const root = info.input.path ?? info.input.root ?? ""
   const title = `Ripgrep "${info.input.pattern}"`
@@ -116,18 +81,11 @@ function rg(info: ToolProps<typeof RgTool>) {
   })
 }
 
-function list(info: ToolProps<typeof ListTool>) {
-  const dir = info.input.path ? normalizePath(info.input.path) : ""
-  inline({
-    icon: "→",
-    title: dir ? `List ${dir}` : "List",
-  })
-}
-
 function read(info: ToolProps<typeof ReadTool>) {
-  const file = normalizePath(info.input.filePath)
+  const target = info.input.filePath ?? info.input.fileKey ?? ""
+  const file = normalizePath(target)
   const pairs = Object.entries(info.input).filter(([key, value]) => {
-    if (key === "filePath") return false
+    if (key === "filePath" || key === "fileKey") return false
     return typeof value === "string" || typeof value === "number" || typeof value === "boolean"
   })
   const description = pairs.length ? `[${pairs.map(([key, value]) => `${key}=${value}`).join(", ")}]` : undefined
@@ -138,33 +96,11 @@ function read(info: ToolProps<typeof ReadTool>) {
   })
 }
 
-function write(info: ToolProps<typeof WriteTool>) {
-  block(
-    {
-      icon: "←",
-      title: `Write ${normalizePath(info.input.filePath)}`,
-    },
-    info.part.state.status === "completed" ? info.part.state.output : undefined,
-  )
-}
-
 function webfetch(info: ToolProps<typeof WebFetchTool>) {
   inline({
     icon: "%",
     title: `WebFetch ${info.input.url}`,
   })
-}
-
-function edit(info: ToolProps<typeof EditTool>) {
-  const title = normalizePath(info.input.filePath)
-  const diff = info.metadata.diff
-  block(
-    {
-      icon: "←",
-      title: `Edit ${title}`,
-    },
-    diff,
-  )
 }
 
 function codesearch(info: ToolProps<typeof CodeSearchTool>) {
@@ -205,17 +141,6 @@ function skill(info: ToolProps<typeof SkillTool>) {
   })
 }
 
-function bash(info: ToolProps<typeof BashTool>) {
-  const output = info.part.state.status === "completed" ? info.part.state.output?.trim() : undefined
-  block(
-    {
-      icon: "$",
-      title: `${info.input.command}`,
-    },
-    output,
-  )
-}
-
 function todo(info: ToolProps<typeof TodoWriteTool>) {
   block(
     {
@@ -224,6 +149,48 @@ function todo(info: ToolProps<typeof TodoWriteTool>) {
     },
     info.input.todos.map((item) => `${item.status === "completed" ? "[x]" : "[ ]"} ${item.content}`).join("\n"),
   )
+}
+
+function fileAction(info: ToolProps<typeof FileActionTool>) {
+  const mode = info.input.mode ?? "action"
+  const from = normalizePath(info.input.fileKey ?? info.input.filePath)
+  const to = normalizePath(info.input.newFilePath)
+  const suffix = [
+    from,
+    to ? `-> ${to}` : undefined,
+    info.input.executor && info.input.executor !== "local" ? `on ${info.input.executor}` : undefined,
+  ].filter(Boolean).join(" ")
+  block(
+    {
+      icon: "←",
+      title: `FileAction ${mode}${suffix ? ` ${suffix}` : ""}`,
+    },
+    info.part.state.status === "completed" ? info.part.state.output : undefined,
+  )
+}
+
+function exbash(info: ToolProps<typeof ExBashTool>) {
+  const mode = info.input.mode ?? "shell"
+  const subject = info.input.command ?? info.input.asyncID ?? mode
+  const executor = info.input.executor && info.input.executor !== "local" ? `on ${info.input.executor}` : undefined
+  const output = info.part.state.status === "completed" ? info.part.state.output?.trim() : undefined
+  block(
+    {
+      icon: "$",
+      title: `exbash ${mode}${subject ? ` ${subject}` : ""}`,
+      ...(executor && { description: executor }),
+    },
+    output,
+  )
+}
+
+function executorManager(info: ToolProps<typeof ExecutorManagerTool>) {
+  const method = info.input.method ?? info.input.mode ?? "manager"
+  const target = info.input.id ?? info.input.executor ?? info.input.url ?? ""
+  inline({
+    icon: "→",
+    title: `RemoteExecutorManager ${method}${target ? ` ${target}` : ""}`,
+  })
 }
 
 function normalizePath(input?: string) {
@@ -403,23 +370,20 @@ export const RunCommand = cmd({
       return result.data?.id
     }
 
-    async function execute(sdk: OpencodeClient) {
+      async function execute(sdk: OpencodeClient) {
       function tool(part: ToolPart) {
         try {
-          if (part.tool === "bash") return bash(props<typeof BashTool>(part))
-          if (part.tool === "glob") return glob(props<typeof GlobTool>(part))
-          if (part.tool === "grep") return grep(props<typeof GrepTool>(part))
           if (part.tool === "rg") return rg(props<typeof RgTool>(part))
-          if (part.tool === "list") return list(props<typeof ListTool>(part))
           if (part.tool === "read") return read(props<typeof ReadTool>(part))
-          if (part.tool === "write") return write(props<typeof WriteTool>(part))
           if (part.tool === "webfetch") return webfetch(props<typeof WebFetchTool>(part))
-          if (part.tool === "edit") return edit(props<typeof EditTool>(part))
           if (part.tool === "codesearch") return codesearch(props<typeof CodeSearchTool>(part))
           if (part.tool === "websearch") return websearch(props<typeof WebSearchTool>(part))
           if (part.tool === "task") return task(props<typeof TaskTool>(part))
           if (part.tool === "todowrite") return todo(props<typeof TodoWriteTool>(part))
           if (part.tool === "skill") return skill(props<typeof SkillTool>(part))
+          if (part.tool === "FileAction") return fileAction(props<typeof FileActionTool>(part))
+          if (part.tool === "exbash") return exbash(props<typeof ExBashTool>(part))
+          if (part.tool === "RemoteExecutorManager") return executorManager(props<typeof ExecutorManagerTool>(part))
           return fallback(part)
         } catch {
           return fallback(part)

@@ -8,13 +8,14 @@ description = "napi-rs bindings for RemoteExecutorForSession SDK, integrated wit
 crate-type = ["cdylib"]
 
 [dependencies]
-remote_executor_for_session = { path = "../../../RemoteExecutorForSession" }
-remote_executor = { git = "https://github.com/Yeamika/RemoteExecutor.git", tag = "v0.2.0" }
+remote_executor_for_session = { git = "https://github.com/Yeamika/RemoteExecutorForSession.git", branch = "main" }
+remote_executor = { git = "https://github.com/Yeamika/RemoteExecutor.git", branch = "main" }
 napi = { version = "2", features = ["async", "napi8", "serde-json"] }
 napi-derive = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
+async-trait = "0.1"
 tokio = { version = "1", features = ["sync", "rt-multi-thread"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
 

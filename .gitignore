@@ -9,6 +9,7 @@ node_modules
 *~
 playground
 tmp
+.tmp/
 dist
 ts-dist
 .turbo
@@ -29,3 +30,8 @@ UPCOMING_CHANGELOG.md
 logs/
 *.bun-build
 tsconfig.tsbuildinfo
+
+# REFS-opencode native build outputs
+packages/REFS-opencode/index.js
+packages/REFS-opencode/index.d.ts
+packages/REFS-opencode/*.node

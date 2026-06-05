@@ -927,7 +927,7 @@ export namespace Config {
         .boolean()
         .optional()
         .describe(
-          "Enable or disable snapshot tracking. When false, filesystem snapshots are not recorded and undoing or reverting will not undo/redo file changes. Defaults to true.",
+          "Enable snapshot tracking. Disabled by default; set to true to record filesystem snapshots for undo/revert when VCS is enabled.",
         ),
       plugin: PluginSpec.array().optional(),
       share: z
@@ -1085,31 +1085,6 @@ export namespace Config {
             .positive()
             .optional()
             .describe("Timeout in milliseconds for model context protocol (MCP) requests"),
-          remote_executor: z
-            .object({
-              enabled: z
-                .boolean()
-                .optional()
-                .describe("Enable the private RemoteExecutor MCP backend. Defaults to true."),
-              command: z
-                .array(z.string())
-                .min(1)
-                .optional()
-                .describe("Command and arguments used to start remote-caller-mcp"),
-              cwd: z.string().optional().describe("Working directory used to start remote-caller-mcp"),
-              environment: z
-                .record(z.string(), z.string())
-                .optional()
-                .describe("Environment variables for remote-caller-mcp"),
-              timeout: z
-                .number()
-                .int()
-                .positive()
-                .optional()
-                .describe("Timeout in milliseconds for RemoteExecutor MCP calls"),
-            })
-            .strict()
-            .optional(),
           exbash: z
             .object({
               executors: z

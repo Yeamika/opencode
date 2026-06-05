@@ -495,7 +495,7 @@ describe("acp.agent event subscription", () => {
     })
   })
 
-  test("streams running bash output snapshots and de-dupes identical snapshots", async () => {
+  test("streams running exbash output snapshots and de-dupes identical snapshots", async () => {
     await using tmp = await tmpdir()
     await Instance.provide({
       directory: tmp.path,
@@ -509,7 +509,7 @@ describe("acp.agent event subscription", () => {
           controller.push(
             toolEvent(sessionId, cwd, {
               callID: "call_1",
-              tool: "bash",
+              tool: "exbash",
               status: "running",
               input,
               metadata: { output },
@@ -541,7 +541,7 @@ describe("acp.agent event subscription", () => {
         controller.push(
           toolEvent(sessionId, cwd, {
             callID: "call_bash",
-            tool: "bash",
+            tool: "exbash",
             status: "running",
             input: { command: "echo hi", description: "run command" },
             metadata: { output: "hi\n" },
@@ -595,7 +595,7 @@ describe("acp.agent event subscription", () => {
                 {
                   type: "tool",
                   callID: "call_1",
-                  tool: "bash",
+                  tool: "exbash",
                   state: {
                     status: "running",
                     input,
@@ -612,7 +612,7 @@ describe("acp.agent event subscription", () => {
         controller.push(
           toolEvent(sessionId, cwd, {
             callID: "call_1",
-            tool: "bash",
+            tool: "exbash",
             status: "running",
             input,
             metadata: { output: "hi\nthere\n" },
@@ -633,7 +633,7 @@ describe("acp.agent event subscription", () => {
     })
   })
 
-  test("clears bash snapshot marker on pending state", async () => {
+  test("clears exbash snapshot marker on pending state", async () => {
     await using tmp = await tmpdir()
     await Instance.provide({
       directory: tmp.path,
@@ -646,7 +646,7 @@ describe("acp.agent event subscription", () => {
         controller.push(
           toolEvent(sessionId, cwd, {
             callID: "call_1",
-            tool: "bash",
+            tool: "exbash",
             status: "running",
             input,
             metadata: { output: "a" },
@@ -655,7 +655,7 @@ describe("acp.agent event subscription", () => {
         controller.push(
           toolEvent(sessionId, cwd, {
             callID: "call_1",
-            tool: "bash",
+            tool: "exbash",
             status: "pending",
             input,
             raw: '{"command":"echo hello"}',
@@ -664,7 +664,7 @@ describe("acp.agent event subscription", () => {
         controller.push(
           toolEvent(sessionId, cwd, {
             callID: "call_1",
-            tool: "bash",
+            tool: "exbash",
             status: "running",
             input,
             metadata: { output: "a" },

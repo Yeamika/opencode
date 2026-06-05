@@ -1,13 +1,9 @@
 import { PlanExitTool } from "./plan"
 import { QuestionTool } from "./question"
-import { BashTool } from "./bash"
-import { EditTool } from "./edit"
-import { GlobTool } from "./glob"
 import { BatchTool } from "./batch"
 import { TaskTool } from "./task"
 import { TodoWriteTool } from "./todo"
 import { WebFetchTool } from "./webfetch"
-import { WriteTool } from "./write"
 import { InvalidTool } from "./invalid"
 import { SkillTool } from "./skill"
 import type { Agent } from "../agent/agent"
@@ -24,7 +20,6 @@ import { Flag } from "@/flag/flag"
 import { Log } from "@/util/log"
 import { LspTool } from "./lsp"
 import { Truncate } from "./truncate"
-import { ApplyPatchTool } from "./apply_patch"
 import { ReloadTool } from "./reload"
 import { WorkspaceMcpTool } from "./workspace_mcp"
 import { WorkspaceToolTool } from "./workspace_tool"
@@ -35,9 +30,8 @@ import { pathToFileURL } from "url"
 import { Effect, Layer, ServiceMap } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
-import { Env } from "../env"
-import { Question } from "../question"
 import { getRefsTools } from "./refs-tools"
+import { Question } from "../question"
 
 export namespace ToolRegistry {
   const log = Log.create({ service: "tool.registry" })
@@ -125,55 +119,44 @@ export namespace ToolRegistry {
 
       const invalid = yield* build(InvalidTool)
       const ask = yield* build(QuestionTool)
-      const bash = yield* build(BashTool)
       const reload = yield* build(ReloadTool)
       const workspaceMcp = yield* build(WorkspaceMcpTool)
       const workspaceTool = yield* build(WorkspaceToolTool)
       const workspaceSkill = yield* build(WorkspaceSkillTool)
       const workspaceOverview = yield* build(WorkspaceOverviewTool)
-      const glob = yield* build(GlobTool)
-      const edit = yield* build(EditTool)
-      const write = yield* build(WriteTool)
       const task = yield* build(TaskTool)
       const fetch = yield* build(WebFetchTool)
       const todo = yield* build(TodoWriteTool)
       const search = yield* build(WebSearchTool)
       const code = yield* build(CodeSearchTool)
       const skill = yield* build(SkillTool)
-      const patch = yield* build(ApplyPatchTool)
       const lsp = yield* build(LspTool)
       const batch = yield* build(BatchTool)
       const plan = yield* build(PlanExitTool)
 
       // REFS-backed tools: read from MCP tools/list dynamically
-      // Replaces hand-written ReadTool, RgTool, ExBashTool, ExecutorManagerTool
+      // Replaces the old built-in tool IDs with MCP-defined REFS tools.
       const refsTools = getRefsTools()
       const refsMap = new Map(refsTools.map((t) => [t.id, t]))
       const read = refsMap.get("read")!
 
       const all = Effect.fn("ToolRegistry.all")(function* (custom: Tool.Info[]) {
         const cfg = yield* config.get()
-
         return [
           invalid,
           ask,
-          bash,
-          ...refsTools, // FileAction, read, rg, exbash, executorManager
+          ...refsTools,
           reload,
           workspaceOverview,
           workspaceMcp,
           workspaceTool,
           workspaceSkill,
-          glob,
-          edit,
-          write,
           task,
           fetch,
           todo,
           search,
           code,
           skill,
-          patch,
           ...(Flag.OPENCODE_EXPERIMENTAL_LSP_TOOL ? [lsp] : []),
           ...(cfg.experimental?.batch_tool === true ? [batch] : []),
           ...(Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE && Flag.OPENCODE_CLIENT === "cli" ? [plan] : []),
@@ -194,18 +177,9 @@ export namespace ToolRegistry {
         const s = yield* InstanceState.get(state)
         const allTools = yield* all(s.custom)
         const filtered = allTools.filter((tool) => {
-          if (tool.id === "bash") return false
-
           if (tool.id === "codesearch" || tool.id === "websearch") {
             return model.providerID === ProviderID.opencode || Flag.OPENCODE_ENABLE_EXA
           }
-
-          const usePatch =
-            !!Env.get("OPENCODE_E2E_LLM_URL") ||
-            (model.modelID.includes("gpt-") && !model.modelID.includes("oss") && !model.modelID.includes("gpt-4"))
-          if (tool.id === "apply_patch") return usePatch
-          if (tool.id === "edit" || tool.id === "write") return !usePatch
-
           return true
         })
         return yield* Effect.forEach(

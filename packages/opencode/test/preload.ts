@@ -41,8 +41,8 @@ delete process.env["OPENCODE_CONFIG_CONTENT"]
 delete process.env["OPENCODE_CONFIG_DIR"]
 delete process.env["OPENCODE_TUI_CONFIG"]
 delete process.env["OPENCODE_DISABLE_PROJECT_CONFIG"]
-delete process.env["OPENCODE_DISABLE_VCS"]
 delete process.env["OPENCODE_FAKE_VCS"]
+delete process.env["OPENCODE_DISABLE_VCS"]
 
 // Set test home directory to isolate tests from user's actual home directory
 // This prevents tests from picking up real user configs/skills from ~/.claude/skills

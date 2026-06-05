@@ -1,8 +1,7 @@
-import { BashTool } from "@/tool/bash"
 import { ExBashTool } from "@/tool/refs-tools"
 import type { Tool } from "@/tool/tool"
 
-type Input = Partial<Tool.InferParameters<typeof BashTool>> | Partial<Tool.InferParameters<typeof ExBashTool>>
+type Input = Partial<Tool.InferParameters<typeof ExBashTool>>
 
 export function shellinput(input: Input, norm: (value?: string) => string) {
   const text = (value?: string) => {
@@ -15,16 +14,6 @@ export function shellinput(input: Input, norm: (value?: string) => string) {
   const file = (value?: string) => {
     if (!value?.trim()) return
     return norm(value)
-  }
-
-  if (!("mode" in input)) {
-    return {
-      icon: "$",
-      mode: undefined,
-      command: (input as Partial<Tool.InferParameters<typeof BashTool>>).command,
-      description: (input as Partial<Tool.InferParameters<typeof BashTool>>).description,
-      workdir: (input as Partial<Tool.InferParameters<typeof BashTool>>).workdir,
-    }
   }
 
   if (input.mode === undefined || input.mode === "run" || input.mode === "runexe") {

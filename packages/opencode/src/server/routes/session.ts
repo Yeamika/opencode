@@ -14,7 +14,7 @@ import { SessionStatus } from "@/session/status"
 import { SessionSummary } from "@/session/summary"
 import { Todo } from "../../session/todo"
 import { ExBashTask } from "@/session/exbash"
-import { RemoteExecutor } from "@/tool/remote_executor"
+import * as RefsBridge from "@/tool/refs-bridge"
 import { Agent } from "../../agent/agent"
 import { Snapshot } from "@/snapshot"
 import { Log } from "../../util/log"
@@ -273,21 +273,22 @@ export const SessionRoutes = lazy(() =>
         if (!task) throw new Error(`Async run not found: ${param.asyncID}`)
         if (!task.memory) throw new Error(`Async run snapshot unavailable: ${param.asyncID}`)
         if (task.state === "unknown") throw new Error(`Async run state unknown: ${param.asyncID}`)
-        const result = await RemoteExecutor.call("exbash_attach", {
+        const result = await RefsBridge.call("exbash", {
+          mode: "attach",
           asyncID: param.asyncID,
-          ...(exec === "local" ? { directory: session.directory } : { executor: exec }),
+          ...(exec === "local" ? { workdir: session.directory } : { executor: exec }),
           read_timeout: 0,
+        }, {
+          sessionID: param.sessionID,
+          workdir: session.directory,
         })
-        const list = await RemoteExecutor.call("list_executor", {}, { signal: c.req.raw.signal })
-        const hit = (Array.isArray(list.metadata.executors) ? list.metadata.executors : []).find((item) => {
-          if (!item || typeof item !== "object" || Array.isArray(item)) return false
-          return (item as { id?: unknown }).id === exec
-        }) as { url?: unknown } | undefined
+        const list = await RefsBridge.list(session.directory, param.sessionID)
+        const hit = list.executors.find((item) => item.id === exec)
         const url = typeof hit?.url === "string" ? hit.url : undefined
         return c.json({
           snapshot: result.output,
           ...(url === undefined ? {} : { attachurl: `ptyt --url ${url} --pty ${param.asyncID}` }),
-          metadata: result.metadata,
+          metadata: {},
         })
       },
     )

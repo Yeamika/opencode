@@ -138,7 +138,7 @@ export namespace ACP {
     private sessionManager: ACPSessionManager
     private eventAbort = new AbortController()
     private eventStarted = false
-    private bashSnapshots = new Map<string, string>()
+    private exbashSnapshots = new Map<string, string>()
     private toolStarts = new Set<string>()
     private permissionQueues = new Map<string, Promise<void>>()
     private permissionOptions: PermissionOption[] = [
@@ -230,7 +230,7 @@ export namespace ACP {
                 return
               }
 
-              if (res.outcome.optionId !== "reject" && permission.permission == "edit") {
+              if (res.outcome.optionId !== "reject" && permission.permission == "FileAction") {
                 const metadata = permission.metadata || {}
                 const filepath = typeof metadata["filepath"] === "string" ? metadata["filepath"] : ""
                 const diff = typeof metadata["diff"] === "string" ? metadata["diff"] : ""
@@ -277,16 +277,16 @@ export namespace ACP {
 
             switch (part.state.status) {
               case "pending":
-                this.bashSnapshots.delete(part.callID)
+                this.exbashSnapshots.delete(part.callID)
                 return
 
               case "running":
-                const output = this.bashOutput(part)
+                const output = this.exbashOutput(part)
                 const content: ToolCallContent[] = []
                 if (output) {
                   const hash = Hash.fast(output)
-                  if (part.tool === "bash") {
-                    if (this.bashSnapshots.get(part.callID) === hash) {
+                  if (part.tool === "exbash") {
+                    if (this.exbashSnapshots.get(part.callID) === hash) {
                       await this.connection
                         .sessionUpdate({
                           sessionId,
@@ -305,7 +305,7 @@ export namespace ACP {
                         })
                       return
                     }
-                    this.bashSnapshots.set(part.callID, hash)
+                    this.exbashSnapshots.set(part.callID, hash)
                   }
                   content.push({
                     type: "content",
@@ -336,7 +336,7 @@ export namespace ACP {
 
               case "completed": {
                 this.toolStarts.delete(part.callID)
-                this.bashSnapshots.delete(part.callID)
+                this.exbashSnapshots.delete(part.callID)
                 const kind = toToolKind(part.tool)
                 const content: ToolCallContent[] = [
                   {
@@ -417,7 +417,7 @@ export namespace ACP {
               }
               case "error":
                 this.toolStarts.delete(part.callID)
-                this.bashSnapshots.delete(part.callID)
+                this.exbashSnapshots.delete(part.callID)
                 await this.connection
                   .sessionUpdate({
                     sessionId,
@@ -832,10 +832,10 @@ export namespace ACP {
           await this.toolStart(sessionId, part)
           switch (part.state.status) {
             case "pending":
-              this.bashSnapshots.delete(part.callID)
+              this.exbashSnapshots.delete(part.callID)
               break
             case "running":
-              const output = this.bashOutput(part)
+              const output = this.exbashOutput(part)
               const runningContent: ToolCallContent[] = []
               if (output) {
                 runningContent.push({
@@ -866,7 +866,7 @@ export namespace ACP {
               break
             case "completed":
               this.toolStarts.delete(part.callID)
-              this.bashSnapshots.delete(part.callID)
+              this.exbashSnapshots.delete(part.callID)
               const kind = toToolKind(part.tool)
               const content: ToolCallContent[] = [
                 {
@@ -946,7 +946,7 @@ export namespace ACP {
               break
             case "error":
               this.toolStarts.delete(part.callID)
-              this.bashSnapshots.delete(part.callID)
+              this.exbashSnapshots.delete(part.callID)
               await this.connection
                 .sessionUpdate({
                   sessionId,
@@ -1100,8 +1100,8 @@ export namespace ACP {
       }
     }
 
-    private bashOutput(part: ToolPart) {
-      if (part.tool !== "bash") return
+    private exbashOutput(part: ToolPart) {
+      if (part.tool !== "exbash") return
       if (!("metadata" in part.state) || !part.state.metadata || typeof part.state.metadata !== "object") return
       const output = part.state.metadata["output"]
       if (typeof output !== "string") return
@@ -1503,23 +1503,19 @@ export namespace ACP {
   function toToolKind(toolName: string): ToolKind {
     const tool = toolName.toLocaleLowerCase()
     switch (tool) {
-      case "bash":
+      case "exbash":
         return "execute"
       case "webfetch":
         return "fetch"
 
-      case "edit":
-      case "patch":
-      case "write":
+      case "fileaction":
         return "edit"
 
-      case "grep":
-      case "glob":
+      case "rg":
       case "context7_resolve_library_id":
       case "context7_get_library_docs":
         return "search"
 
-      case "list":
       case "read":
         return "read"
 
@@ -1532,16 +1528,12 @@ export namespace ACP {
     const tool = toolName.toLocaleLowerCase()
     switch (tool) {
       case "read":
-      case "edit":
-      case "write":
-        return input["filePath"] ? [{ path: input["filePath"] }] : []
-      case "glob":
-      case "grep":
-        return input["path"] ? [{ path: input["path"] }] : []
-      case "bash":
+      case "fileaction":
+        return (input["filePath"] ?? input["fileKey"]) ? [{ path: input["filePath"] ?? input["fileKey"] }] : []
+      case "rg":
+        return (input["path"] ?? input["root"]) ? [{ path: input["path"] ?? input["root"] }] : []
+      case "exbash":
         return []
-      case "list":
-        return input["path"] ? [{ path: input["path"] }] : []
       default:
         return []
     }

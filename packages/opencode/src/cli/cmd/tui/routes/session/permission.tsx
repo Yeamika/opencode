@@ -211,12 +211,12 @@ export function PermissionPrompt(props: { request: PermissionRequest }) {
             const permission = props.request.permission
             const data = input()
 
-            if (permission === "edit") {
+            if (permission === "FileAction") {
               const raw = props.request.metadata?.filepath
               const filepath = typeof raw === "string" ? raw : ""
               return {
                 icon: "→",
-                title: `Edit ${normalizePath(filepath)}`,
+                title: `FileAction ${normalizePath(filepath)}`,
                 body: <EditBody request={props.request} />,
               }
             }
@@ -237,11 +237,11 @@ export function PermissionPrompt(props: { request: PermissionRequest }) {
               }
             }
 
-            if (permission === "glob") {
+            if (permission === "rg") {
               const pattern = typeof data.pattern === "string" ? data.pattern : ""
               return {
                 icon: "✱",
-                title: `Glob "${pattern}"`,
+                title: `Rg "${pattern}"`,
                 body: (
                   <Show when={pattern}>
                     <box paddingLeft={1}>
@@ -252,38 +252,7 @@ export function PermissionPrompt(props: { request: PermissionRequest }) {
               }
             }
 
-            if (permission === "grep") {
-              const pattern = typeof data.pattern === "string" ? data.pattern : ""
-              return {
-                icon: "✱",
-                title: `Grep "${pattern}"`,
-                body: (
-                  <Show when={pattern}>
-                    <box paddingLeft={1}>
-                      <text fg={theme.textMuted}>{"Pattern: " + pattern}</text>
-                    </box>
-                  </Show>
-                ),
-              }
-            }
-
-            if (permission === "list") {
-              const raw = data.path
-              const dir = typeof raw === "string" ? raw : ""
-              return {
-                icon: "→",
-                title: `List ${normalizePath(dir)}`,
-                body: (
-                  <Show when={dir}>
-                    <box paddingLeft={1}>
-                      <text fg={theme.textMuted}>{"Path: " + normalizePath(dir)}</text>
-                    </box>
-                  </Show>
-                ),
-              }
-            }
-
-            if (permission === "bash") {
+            if (permission === "exbash") {
               const title =
                 typeof data.description === "string" && data.description ? data.description : "Shell command"
               const command = typeof data.command === "string" ? data.command : ""

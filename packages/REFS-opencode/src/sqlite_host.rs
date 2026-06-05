@@ -6,7 +6,7 @@ use std::sync::Mutex;
 
 use remote_executor_for_session::host::{
     ExbashSessionStore, ExbashSyncInput, ExbashWorkdirStore, HashRefSessionStore,
-    RemoteExecutorConfigStore, SessionHost, SessionWorkdirProvider,
+    RemoteExecutorConfigStore, SessionWorkdirProvider,
 };
 use remote_executor_for_session::refs::{make_entry_parts, parse_hash_ref, small_hash_code};
 use remote_executor_for_session::types::{
@@ -47,18 +47,16 @@ use remote_executor_for_session::types::{
 /// )
 /// ```
 pub struct SqliteSessionHost {
-    session_id: String,
     workdir: String,
     conn: Mutex<Connection>,
 }
 
 impl SqliteSessionHost {
-    pub fn new(session_id: String, workdir: String, db_path: PathBuf) -> anyhow::Result<Self> {
+    pub fn new(_session_id: String, workdir: String, db_path: PathBuf) -> anyhow::Result<Self> {
         let conn =
             Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)?;
         conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;")?;
         Ok(Self {
-            session_id,
             workdir,
             conn: Mutex::new(conn),
         })
@@ -77,7 +75,7 @@ fn now_ms() -> i64 {
 #[async_trait]
 impl SessionWorkdirProvider for SqliteSessionHost {
     type Error = String;
-    async fn session_workdir(&self) -> Result<String, Self::Error> {
+    async fn session_workdir(&self, _session_id: &str) -> Result<String, Self::Error> {
         Ok(self.workdir.clone())
     }
 }
@@ -88,15 +86,15 @@ impl SessionWorkdirProvider for SqliteSessionHost {
 impl HashRefSessionStore for SqliteSessionHost {
     type Error = String;
 
-    fn session_id(&self) -> &str {
-        &self.session_id
-    }
-
     fn is_hash_ref(&self, target: &str) -> bool {
         parse_hash_ref(target).is_some()
     }
 
-    async fn resolve_hash_ref(&self, target: &str) -> Result<FileRefEntry, Self::Error> {
+    async fn resolve_hash_ref(
+        &self,
+        session_id: &str,
+        target: &str,
+    ) -> Result<FileRefEntry, Self::Error> {
         let parsed =
             parse_hash_ref(target).ok_or_else(|| format!("invalid hashRef: {target}"))?;
         let conn = self.conn.lock().unwrap();
@@ -104,12 +102,14 @@ impl HashRefSessionStore for SqliteSessionHost {
             .prepare(
                 "SELECT file_key_ref, file_path, hash_code
                  FROM session_file_read
-                 WHERE session_id = ?1 AND filename = ?2 AND small_hash_code = ?3",
+                 WHERE session_id = ?1 AND filename = ?2 AND small_hash_code = ?3
+                 ORDER BY read_time DESC
+                 LIMIT 1",
             )
             .map_err(|e| e.to_string())?;
         let entry = stmt
             .query_row(
-                rusqlite::params![self.session_id, parsed.filename, parsed.small_hash_code],
+                rusqlite::params![session_id, parsed.filename, parsed.small_hash_code],
                 |row| {
                     let fkr: String = row.get(0)?;
                     let executor = fkr[..fkr.find(':').unwrap_or(0)].to_string();
@@ -122,10 +122,21 @@ impl HashRefSessionStore for SqliteSessionHost {
                 },
             )
             .map_err(|e| format!("hashRef not found: {target} ({e})"))?;
+        conn.execute(
+            "UPDATE session_file_read
+             SET read_time = ?1
+             WHERE session_id = ?2 AND file_key_ref = ?3",
+            rusqlite::params![now_ms(), session_id, entry.file_key_ref],
+        )
+        .map_err(|e| e.to_string())?;
         Ok(entry)
     }
 
-    async fn store_hash_ref(&self, update: FileRefUpdate) -> Result<FileRefEntry, Self::Error> {
+    async fn store_hash_ref(
+        &self,
+        session_id: &str,
+        update: FileRefUpdate,
+    ) -> Result<FileRefEntry, Self::Error> {
         let (file_key_ref, filename, small_hash, _label) = make_entry_parts(
             Some(&update.executor),
             &update.file.file_key,
@@ -139,7 +150,7 @@ impl HashRefSessionStore for SqliteSessionHost {
         // Delete old entry with same file_key_ref (handles rename)
         conn.execute(
             "DELETE FROM session_file_read WHERE session_id = ?1 AND file_key_ref = ?2",
-            rusqlite::params![self.session_id, file_key_ref],
+            rusqlite::params![session_id, file_key_ref],
         )
         .map_err(|e| e.to_string())?;
         // Insert new
@@ -148,7 +159,7 @@ impl HashRefSessionStore for SqliteSessionHost {
                 (session_id, file_key_ref, filename, file_path, hash_code, small_hash_code, read_time)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             rusqlite::params![
-                self.session_id,
+                session_id,
                 file_key_ref,
                 filename,
                 file_path,
@@ -158,7 +169,7 @@ impl HashRefSessionStore for SqliteSessionHost {
             ],
         )
         .map_err(|e| e.to_string())?;
-        // Prune to MAX=64 (matching OpenCode SessionFileRead.MAX)
+        // Keep the latest 64 hash refs for this session by access time.
         conn.execute(
             "DELETE FROM session_file_read
              WHERE session_id = ?1 AND file_key_ref NOT IN (
@@ -166,7 +177,7 @@ impl HashRefSessionStore for SqliteSessionHost {
                 WHERE session_id = ?1
                 ORDER BY read_time DESC LIMIT 64
              )",
-            rusqlite::params![self.session_id],
+            rusqlite::params![session_id],
         )
         .map_err(|e| e.to_string())?;
 
@@ -180,6 +191,7 @@ impl HashRefSessionStore for SqliteSessionHost {
 
     async fn retouch_hash_ref(
         &self,
+        session_id: &str,
         file_key_ref: &str,
         hash_code: &str,
     ) -> Result<Option<FileRefEntry>, Self::Error> {
@@ -191,7 +203,7 @@ impl HashRefSessionStore for SqliteSessionHost {
                  WHERE session_id = ?1 AND file_key_ref = ?2",
             )
             .map_err(|e| e.to_string())?
-            .query_row(rusqlite::params![self.session_id, file_key_ref], |row| {
+            .query_row(rusqlite::params![session_id, file_key_ref], |row| {
                 Ok((row.get(0)?, row.get(1)?, row.get(2)?))
             })
             .ok();
@@ -211,7 +223,7 @@ impl HashRefSessionStore for SqliteSessionHost {
                 hash_code,
                 new_small,
                 read_time,
-                self.session_id,
+                session_id,
                 file_key_ref
             ],
         )
@@ -224,7 +236,7 @@ impl HashRefSessionStore for SqliteSessionHost {
                  WHERE session_id = ?1 AND file_key_ref = ?2",
             )
             .map_err(|e| e.to_string())?
-            .query_row(rusqlite::params![self.session_id, file_key_ref], |row| {
+            .query_row(rusqlite::params![session_id, file_key_ref], |row| {
                 let fkr: String = row.get(0)?;
                 Ok(FileRefEntry {
                     executor: fkr[..fkr.find(':').unwrap_or(0)].to_string(),
@@ -286,6 +298,7 @@ impl ExbashSessionStore for SqliteSessionHost {
 
     async fn session_exbash_snapshot(
         &self,
+        session_id: &str,
         async_id: &str,
         executor: &str,
     ) -> Result<Option<ExbashTaskSnapshot>, Self::Error> {
@@ -300,7 +313,7 @@ impl ExbashSessionStore for SqliteSessionHost {
             )
             .map_err(|e| e.to_string())?
             .query_row(
-                rusqlite::params![self.session_id, async_id, executor],
+                rusqlite::params![session_id, async_id, executor],
                 exbash_row_to_snapshot,
             )
             .ok();
@@ -309,8 +322,17 @@ impl ExbashSessionStore for SqliteSessionHost {
 
     async fn upsert_session_exbash(
         &self,
+        session_id: &str,
         input: ExbashSyncInput,
     ) -> Result<ExbashTaskSnapshot, Self::Error> {
+        let session_id = input
+            .session_id
+            .clone()
+            .unwrap_or_else(|| session_id.to_string());
+        let workdir = input
+            .workdir
+            .clone()
+            .unwrap_or_else(|| self.workdir.clone());
         let async_id = input.async_id.clone().unwrap_or_default();
         let executor = input.executor.clone().unwrap_or_else(|| "local".into());
         let command = input.command.clone().unwrap_or_default();
@@ -335,8 +357,8 @@ impl ExbashSessionStore for SqliteSessionHost {
                            time_updated = excluded.time_updated",
             rusqlite::params![
                 async_id,
-                self.session_id,
-                self.workdir,
+                session_id,
+                workdir,
                 executor,
                 description,
                 command,
@@ -351,8 +373,8 @@ impl ExbashSessionStore for SqliteSessionHost {
         Ok(ExbashTaskSnapshot {
             async_id,
             executor,
-            session_id: Some(self.session_id.clone()),
-            workdir: Some(self.workdir.clone()),
+            session_id: Some(session_id),
+            workdir: Some(workdir),
             state: exbash_state(time_end),
             pid: input.pid,
             exit_code: input.exit_code,
@@ -364,8 +386,44 @@ impl ExbashSessionStore for SqliteSessionHost {
         })
     }
 
+    async fn list_session_exbash(
+        &self,
+        session_id: &str,
+        executor: Option<&str>,
+    ) -> Result<Vec<ExbashTaskSnapshot>, Self::Error> {
+        let conn = self.conn.lock().unwrap();
+        let sql = if executor.is_some() {
+            "SELECT async_id, executor, session_id, scope,
+                    CASE WHEN time_end IS NULL THEN 'running' ELSE 'stopped' END as state,
+                    exit_code, time_start, time_end, command, description, workspace
+             FROM exbash_task
+             WHERE session_id = ?1 AND executor = ?2 AND scope = 'local'
+             ORDER BY time_start ASC"
+        } else {
+            "SELECT async_id, executor, session_id, scope,
+                    CASE WHEN time_end IS NULL THEN 'running' ELSE 'stopped' END as state,
+                    exit_code, time_start, time_end, command, description, workspace
+             FROM exbash_task
+             WHERE session_id = ?1 AND scope = 'local'
+             ORDER BY time_start ASC"
+        };
+        let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
+        let rows = if let Some(executor) = executor {
+            stmt.query_map(rusqlite::params![session_id, executor], exbash_row_to_snapshot)
+                .map_err(|e| e.to_string())?
+                .collect::<Result<Vec<_>, _>>()
+        } else {
+            stmt.query_map(rusqlite::params![session_id], exbash_row_to_snapshot)
+                .map_err(|e| e.to_string())?
+                .collect::<Result<Vec<_>, _>>()
+        }
+        .map_err(|e| e.to_string())?;
+        Ok(rows)
+    }
+
     async fn remove_session_exbash(
         &self,
+        session_id: &str,
         async_id: &str,
         executor: &str,
     ) -> Result<bool, Self::Error> {
@@ -374,7 +432,7 @@ impl ExbashSessionStore for SqliteSessionHost {
             .execute(
                 "DELETE FROM exbash_task
                  WHERE session_id = ?1 AND async_id = ?2 AND executor = ?3 AND scope = 'local'",
-                rusqlite::params![self.session_id, async_id, executor],
+                rusqlite::params![session_id, async_id, executor],
             )
             .map_err(|e| e.to_string())?;
         Ok(rows > 0)
@@ -389,6 +447,7 @@ impl ExbashWorkdirStore for SqliteSessionHost {
 
     async fn workdir_exbash_snapshot(
         &self,
+        _session_id: &str,
         workdir: &str,
         async_id: &str,
         executor: &str,
@@ -413,6 +472,7 @@ impl ExbashWorkdirStore for SqliteSessionHost {
 
     async fn upsert_workdir_exbash(
         &self,
+        session_id: &str,
         workdir: &str,
         input: ExbashSyncInput,
     ) -> Result<ExbashTaskSnapshot, Self::Error> {
@@ -429,10 +489,16 @@ impl ExbashWorkdirStore for SqliteSessionHost {
         let session_id = input
             .session_id
             .clone()
-            .unwrap_or_else(|| self.session_id.clone());
+            .unwrap_or_else(|| session_id.to_string());
         let ts = now_ms();
 
         let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM exbash_task
+             WHERE workspace = ?1 AND executor = ?2 AND async_id = ?3 AND scope = 'workspace'",
+            rusqlite::params![workdir, executor, async_id],
+        )
+        .map_err(|e| e.to_string())?;
         conn.execute(
             "INSERT INTO exbash_task
                 (async_id, session_id, workspace, scope, executor, description, command, cwd,
@@ -473,8 +539,45 @@ impl ExbashWorkdirStore for SqliteSessionHost {
         })
     }
 
+    async fn list_workdir_exbash(
+        &self,
+        _session_id: &str,
+        workdir: &str,
+        executor: Option<&str>,
+    ) -> Result<Vec<ExbashTaskSnapshot>, Self::Error> {
+        let conn = self.conn.lock().unwrap();
+        let sql = if executor.is_some() {
+            "SELECT async_id, executor, session_id, scope,
+                    CASE WHEN time_end IS NULL THEN 'running' ELSE 'stopped' END as state,
+                    exit_code, time_start, time_end, command, description, workspace
+             FROM exbash_task
+             WHERE workspace = ?1 AND executor = ?2 AND scope = 'workspace'
+             ORDER BY time_start ASC"
+        } else {
+            "SELECT async_id, executor, session_id, scope,
+                    CASE WHEN time_end IS NULL THEN 'running' ELSE 'stopped' END as state,
+                    exit_code, time_start, time_end, command, description, workspace
+             FROM exbash_task
+             WHERE workspace = ?1 AND scope = 'workspace'
+             ORDER BY time_start ASC"
+        };
+        let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
+        let rows = if let Some(executor) = executor {
+            stmt.query_map(rusqlite::params![workdir, executor], exbash_row_to_snapshot)
+                .map_err(|e| e.to_string())?
+                .collect::<Result<Vec<_>, _>>()
+        } else {
+            stmt.query_map(rusqlite::params![workdir], exbash_row_to_snapshot)
+                .map_err(|e| e.to_string())?
+                .collect::<Result<Vec<_>, _>>()
+        }
+        .map_err(|e| e.to_string())?;
+        Ok(rows)
+    }
+
     async fn remove_workdir_exbash(
         &self,
+        _session_id: &str,
         workdir: &str,
         async_id: &str,
         executor: &str,

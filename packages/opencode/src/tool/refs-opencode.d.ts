@@ -11,14 +11,13 @@ export interface ToolDefinition {
 
 export interface ToolCallResult {
   content: Array<{ type: string; text: string }>
-  structuredContent?: unknown
 }
 
 export interface SessionMcpHandle {
   listTools(): string
-  callTool(name: string, arguments: string): string
-  callToolText(name: string, arguments: string): string
-  callToolStructured(name: string, arguments: string): string
+  callTool(name: string, argsJson: string): string
+  callToolText(name: string, argsJson: string): string
+  listExecutorsJson(): string
   handleRaw(request: string): string
 }
 
@@ -30,4 +29,3 @@ export function parseToolCallResult(json: string): {
   result?: ToolCallResult
 }
 export function extractOutputText(json: string): string
-export function extractStructuredContent(json: string): unknown

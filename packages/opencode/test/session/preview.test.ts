@@ -24,12 +24,12 @@ describe("session preview", () => {
       ...ids,
       type: "tool",
       callID: "call_preview",
-      tool: "edit",
+      tool: "FileAction",
       state: {
         status: "completed",
         input: { filePath: "a.txt" },
         output: "ok",
-        title: "edit",
+        title: "FileAction",
         metadata: {
           diff,
           files: [{ diff }],
