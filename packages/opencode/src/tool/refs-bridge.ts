@@ -13,7 +13,7 @@ import type { SessionMcpHandle, ToolCallResult } from "./refs-opencode"
 import { Database } from "@/storage/db"
 import { Instance } from "@/project/instance"
 import { existsSync } from "fs"
-import { dirname, join } from "path"
+import { dirname, join, resolve } from "path"
 
 type Result = {
   title: string
@@ -64,17 +64,21 @@ function loadAddon(): RefsAddon {
   if (addon) return addon
   const filename = bindingName()
   if (!filename) throw new Error(`REFS-opencode native addon is not available for ${process.platform}-${process.arch}.`)
+  const moduleDir = import.meta.dirname
   const candidates = [
     process.env.OPENCODE_BIN_DIR ? join(process.env.OPENCODE_BIN_DIR, filename) : undefined,
     process.execPath ? join(dirname(process.execPath), filename) : undefined,
     join(process.cwd(), filename),
+    join(process.cwd(), "../REFS-opencode", filename),
+    join(process.cwd(), "packages/REFS-opencode", filename),
+    moduleDir ? resolve(moduleDir, "../../../REFS-opencode", filename) : undefined,
   ].filter((item): item is string => !!item)
   for (const file of candidates) {
     if (!existsSync(file)) continue
     addon = require(file) as RefsAddon
     return addon
   }
-  throw new Error(`REFS-opencode native addon ${filename} not found next to the opencode binary.`)
+  throw new Error(`REFS-opencode native addon ${filename} not found. Checked: ${candidates.join(", ")}`)
 }
 
 /**
