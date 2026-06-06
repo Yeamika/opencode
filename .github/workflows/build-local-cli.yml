@@ -61,13 +61,11 @@ jobs:
       - name: Build with cargo
         if: ${{ !matrix.cross }}
         run: |
-          cargo build --release --bin remote-caller-mcp --target ${{ matrix.target }}
           cargo build --release --manifest-path vendor/pty-t/Cargo.toml -p pty_t_client --bin ptyt --target ${{ matrix.target }} --target-dir target
 
       - name: Build with cross
         if: matrix.cross
         run: |
-          cross build --release --bin remote-caller-mcp --target ${{ matrix.target }}
           cross build --release --manifest-path vendor/pty-t/Cargo.toml -p pty_t_client --bin ptyt --target ${{ matrix.target }} --target-dir target
 
       - name: Stage RemoteExecutor binary
@@ -77,7 +75,6 @@ jobs:
           mkdir -p "rec/${{ matrix.package }}"
           ext=""
           if [[ "${{ runner.os }}" == "Windows" ]]; then ext=".exe"; fi
-          cp "target/${{ matrix.target }}/release/remote-caller-mcp${ext}" "rec/${{ matrix.package }}/"
           cp "target/${{ matrix.target }}/release/ptyt${ext}" "rec/${{ matrix.package }}/"
 
       - name: Upload RemoteExecutor artifact
@@ -490,6 +487,9 @@ jobs:
           test -n "$launcher_tgz"
           test -n "$binary_tgz"
           npm install "$launcher_tgz" "$binary_tgz"
+          if [[ "${{ runner.os }}" != "Windows" ]]; then
+            test -f "./node_modules/opencode-ai/bin/$(basename "${{ matrix.refsAddon }}")"
+          fi
           node ./node_modules/opencode-ai/bin/opencode --version
 
       - name: Start server and validate REFS startup

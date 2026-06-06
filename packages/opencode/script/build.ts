@@ -215,7 +215,7 @@ async function bundleRec(item: Target, bin: string) {
     console.log(`RemoteExecutor bundle skipped for ${pkg}: OPENCODE_REMOTE_EXECUTOR_DIST is not set`)
     return
   }
-  const bins = item.os === "win32" ? ["remote-caller-mcp.exe", "ptyt.exe"] : ["remote-caller-mcp", "ptyt"]
+  const bins = item.os === "win32" ? ["ptyt.exe"] : ["ptyt"]
   for (const exe of bins) {
     const src = [path.join(recRoot, pkg, exe), path.join(recRoot, pkg, "bin", exe)].find((file) => fs.existsSync(file))
     if (!src) {

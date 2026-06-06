@@ -139,7 +139,6 @@ async function main() {
     }
     fs.chmodSync(target, 0o755)
 
-    installBundledBinary(path.dirname(binaryPath), "remote-caller-mcp")
     installBundledBinary(path.dirname(binaryPath), "ptyt")
     installBundledRefsAddon(path.dirname(binaryPath))
   } catch (error) {
