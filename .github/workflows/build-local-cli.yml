@@ -422,3 +422,192 @@ jobs:
           name: build-full-packages-manifest
           path: build-full-packages.json
           if-no-files-found: error
+
+  validate-packaged-cli:
+    needs: build
+    name: validate-${{ matrix.package }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            package: linux-x64
+            artifact: cli-binary-linux-x64
+            executable: package/bin/opencode
+            refsAddon: package/bin/refs-opencode.linux-x64-gnu.node
+          - os: ubuntu-24.04-arm
+            package: linux-arm64
+            artifact: cli-binary-linux-arm64
+            executable: package/bin/opencode
+            refsAddon: package/bin/refs-opencode.linux-arm64-gnu.node
+          - os: windows-latest
+            package: windows-x64
+            artifact: cli-binary-windows-x64
+            executable: package/bin/opencode.exe
+            refsAddon: package/bin/refs-opencode.win32-x64-msvc.node
+    steps:
+      - name: Download packaged CLI
+        uses: actions/download-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: packaged-cli
+
+      - name: Extract packaged CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          tgz="$(find packaged-cli -maxdepth 1 -name '*.tgz' -print -quit)"
+          test -n "$tgz"
+          tar -xzf "$tgz"
+          test -f "${{ matrix.executable }}"
+          test -f "${{ matrix.refsAddon }}"
+          if [[ "${{ runner.os }}" != "Windows" ]]; then
+            test -x "${{ matrix.executable }}"
+          fi
+
+      - name: Start server and validate REFS startup
+        shell: bash
+        env:
+          OPENCODE_EXE: ${{ matrix.executable }}
+        run: |
+          set -euo pipefail
+          node <<'EOF'
+          const fs = require("fs")
+          const os = require("os")
+          const path = require("path")
+          const { spawn, spawnSync, execFileSync } = require("child_process")
+
+          const exe = path.resolve(process.env.OPENCODE_EXE)
+          const workdir = fs.mkdtempSync(path.join(os.tmpdir(), "opencode-workdir-"))
+          const home = fs.mkdtempSync(path.join(os.tmpdir(), "opencode-home-"))
+          const port = 19523 + Math.floor(Math.random() * 1000)
+          const url = `http://127.0.0.1:${port}`
+          const env = {
+            ...process.env,
+            HOME: home,
+            USERPROFILE: home,
+            XDG_CONFIG_HOME: path.join(home, ".config"),
+            XDG_DATA_HOME: path.join(home, ".local", "share"),
+            OPENCODE_DISABLE_EMBEDDED_WEB_UI: "1",
+          }
+
+          function fail(message, details = "") {
+            throw new Error(`${message}${details ? `\n${details}` : ""}`)
+          }
+
+          const version = execFileSync(exe, ["--version"], { cwd: workdir, env, encoding: "utf8" }).trim()
+          console.log(`version: ${version}`)
+
+          const server = spawn(exe, ["serve", "--hostname", "127.0.0.1", "--port", String(port)], {
+            cwd: workdir,
+            env,
+            stdio: ["ignore", "pipe", "pipe"],
+            detached: process.platform !== "win32",
+          })
+          let serverOutput = ""
+          server.stdout.on("data", (chunk) => {
+            serverOutput += chunk.toString()
+            process.stdout.write(chunk)
+          })
+          server.stderr.on("data", (chunk) => {
+            serverOutput += chunk.toString()
+            process.stderr.write(chunk)
+          })
+
+          async function waitForServer() {
+            const deadline = Date.now() + 30_000
+            while (Date.now() < deadline) {
+              if (server.exitCode !== null) fail(`server exited before startup with code ${server.exitCode}`, serverOutput)
+              try {
+                const response = await fetch(`${url}/experimental/tool/ids`)
+                if (response.ok) return await response.json()
+              } catch {}
+              await new Promise((resolve) => setTimeout(resolve, 500))
+            }
+            fail("server did not become ready", serverOutput)
+          }
+
+          function stopProcess(proc) {
+            if (proc.exitCode !== null || proc.signalCode !== null) return
+            if (process.platform === "win32" && proc.pid) {
+              const out = spawnSync("taskkill", ["/pid", String(proc.pid), "/T", "/F"], { windowsHide: true })
+              if (!out.error && out.status === 0) return
+            }
+            if (process.platform !== "win32" && proc.pid) {
+              try {
+                process.kill(-proc.pid, "SIGTERM")
+                return
+              } catch {}
+            }
+            proc.kill()
+          }
+
+          async function waitClosed(proc, timeoutMs = 2_000) {
+            if (proc.exitCode !== null || proc.signalCode !== null) return
+            await Promise.race([
+              new Promise((resolve) => proc.once("close", resolve)),
+              new Promise((resolve) => setTimeout(resolve, timeoutMs)),
+            ])
+            if (proc.exitCode === null && proc.signalCode === null) {
+              if (process.platform !== "win32" && proc.pid) {
+                try {
+                  process.kill(-proc.pid, "SIGKILL")
+                } catch {}
+              } else {
+                proc.kill("SIGKILL")
+              }
+            }
+            proc.stdout?.destroy?.()
+            proc.stderr?.destroy?.()
+          }
+
+          async function stopServer() {
+            stopProcess(server)
+            await waitClosed(server)
+          }
+
+          async function main() {
+            try {
+              const ids = await waitForServer()
+              for (const id of ["read", "FileAction", "rg", "exbash", "RemoteExecutorManager"]) {
+                if (!ids.includes(id)) fail(`REFS tool id missing: ${id}`, JSON.stringify(ids))
+              }
+              console.log(`tool ids include REFS tools: ${ids.filter((id) => ["read", "FileAction", "rg", "exbash", "RemoteExecutorManager"].includes(id)).join(", ")}`)
+
+              const attach = spawn(exe, ["attach", url, "--dir", workdir], {
+                cwd: workdir,
+                env,
+                stdio: ["ignore", "pipe", "pipe"],
+                detached: process.platform !== "win32",
+              })
+              let attachOutput = ""
+              attach.stdout.on("data", (chunk) => {
+                attachOutput += chunk.toString()
+              })
+              attach.stderr.on("data", (chunk) => {
+                attachOutput += chunk.toString()
+              })
+
+              await new Promise((resolve) => setTimeout(resolve, 5_000))
+              if (/REFS-opencode native addon|not found next to the opencode binary|Cannot find module/i.test(attachOutput)) {
+                fail("attach failed while loading packaged native dependencies", attachOutput)
+              }
+              if (attach.exitCode !== null && attach.exitCode !== 0) {
+                fail(`attach exited early with code ${attach.exitCode}`, attachOutput)
+              }
+              if (attach.exitCode === null) {
+                stopProcess(attach)
+                await waitClosed(attach)
+              }
+              console.log("attach startup probe passed")
+            } finally {
+              await stopServer()
+            }
+          }
+
+          main().catch((error) => {
+            console.error(error)
+            process.exit(1)
+          })
+          EOF
