@@ -1821,19 +1821,18 @@ function GenericTool(props: ToolProps<any>) {
 function shouldFoldToolOutput(output: string) {
   if (!output) return false
   const rows = output.split("\n")
-  return rows.length > 10 || output.length > 600 || rows.some((x) => x.length > 160)
+  return rows.length > 10 || output.length > 600
 }
 
 function previewToolOutput(output: string) {
   const maxLines = 10
   const maxChars = 600
-  const maxLineChars = 160
   const result: string[] = []
   let length = 0
 
   for (const line of output.split("\n")) {
     if (result.length >= maxLines || length >= maxChars) break
-    const limit = Math.min(maxLineChars, maxChars - length)
+    const limit = maxChars - length
     if (line.length > limit) {
       result.push(line.slice(0, limit))
       break
