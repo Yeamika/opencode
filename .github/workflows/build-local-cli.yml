@@ -453,6 +453,12 @@ jobs:
           name: ${{ matrix.artifact }}
           path: packaged-cli
 
+      - name: Download launcher package
+        uses: actions/download-artifact@v7
+        with:
+          name: opencode-cli
+          path: packaged-launcher
+
       - name: Extract packaged CLI
         shell: bash
         run: |
@@ -466,10 +472,27 @@ jobs:
             test -x "${{ matrix.executable }}"
           fi
 
+      - name: Install launcher package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p launcher-smoke
+          cp packaged-cli/*.tgz launcher-smoke/
+          cp packaged-launcher/*.tgz launcher-smoke/
+          cd launcher-smoke
+          npm init -y
+          launcher_tgz="$(find . -maxdepth 1 -name 'opencode-ai-*.tgz' -print -quit)"
+          binary_tgz="$(find . -maxdepth 1 -name 'opencode-*.tgz' ! -name 'opencode-ai-*.tgz' -print -quit)"
+          test -n "$launcher_tgz"
+          test -n "$binary_tgz"
+          npm install --ignore-scripts "$launcher_tgz" "$binary_tgz"
+          node ./node_modules/opencode-ai/bin/opencode --version
+
       - name: Start server and validate REFS startup
         shell: bash
         env:
           OPENCODE_EXE: ${{ matrix.executable }}
+          OPENCODE_LAUNCHER_JS: launcher-smoke/node_modules/opencode-ai/bin/opencode
         run: |
           set -euo pipefail
           node <<'EOF'
@@ -478,54 +501,33 @@ jobs:
           const path = require("path")
           const { spawn, spawnSync, execFileSync } = require("child_process")
 
-          const exe = path.resolve(process.env.OPENCODE_EXE)
-          const workdir = fs.mkdtempSync(path.join(os.tmpdir(), "opencode-workdir-"))
-          const home = fs.mkdtempSync(path.join(os.tmpdir(), "opencode-home-"))
-          const port = 19523 + Math.floor(Math.random() * 1000)
-          const url = `http://127.0.0.1:${port}`
-          const env = {
-            ...process.env,
-            HOME: home,
-            USERPROFILE: home,
-            XDG_CONFIG_HOME: path.join(home, ".config"),
-            XDG_DATA_HOME: path.join(home, ".local", "share"),
-            OPENCODE_DISABLE_EMBEDDED_WEB_UI: "1",
-          }
-
           function fail(message, details = "") {
             throw new Error(`${message}${details ? `\n${details}` : ""}`)
           }
 
-          const version = execFileSync(exe, ["--version"], { cwd: workdir, env, encoding: "utf8" }).trim()
-          console.log(`version: ${version}`)
+          function commandTarget(label, command, prefixArgs = []) {
+            return { label, command: path.resolve(command), prefixArgs }
+          }
 
-          const server = spawn(exe, ["serve", "--hostname", "127.0.0.1", "--port", String(port)], {
-            cwd: workdir,
-            env,
-            stdio: ["ignore", "pipe", "pipe"],
-            detached: process.platform !== "win32",
-          })
-          let serverOutput = ""
-          server.stdout.on("data", (chunk) => {
-            serverOutput += chunk.toString()
-            process.stdout.write(chunk)
-          })
-          server.stderr.on("data", (chunk) => {
-            serverOutput += chunk.toString()
-            process.stderr.write(chunk)
-          })
+          function runSync(target, args, options) {
+            return execFileSync(target.command, [...target.prefixArgs, ...args], options)
+          }
 
-          async function waitForServer() {
+          function runAsync(target, args, options) {
+            return spawn(target.command, [...target.prefixArgs, ...args], options)
+          }
+
+          async function waitForServer(server, url, serverOutput) {
             const deadline = Date.now() + 30_000
             while (Date.now() < deadline) {
-              if (server.exitCode !== null) fail(`server exited before startup with code ${server.exitCode}`, serverOutput)
+              if (server.exitCode !== null) fail(`server exited before startup with code ${server.exitCode}`, serverOutput())
               try {
                 const response = await fetch(`${url}/experimental/tool/ids`)
                 if (response.ok) return await response.json()
               } catch {}
               await new Promise((resolve) => setTimeout(resolve, 500))
             }
-            fail("server did not become ready", serverOutput)
+            fail("server did not become ready", serverOutput())
           }
 
           function stopProcess(proc) {
@@ -562,20 +564,52 @@ jobs:
             proc.stderr?.destroy?.()
           }
 
-          async function stopServer() {
+          async function stopServer(server) {
             stopProcess(server)
             await waitClosed(server)
           }
 
-          async function main() {
+          async function validateTarget(target) {
+            const workdir = fs.mkdtempSync(path.join(os.tmpdir(), `opencode-${target.label}-workdir-`))
+            const home = fs.mkdtempSync(path.join(os.tmpdir(), `opencode-${target.label}-home-`))
+            const port = 19523 + Math.floor(Math.random() * 1000)
+            const url = `http://127.0.0.1:${port}`
+            const env = {
+              ...process.env,
+              HOME: home,
+              USERPROFILE: home,
+              XDG_CONFIG_HOME: path.join(home, ".config"),
+              XDG_DATA_HOME: path.join(home, ".local", "share"),
+              OPENCODE_DISABLE_EMBEDDED_WEB_UI: "1",
+            }
+
+            const version = runSync(target, ["--version"], { cwd: workdir, env, encoding: "utf8" }).trim()
+            console.log(`${target.label} version: ${version}`)
+
+            const server = runAsync(target, ["serve", "--hostname", "127.0.0.1", "--port", String(port)], {
+              cwd: workdir,
+              env,
+              stdio: ["ignore", "pipe", "pipe"],
+              detached: process.platform !== "win32",
+            })
+            let output = ""
+            server.stdout.on("data", (chunk) => {
+              output += chunk.toString()
+              process.stdout.write(chunk)
+            })
+            server.stderr.on("data", (chunk) => {
+              output += chunk.toString()
+              process.stderr.write(chunk)
+            })
+
             try {
-              const ids = await waitForServer()
+              const ids = await waitForServer(server, url, () => output)
               for (const id of ["read", "FileAction", "rg", "exbash", "RemoteExecutorManager"]) {
                 if (!ids.includes(id)) fail(`REFS tool id missing: ${id}`, JSON.stringify(ids))
               }
-              console.log(`tool ids include REFS tools: ${ids.filter((id) => ["read", "FileAction", "rg", "exbash", "RemoteExecutorManager"].includes(id)).join(", ")}`)
+              console.log(`${target.label} tool ids include REFS tools: ${ids.filter((id) => ["read", "FileAction", "rg", "exbash", "RemoteExecutorManager"].includes(id)).join(", ")}`)
 
-              const attach = spawn(exe, ["attach", url, "--dir", workdir], {
+              const attach = runAsync(target, ["attach", url, "--dir", workdir], {
                 cwd: workdir,
                 env,
                 stdio: ["ignore", "pipe", "pipe"],
@@ -600,9 +634,19 @@ jobs:
                 stopProcess(attach)
                 await waitClosed(attach)
               }
-              console.log("attach startup probe passed")
+              console.log(`${target.label} attach startup probe passed`)
             } finally {
-              await stopServer()
+              await stopServer(server)
+            }
+          }
+
+          async function main() {
+            const targets = [
+              commandTarget("binary", process.env.OPENCODE_EXE),
+              commandTarget("launcher", process.execPath, [path.resolve(process.env.OPENCODE_LAUNCHER_JS)]),
+            ]
+            for (const target of targets) {
+              await validateTarget(target)
             }
           }
 

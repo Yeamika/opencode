@@ -65,6 +65,7 @@ function loadAddon(): RefsAddon {
   const filename = bindingName()
   if (!filename) throw new Error(`REFS-opencode native addon is not available for ${process.platform}-${process.arch}.`)
   const candidates = [
+    process.env.OPENCODE_BIN_DIR ? join(process.env.OPENCODE_BIN_DIR, filename) : undefined,
     process.execPath ? join(dirname(process.execPath), filename) : undefined,
     join(process.cwd(), filename),
   ].filter((item): item is string => !!item)
