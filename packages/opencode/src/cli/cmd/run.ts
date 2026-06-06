@@ -400,8 +400,52 @@ export const RunCommand = cmd({
         return false
       }
 
-      const events = await sdk.event.subscribe()
+      const eventAbort = new AbortController()
+      const events = await sdk.event.subscribe(undefined, { signal: eventAbort.signal } as any)
       let error: string | undefined
+      const emittedParts = new Set<string>()
+
+      function emitPart(type: string, part: { id: string }) {
+        emittedParts.add(part.id)
+        return emit(type, { part })
+      }
+
+      function renderTextPart(part: { id: string; type: "text"; text: string; time?: { end?: number } }) {
+        if (!part.time?.end || emittedParts.has(part.id)) return
+        if (emitPart("text", part)) return
+        const text = part.text.trim()
+        if (!text) return
+        if (!process.stdout.isTTY) {
+          process.stdout.write(text + EOL)
+          return
+        }
+        UI.empty()
+        UI.println(text)
+        UI.empty()
+      }
+
+      function renderReasoningPart(part: { id: string; type: "reasoning"; text: string; time?: { end?: number } }) {
+        if (!args.thinking || !part.time?.end || emittedParts.has(part.id)) return
+        if (emitPart("reasoning", part)) return
+        const text = part.text.trim()
+        if (!text) return
+        const line = `Thinking: ${text}`
+        if (process.stdout.isTTY) {
+          UI.empty()
+          UI.println(`${UI.Style.TEXT_DIM}\u001b[3m${line}\u001b[0m${UI.Style.TEXT_NORMAL}`)
+          UI.empty()
+          return
+        }
+        process.stdout.write(line + EOL)
+      }
+
+      function flushMessageParts(parts: Array<{ id: string; type: string; [key: string]: any }>) {
+        for (const part of parts) {
+          if (part.type === "text") renderTextPart(part as any)
+          if (part.type === "reasoning") renderReasoningPart(part as any)
+          if (part.type === "step-finish" && !emittedParts.has(part.id)) emitPart("step_finish", part)
+        }
+      }
 
       async function loop() {
         const toggles = new Map<string, boolean>()
@@ -448,38 +492,20 @@ export const RunCommand = cmd({
             }
 
             if (part.type === "step-start") {
+              emittedParts.add(part.id)
               if (emit("step_start", { part })) continue
             }
 
             if (part.type === "step-finish") {
-              if (emit("step_finish", { part })) continue
+              if (emitPart("step_finish", part)) continue
             }
 
-            if (part.type === "text" && part.time?.end) {
-              if (emit("text", { part })) continue
-              const text = part.text.trim()
-              if (!text) continue
-              if (!process.stdout.isTTY) {
-                process.stdout.write(text + EOL)
-                continue
-              }
-              UI.empty()
-              UI.println(text)
-              UI.empty()
+            if (part.type === "text") {
+              renderTextPart(part)
             }
 
-            if (part.type === "reasoning" && part.time?.end && args.thinking) {
-              if (emit("reasoning", { part })) continue
-              const text = part.text.trim()
-              if (!text) continue
-              const line = `Thinking: ${text}`
-              if (process.stdout.isTTY) {
-                UI.empty()
-                UI.println(`${UI.Style.TEXT_DIM}\u001b[3m${line}\u001b[0m${UI.Style.TEXT_NORMAL}`)
-                UI.empty()
-                continue
-              }
-              process.stdout.write(line + EOL)
+            if (part.type === "reasoning") {
+              renderReasoningPart(part)
             }
           }
 
@@ -500,7 +526,7 @@ export const RunCommand = cmd({
             event.properties.sessionID === sessionID &&
             event.properties.status.type === "idle"
           ) {
-            break
+            continue
           }
 
           if (event.type === "permission.asked") {
@@ -586,29 +612,43 @@ export const RunCommand = cmd({
         UI.error("Session not found")
         process.exit(1)
       }
-      loop().catch((e) => {
+      const loopPromise = loop().catch((e) => {
+        if (eventAbort.signal.aborted) return
         console.error(e)
         process.exit(1)
       })
 
-      if (args.command) {
-        await sdk.session.command({
-          sessionID,
-          agent,
-          model: args.model,
-          command: args.command,
-          arguments: message,
-          variant: args.variant,
-        })
-      } else {
-        const model = args.model ? Provider.parseModel(args.model) : undefined
-        await sdk.session.prompt({
-          sessionID,
-          agent,
-          model,
-          variant: args.variant,
-          parts: [...files, { type: "text", text: message }],
-        })
+      try {
+        if (args.command) {
+          const response = await sdk.session.command(
+            {
+              sessionID,
+              agent,
+              model: args.model,
+              command: args.command,
+              arguments: message,
+              variant: args.variant,
+            },
+            { throwOnError: true },
+          )
+          flushMessageParts(response.data?.parts ?? [])
+        } else {
+          const model = args.model ? Provider.parseModel(args.model) : undefined
+          const response = await sdk.session.prompt(
+            {
+              sessionID,
+              agent,
+              model,
+              variant: args.variant,
+              parts: [...files, { type: "text", text: message }],
+            },
+            { throwOnError: true },
+          )
+          flushMessageParts(response.data?.parts ?? [])
+        }
+      } finally {
+        eventAbort.abort()
+        await loopPromise
       }
     }
 
