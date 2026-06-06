@@ -1,3 +1,4 @@
+import "@/util/ai-sdk-warning"
 import { BusEvent } from "@/bus/bus-event"
 import { SessionID, MessageID, PartID } from "./schema"
 import z from "zod"

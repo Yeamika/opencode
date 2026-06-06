@@ -1,3 +1,4 @@
+import "@/util/ai-sdk-warning"
 import { Provider } from "@/provider/provider"
 import { Log } from "@/util/log"
 import { Cause, Effect, Layer, Record, ServiceMap } from "effect"
@@ -319,6 +320,7 @@ export namespace LLM {
         ...headers,
       },
       maxRetries: input.retries ?? 0,
+      allowSystemInMessages: true,
       messages,
       model: wrapLanguageModel({
         model: language,

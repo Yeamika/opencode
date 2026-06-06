@@ -1,3 +1,4 @@
+import "@/util/ai-sdk-warning"
 import path from "path"
 import os from "os"
 import z from "zod"
@@ -52,9 +53,6 @@ import { Process } from "@/util/process"
 import { Cause, Effect, Exit, Layer, Option, Scope, ServiceMap } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
-
-// @ts-ignore
-globalThis.AI_SDK_LOG_WARNINGS = false
 
 const STRUCTURED_OUTPUT_DESCRIPTION = `Use this tool to return your final response in the requested structured format.
 

@@ -1,3 +1,4 @@
+import "@/util/ai-sdk-warning"
 import z from "zod"
 import os from "os"
 import fuzzysort from "fuzzysort"

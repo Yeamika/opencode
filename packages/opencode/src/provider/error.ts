@@ -1,3 +1,4 @@
+import "@/util/ai-sdk-warning"
 import { APICallError } from "ai"
 import { STATUS_CODES } from "http"
 import { iife } from "@/util/iife"

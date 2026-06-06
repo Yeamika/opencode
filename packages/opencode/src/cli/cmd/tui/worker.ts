@@ -1,3 +1,4 @@
+import "@/util/ai-sdk-warning"
 import { Installation } from "@/installation"
 import { Server } from "@/server/server"
 import { Log } from "@/util/log"

@@ -1,3 +1,4 @@
+import "@/util/ai-sdk-warning"
 import {
   RequestError,
   type Agent as ACPAgent,

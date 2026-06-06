@@ -1,3 +1,4 @@
+import "@/util/ai-sdk-warning"
 import { Config } from "../config/config"
 import z from "zod"
 import { Provider } from "../provider/provider"
@@ -361,6 +362,7 @@ export namespace Agent {
                 content: `Create an agent configuration based on this request: \"${input.description}\".\n\nIMPORTANT: The following identifiers already exist and must NOT be used: ${existing.map((i) => i.name).join(", ")}\n  Return ONLY the JSON object, no other text, do not wrap in backticks`,
               },
             ],
+            allowSystemInMessages: true,
             model: language,
             schema: z.object({
               identifier: z.string(),
