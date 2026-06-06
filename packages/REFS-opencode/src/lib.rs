@@ -12,7 +12,7 @@ use remote_executor_for_session::mcp::{
     create_session_mcp_with_manager, EmbeddedMcp, SessionMcpHandler,
 };
 use remote_executor_for_session::rec::{
-    manager_handle, new_manager, Caller, ExecutorRequest, ShellManager, ToolContext,
+    manager_handle, Caller, ExecutorRequest, ShellManager, ToolContext,
 };
 
 mod sqlite_host;
@@ -151,12 +151,13 @@ pub fn create_session_mcp(
     let host = SqliteSessionHost::new(session_id, workdir.clone(), PathBuf::from(&db_path))
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     let host = Arc::new(host);
+    let settings = SettingsStore::load(Some(opencode_re_settings_path()))
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     let shell_manager = ShellManager::default_shell(80, 24);
-    let ctx = ToolContext::new(Some(PathBuf::from(&workdir)))
-        .with_settings_store(SettingsStore::load_default_lossy());
+    let ctx = ToolContext::new(Some(PathBuf::from(&workdir))).with_settings_store(settings.clone());
 
     let manager = runtime
-        .block_on(new_manager())
+        .block_on(Caller::new_with_settings_store(settings))
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     let shared_manager = Arc::new(manager);
 
@@ -177,4 +178,37 @@ pub fn default_db_path() -> napi::Result<String> {
     let data_dir =
         std::env::var("XDG_DATA_HOME").unwrap_or_else(|_| format!("{home}/.local/share"));
     Ok(format!("{data_dir}/opencode/opencode.db"))
+}
+
+fn opencode_re_settings_path() -> PathBuf {
+    if let Some(dir) = non_empty_env("OPENCODE_CONFIG_DIR") {
+        return PathBuf::from(dir).join(".re-setting.json");
+    }
+    if let Some(dir) = non_empty_env("XDG_CONFIG_HOME") {
+        return PathBuf::from(dir).join("opencode").join(".re-setting.json");
+    }
+    #[cfg(windows)]
+    {
+        if let Some(dir) = non_empty_env("APPDATA") {
+            return PathBuf::from(dir).join("opencode").join(".re-setting.json");
+        }
+        if let Some(dir) = non_empty_env("USERPROFILE") {
+            return PathBuf::from(dir)
+                .join(".config")
+                .join("opencode")
+                .join(".re-setting.json");
+        }
+    }
+    let home = non_empty_env("HOME").unwrap_or_else(|| ".".to_string());
+    PathBuf::from(home)
+        .join(".config")
+        .join("opencode")
+        .join(".re-setting.json")
+}
+
+fn non_empty_env(key: &str) -> Option<String> {
+    std::env::var(key)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
