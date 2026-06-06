@@ -17,6 +17,7 @@ import { Filesystem } from "../util/filesystem"
 import { Instruction } from "../session/instruction"
 import { ExBashTask } from "../session/exbash"
 import { assertExternalDirectory } from "./external-directory"
+import { Truncate } from "./truncate"
 
 // ─── Local types (avoid importing from native addon) ───
 
@@ -27,6 +28,8 @@ interface ToolDefinition {
 }
 
 const HIDDEN_MCP_PARAMS = new Set(["ExecutorSessionID", "includeStructuredContent"])
+const EXBASH_MAX_OUTPUT_BYTES = 5 * 1024
+const EXBASH_DEFAULT_TITLE = "runing command"
 
 function withJsonSchemaMetadata(schema: Record<string, any>, value: z.ZodTypeAny): z.ZodTypeAny {
   let next = value
@@ -191,8 +194,7 @@ function exbashTitle(args: unknown) {
   const mode = typeof input.mode === "string" ? input.mode : "shell"
   const description = typeof input.description === "string" ? input.description.trim() : ""
   if (description) return description
-  const command = typeof input.command === "string" ? input.command.trim() : ""
-  if ((mode === "shell" || mode === "run") && command) return command
+  if (mode === "shell" || mode === "run") return EXBASH_DEFAULT_TITLE
   const asyncID = typeof input.asyncID === "string" ? input.asyncID.trim() : ""
   if ((mode === "stop" || mode === "remove" || mode === "attach") && asyncID) return `${mode} ${asyncID}`
   return `exbash ${mode}`
@@ -204,7 +206,7 @@ function mcpToolToInfo(def: ToolDefinition): Tool.Info {
 
   return {
     id: toolId,
-    init: async () => ({
+    init: async (initCtx) => ({
       description: def.description ?? "",
       parameters,
       execute: async (args, ctx) => {
@@ -218,7 +220,21 @@ function mcpToolToInfo(def: ToolDefinition): Tool.Info {
         const output = extractOutput(JSON.parse(json))
         if (toolId === "exbash") {
           await ExBashTask.refresh({ sessionID: ctx.sessionID, workspace: ctx.directory ?? Instance.directory })
-          return { ...output, title: exbashTitle(args) }
+          const truncated = await Truncate.output(
+            output.output,
+            { maxBytes: EXBASH_MAX_OUTPUT_BYTES, maxLines: Number.POSITIVE_INFINITY },
+            initCtx?.agent,
+          )
+          return {
+            ...output,
+            title: exbashTitle(args),
+            output: truncated.content,
+            metadata: {
+              ...output.metadata,
+              truncated: truncated.truncated,
+              ...(truncated.truncated && { outputPath: truncated.outputPath }),
+            },
+          }
         }
         return output
       },

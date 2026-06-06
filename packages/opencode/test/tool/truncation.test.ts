@@ -44,7 +44,17 @@ describe("Truncate", () => {
       const result = await Truncate.output(content, { maxBytes: 100 })
 
       expect(result.truncated).toBe(true)
+      expect(result.content.startsWith("a".repeat(100))).toBe(true)
       expect(result.content).toContain("truncated...")
+    })
+
+    test("keeps a visible preview for single-line byte truncation", async () => {
+      const content = "prefix-" + "x".repeat(1000)
+      const result = await Truncate.output(content, { maxBytes: 32, maxLines: Number.POSITIVE_INFINITY })
+
+      expect(result.truncated).toBe(true)
+      expect(result.content).toStartWith("prefix-")
+      expect(result.content).toContain("bytes truncated...")
     })
 
     test("truncates from head by default", async () => {
@@ -89,7 +99,7 @@ describe("Truncate", () => {
 
       expect(result.truncated).toBe(true)
       expect(result.content).toContain("The tool call succeeded but the output was truncated")
-      expect(result.content).toContain("Grep")
+      expect(result.content).toContain("rg")
       if (!result.truncated) throw new Error("expected truncated")
       expect(result.outputPath).toBeDefined()
       expect(result.outputPath).toContain("tool_")
@@ -104,7 +114,7 @@ describe("Truncate", () => {
       const result = await Truncate.output(lines, { maxLines: 10 }, agent as any)
 
       expect(result.truncated).toBe(true)
-      expect(result.content).toContain("Grep")
+      expect(result.content).toContain("rg")
       expect(result.content).toContain("Task tool")
     })
 
@@ -114,7 +124,7 @@ describe("Truncate", () => {
       const result = await Truncate.output(lines, { maxLines: 10 }, agent as any)
 
       expect(result.truncated).toBe(true)
-      expect(result.content).toContain("Grep")
+      expect(result.content).toContain("rg")
       expect(result.content).not.toContain("Task tool")
     })
 

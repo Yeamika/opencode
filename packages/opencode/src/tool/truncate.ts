@@ -41,6 +41,28 @@ export namespace Truncate {
     readonly output: (text: string, options?: Options, agent?: Agent.Info) => Effect.Effect<Result>
   }
 
+  function sliceByUtf8Bytes(text: string, maxBytes: number, direction: "head" | "tail") {
+    if (maxBytes <= 0) return { text: "", bytes: 0 }
+    const chars = Array.from(text)
+    const selected: string[] = []
+    let bytes = 0
+
+    const start = direction === "head" ? 0 : chars.length - 1
+    const end = direction === "head" ? chars.length : -1
+    const step = direction === "head" ? 1 : -1
+
+    for (let i = start; i !== end; i += step) {
+      const char = chars[i]!
+      const size = Buffer.byteLength(char, "utf-8")
+      if (bytes + size > maxBytes) break
+      if (direction === "head") selected.push(char)
+      else selected.unshift(char)
+      bytes += size
+    }
+
+    return { text: selected.join(""), bytes }
+  }
+
   export class Service extends ServiceMap.Service<Service, Interface>()("@opencode/Truncate") {}
 
   export const layer = Layer.effect(
@@ -81,6 +103,12 @@ export namespace Truncate {
             const size = Buffer.byteLength(lines[i], "utf-8") + (i > 0 ? 1 : 0)
             if (bytes + size > maxBytes) {
               hitBytes = true
+              const separatorBytes = out.length > 0 ? 1 : 0
+              const slice = sliceByUtf8Bytes(lines[i], maxBytes - bytes - separatorBytes, "head")
+              if (slice.text) {
+                out.push(slice.text)
+                bytes += separatorBytes + slice.bytes
+              }
               break
             }
             out.push(lines[i])
@@ -91,6 +119,12 @@ export namespace Truncate {
             const size = Buffer.byteLength(lines[i], "utf-8") + (out.length > 0 ? 1 : 0)
             if (bytes + size > maxBytes) {
               hitBytes = true
+              const separatorBytes = out.length > 0 ? 1 : 0
+              const slice = sliceByUtf8Bytes(lines[i], maxBytes - bytes - separatorBytes, "tail")
+              if (slice.text) {
+                out.unshift(slice.text)
+                bytes += separatorBytes + slice.bytes
+              }
               break
             }
             out.unshift(lines[i])
@@ -107,8 +141,8 @@ export namespace Truncate {
         yield* fs.writeFileString(file, text).pipe(Effect.orDie)
 
         const hint = hasTaskTool(agent)
-          ? `The tool call succeeded but the output was truncated. Full output saved to: ${file}\nUse the Task tool to have explore agent process this file with Grep and Read (with offset/limit). Do NOT read the full file yourself - delegate to save context.`
-          : `The tool call succeeded but the output was truncated. Full output saved to: ${file}\nUse Grep to search the full content or Read with offset/limit to view specific sections.`
+          ? `The tool call succeeded but the output was truncated. Full output saved to: ${file}\nUse the Task tool to have explore agent process this file with rg and read (with offset/limit). Do NOT read the full file yourself - delegate to save context.`
+          : `The tool call succeeded but the output was truncated. Full output saved to: ${file}\nUse rg to search the full content or read with offset/limit to view specific sections.`
 
         return {
           content:

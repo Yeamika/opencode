@@ -2112,6 +2112,7 @@ function BlockTool(props: {
 function ExBash(props: ToolProps<typeof ExBashTool>) {
   const { theme } = useTheme()
   const dialog = useDialog()
+  const defaultTitle = "runing command"
   const isRunning = createMemo(() => props.part.state.status === "running")
   const mode = createMemo(() => props.input.mode ?? "shell")
   const output = createMemo(() => stripAnsi(props.output?.trim() ?? ""))
@@ -2126,6 +2127,12 @@ function ExBash(props: ToolProps<typeof ExBashTool>) {
       return props.input.asyncID ?? "[attach]"
     }
     return props.input.command ?? mode()
+  })
+  const display = createMemo(() => {
+    const description = typeof props.input.description === "string" ? props.input.description.trim() : ""
+    if (description) return description
+    if (mode() === "shell" || mode() === "run") return defaultTitle
+    return command()
   })
   const label = createMemo(() => {
     switch (mode()) {
@@ -2162,7 +2169,7 @@ function ExBash(props: ToolProps<typeof ExBashTool>) {
   const title = createMemo(() => {
     const rawTitle = "title" in props.part.state && props.part.state.title ? props.part.state.title : undefined
     const stateTitle = rawTitle && rawTitle !== "tool" ? rawTitle : undefined
-    return `# ${stateTitle || props.input.description || props.input.command || `exbash ${mode()}`}`
+    return `# ${stateTitle || display()}`
   })
   const pending = createMemo(() => {
     if (mode() === "attach") return "Attaching to async run..."
@@ -2206,7 +2213,7 @@ function ExBash(props: ToolProps<typeof ExBashTool>) {
                 partID={props.part.id}
                 input={props.input}
                 output={output()}
-                metadata={{}}
+                metadata={props.metadata}
                 attachments={props.part.state.status === "completed" ? props.part.state.attachments : undefined}
               />
             ))
@@ -2232,13 +2239,13 @@ function ExBash(props: ToolProps<typeof ExBashTool>) {
         <InlineTool
           icon={icon()}
           pending={pending()}
-          complete={command()}
+          complete={display()}
           part={props.part}
           tool="ExBash"
           input={props.input}
           suffix={executor(props.input)}
         >
-          {command()}
+          {display()}
         </InlineTool>
       </Match>
     </Switch>
