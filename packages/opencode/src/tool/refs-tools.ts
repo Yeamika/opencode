@@ -15,6 +15,7 @@ import { getHandle } from "./refs-bridge"
 import { Instance } from "../project/instance"
 import { Filesystem } from "../util/filesystem"
 import { Instruction } from "../session/instruction"
+import { ExBashTask } from "../session/exbash"
 import { assertExternalDirectory } from "./external-directory"
 
 // ─── Local types (avoid importing from native addon) ───
@@ -202,7 +203,11 @@ function mcpToolToInfo(def: ToolDefinition): Tool.Info {
           metadata: { tool: toolId },
         })
         const json = callRefsTool(def, args, ctx)
-        return extractOutput(JSON.parse(json))
+        const output = extractOutput(JSON.parse(json))
+        if (toolId === "exbash") {
+          await ExBashTask.refresh({ sessionID: ctx.sessionID, workspace: ctx.directory ?? Instance.directory })
+        }
+        return output
       },
     }),
   }

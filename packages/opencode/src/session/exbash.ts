@@ -74,6 +74,7 @@ export namespace ExBashTask {
       executor: string
       asyncID: string
     }) => Effect.Effect<void>
+    readonly refresh: (input: { sessionID: SessionID; workspace: string }) => Effect.Effect<void>
   }
 
   export class Service extends ServiceMap.Service<Service, Interface>()("@opencode/SessionExBashTask") {}
@@ -204,53 +205,60 @@ export namespace ExBashTask {
         return sort(out).map(view)
       }
 
+      const reload = Effect.fn("ExBashTask.reload")(function* (input: { sessionID: SessionID; workspace: string }) {
+        const cleanSessionStale = !sid.has(input.sessionID)
+        const cleanWorkspaceStale = !wid.has(input.workspace)
+        const localRows = yield* Effect.sync(() =>
+          Database.use((db) =>
+            db
+              .select()
+              .from(ExBashTaskTable)
+              .where(and(eq(ExBashTaskTable.session_id, input.sessionID), eq(ExBashTaskTable.scope, "local")))
+              .orderBy(asc(ExBashTaskTable.time_start))
+              .all(),
+          ),
+        )
+        const workspaceRows = yield* Effect.sync(() =>
+          Database.use((db) =>
+            db
+              .select()
+              .from(ExBashTaskTable)
+              .where(and(eq(ExBashTaskTable.workspace, input.workspace), eq(ExBashTaskTable.scope, "workspace")))
+              .orderBy(asc(ExBashTaskTable.time_start))
+              .all(),
+          ),
+        )
+
+        for (const task of ses.get(input.sessionID)?.values() ?? []) idx.delete(key(task))
+        for (const task of ws.get(input.workspace)?.values() ?? []) idx.delete(key(task))
+        ses.set(input.sessionID, new Map())
+        ws.set(input.workspace, new Map())
+
+        let cleaned = false
+        localRows.forEach((r) => {
+          if (cleanSessionStale && isLocalStaleRunning(r)) {
+            removeRow(r)
+            cleaned = true
+            return
+          }
+          mark(row(r))
+        })
+        workspaceRows.forEach((r) => {
+          if (cleanWorkspaceStale && isLocalStaleRunning(r)) {
+            removeRow(r)
+            cleaned = true
+            return
+          }
+          mark(row(r))
+        })
+        sid.add(input.sessionID)
+        wid.add(input.workspace)
+        return cleaned
+      })
+
       const ensure = Effect.fn("ExBashTask.ensure")(function* (input: { sessionID: SessionID; workspace: string }) {
-        if (!sid.has(input.sessionID)) {
-          const rows = yield* Effect.sync(() =>
-            Database.use((db) =>
-              db
-                .select()
-                .from(ExBashTaskTable)
-                .where(and(eq(ExBashTaskTable.session_id, input.sessionID), eq(ExBashTaskTable.scope, "local")))
-                .orderBy(asc(ExBashTaskTable.time_start))
-                .all(),
-            ),
-          )
-          let cleaned = false
-          rows.forEach((r) => {
-            if (isLocalStaleRunning(r)) {
-              removeRow(r)
-              cleaned = true
-              return
-            }
-            mark(row(r))
-          })
-          sid.add(input.sessionID)
-          if (cleaned) yield* note(input.sessionID, input.workspace)
-        }
-        if (!wid.has(input.workspace)) {
-          const rows = yield* Effect.sync(() =>
-            Database.use((db) =>
-              db
-                .select()
-                .from(ExBashTaskTable)
-                .where(and(eq(ExBashTaskTable.workspace, input.workspace), eq(ExBashTaskTable.scope, "workspace")))
-                .orderBy(asc(ExBashTaskTable.time_start))
-                .all(),
-            ),
-          )
-          let cleaned = false
-          rows.forEach((r) => {
-            if (isLocalStaleRunning(r)) {
-              removeRow(r)
-              cleaned = true
-              return
-            }
-            mark(row(r))
-          })
-          wid.add(input.workspace)
-          if (cleaned) yield* note(input.sessionID, input.workspace)
-        }
+        const cleaned = yield* reload(input)
+        if (cleaned) yield* note(input.sessionID, input.workspace)
       })
 
       const get = Effect.fn("ExBashTask.get")(function* (input: { sessionID: SessionID; workspace: string }) {
@@ -393,7 +401,12 @@ export namespace ExBashTask {
         yield* note(task.sessionID, task.workspace)
       })
 
-      return Service.of({ ensure, get, one, start, finish, lost, remove })
+      const refresh = Effect.fn("ExBashTask.refresh")(function* (input: { sessionID: SessionID; workspace: string }) {
+        yield* reload(input)
+        yield* note(input.sessionID, input.workspace)
+      })
+
+      return Service.of({ ensure, get, one, start, finish, lost, remove, refresh })
     }),
   )
 
@@ -433,5 +446,9 @@ export namespace ExBashTask {
 
   export async function remove(input: { sessionID: SessionID; workspace: string; executor: string; asyncID: string }) {
     return runPromise((svc) => svc.remove(input))
+  }
+
+  export async function refresh(input: { sessionID: SessionID; workspace: string }) {
+    return runPromise((svc) => svc.refresh(input))
   }
 }
