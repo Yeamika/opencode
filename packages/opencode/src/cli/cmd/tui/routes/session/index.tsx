@@ -1761,6 +1761,7 @@ function GenericTool(props: ToolProps<any>) {
   const dialog = useDialog()
   const out = createMemo(() => props.output?.trim() ?? "")
   const fold = createMemo(() => shouldFoldToolOutput(out()))
+  const preview = createMemo(() => previewToolOutput(out()))
   const error = createMemo(() => (props.part.state.status === "error" ? props.part.state.error : undefined))
   const action = () => {
     dialog.replace(() => (
@@ -1782,7 +1783,17 @@ function GenericTool(props: ToolProps<any>) {
     return (
       <BlockTool title={`# ${props.tool} ${input(props.input)}`} part={props.part} label={props.tool} onClick={action}>
         <box gap={1}>
-          <Show when={!fold()} fallback={<text fg={theme.textMuted}>Click to view details</text>}>
+          <Show
+            when={!fold()}
+            fallback={
+              <box gap={1}>
+                <Show when={preview()}>
+                  <text fg={theme.text}>{preview()}</text>
+                </Show>
+                <text fg={theme.textMuted}>Click to view details</text>
+              </box>
+            }
+          >
             <text fg={theme.text}>{out()}</text>
           </Show>
         </box>
@@ -1811,6 +1822,27 @@ function shouldFoldToolOutput(output: string) {
   if (!output) return false
   const rows = output.split("\n")
   return rows.length > 10 || output.length > 600 || rows.some((x) => x.length > 160)
+}
+
+function previewToolOutput(output: string) {
+  const maxLines = 10
+  const maxChars = 600
+  const maxLineChars = 160
+  const result: string[] = []
+  let length = 0
+
+  for (const line of output.split("\n")) {
+    if (result.length >= maxLines || length >= maxChars) break
+    const limit = Math.min(maxLineChars, maxChars - length)
+    if (line.length > limit) {
+      result.push(line.slice(0, limit))
+      break
+    }
+    result.push(line)
+    length += line.length + 1
+  }
+
+  return result.join("\n").trimEnd()
 }
 
 function InlineTool(props: {
@@ -2085,6 +2117,7 @@ function ExBash(props: ToolProps<typeof ExBashTool>) {
   const mode = createMemo(() => props.input.mode ?? "shell")
   const output = createMemo(() => stripAnsi(props.output?.trim() ?? ""))
   const overflow = createMemo(() => shouldFoldToolOutput(output()))
+  const preview = createMemo(() => previewToolOutput(output()))
   const command = createMemo(() => {
     if (mode() === "list") return props.input.asyncID ?? "all"
     if (mode() === "stop" || mode() === "remove") return props.input.asyncID ?? mode()
@@ -2188,6 +2221,9 @@ function ExBash(props: ToolProps<typeof ExBashTool>) {
               <text fg={theme.text}>{output()}</text>
             </Show>
             <Show when={overflow()}>
+              <Show when={preview()}>
+                <text fg={theme.text}>{preview()}</text>
+              </Show>
               <text fg={theme.textMuted}>Click to view details</text>
             </Show>
           </box>
