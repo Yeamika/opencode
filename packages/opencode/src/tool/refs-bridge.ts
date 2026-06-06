@@ -12,8 +12,10 @@
 import type { SessionMcpHandle, ToolCallResult } from "./refs-opencode"
 import { Database } from "@/storage/db"
 import { Instance } from "@/project/instance"
-import { existsSync } from "fs"
+import { existsSync, realpathSync } from "fs"
 import { dirname, join, resolve } from "path"
+
+declare const OPENCODE_LIBC: string | undefined
 
 type Result = {
   title: string
@@ -46,8 +48,13 @@ function handleKey(input: Required<HandleInput>) {
 
 function linuxBinding() {
   if (process.platform !== "linux") return
-  const report = process.report?.getReport?.() as { header?: { glibcVersionRuntime?: string } } | undefined
-  const isMusl = !report?.header?.glibcVersionRuntime
+  const compiledLibc = typeof OPENCODE_LIBC === "string" ? OPENCODE_LIBC : undefined
+  const isMusl =
+    compiledLibc === "musl" ||
+    (compiledLibc === undefined &&
+      !(
+        process.report?.getReport?.() as { header?: { glibcVersionRuntime?: string } } | undefined
+      )?.header?.glibcVersionRuntime)
   if (process.arch === "x64") return isMusl ? "refs-opencode.linux-x64-musl.node" : "refs-opencode.linux-x64-gnu.node"
   if (process.arch === "arm64") return isMusl ? "refs-opencode.linux-arm64-musl.node" : "refs-opencode.linux-arm64-gnu.node"
 }
@@ -60,19 +67,34 @@ function bindingName() {
   if (process.platform === "darwin" && process.arch === "arm64") return "refs-opencode.darwin-arm64.node"
 }
 
+function realDir(file: string | undefined) {
+  if (!file) return
+  try {
+    return dirname(realpathSync.native(file))
+  } catch {
+    return
+  }
+}
+
 function loadAddon(): RefsAddon {
   if (addon) return addon
   const filename = bindingName()
   if (!filename) throw new Error(`REFS-opencode native addon is not available for ${process.platform}-${process.arch}.`)
   const moduleDir = import.meta.dirname
-  const candidates = [
-    process.env.OPENCODE_BIN_DIR ? join(process.env.OPENCODE_BIN_DIR, filename) : undefined,
-    process.execPath ? join(dirname(process.execPath), filename) : undefined,
-    join(process.cwd(), filename),
-    join(process.cwd(), "../REFS-opencode", filename),
-    join(process.cwd(), "packages/REFS-opencode", filename),
-    moduleDir ? resolve(moduleDir, "../../../REFS-opencode", filename) : undefined,
-  ].filter((item): item is string => !!item)
+  const binaryDirs = [
+    process.env.OPENCODE_BIN_DIR,
+    process.execPath ? dirname(process.execPath) : undefined,
+    realDir(process.execPath),
+  ]
+  const candidates = Array.from(
+    new Set([
+      ...binaryDirs.map((dir) => (dir ? join(dir, filename) : undefined)),
+      join(process.cwd(), filename),
+      join(process.cwd(), "../REFS-opencode", filename),
+      join(process.cwd(), "packages/REFS-opencode", filename),
+      moduleDir ? resolve(moduleDir, "../../../REFS-opencode", filename) : undefined,
+    ].filter((item): item is string => !!item)),
+  )
   for (const file of candidates) {
     if (!existsSync(file)) continue
     addon = require(file) as RefsAddon

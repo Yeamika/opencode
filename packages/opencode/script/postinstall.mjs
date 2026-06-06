@@ -110,6 +110,14 @@ function installBundledBinary(sourceDir, binaryName) {
   fs.chmodSync(target, 0o755)
 }
 
+function installBundledRefsAddon(sourceDir) {
+  const addons = fs.readdirSync(sourceDir).filter((name) => /^refs-opencode\..+\.node$/.test(name))
+  if (addons.length === 0) throw new Error(`Bundled REFS-opencode native addon not found in ${sourceDir}`)
+  for (const addon of addons) {
+    installBundledBinary(sourceDir, addon)
+  }
+}
+
 async function main() {
   try {
     if (os.platform() === "win32") {
@@ -133,6 +141,7 @@ async function main() {
 
     installBundledBinary(path.dirname(binaryPath), "remote-caller-mcp")
     installBundledBinary(path.dirname(binaryPath), "ptyt")
+    installBundledRefsAddon(path.dirname(binaryPath))
   } catch (error) {
     console.error("Failed to setup opencode binary:", error.message)
     process.exit(1)

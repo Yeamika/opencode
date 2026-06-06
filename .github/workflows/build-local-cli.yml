@@ -489,7 +489,7 @@ jobs:
           binary_tgz="$(find . -maxdepth 1 -name 'opencode-*.tgz' ! -name 'opencode-ai-*.tgz' -print -quit)"
           test -n "$launcher_tgz"
           test -n "$binary_tgz"
-          npm install --ignore-scripts "$launcher_tgz" "$binary_tgz"
+          npm install "$launcher_tgz" "$binary_tgz"
           node ./node_modules/opencode-ai/bin/opencode --version
 
       - name: Start server and validate REFS startup
