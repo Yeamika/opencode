@@ -529,7 +529,10 @@ export namespace SessionProcessor {
               while (true) {
                 ctx.attempt = attempt
                 const exit = yield* runAttempt.pipe(Effect.exit)
-                if (Exit.isSuccess(exit)) break
+                if (Exit.isSuccess(exit)) {
+                  ctx.attempt = 0
+                  break
+                }
                 if (Cause.hasInterruptsOnly(exit.cause)) {
                   return yield* Effect.failCause(exit.cause)
                 }

@@ -435,8 +435,21 @@ impl ExbashSessionStore for SqliteSessionHost {
                  time_start, time_end, exit_code, time_created, time_updated)
              VALUES (?1, ?2, ?3, 'local', ?4, ?5, ?6, ?3, ?7, ?8, ?9, ?10, ?10)
              ON CONFLICT(session_id, workspace, executor, async_id)
-             DO UPDATE SET time_end = excluded.time_end,
-                           exit_code = excluded.exit_code,
+             DO UPDATE SET description = CASE
+                             WHEN excluded.description <> '' THEN excluded.description
+                             ELSE exbash_task.description
+                           END,
+                           command = CASE
+                             WHEN excluded.command <> '' THEN excluded.command
+                             ELSE exbash_task.command
+                           END,
+                           cwd = CASE
+                             WHEN excluded.cwd <> '' THEN excluded.cwd
+                             ELSE exbash_task.cwd
+                           END,
+                           time_start = MIN(exbash_task.time_start, excluded.time_start),
+                           time_end = COALESCE(excluded.time_end, exbash_task.time_end),
+                           exit_code = COALESCE(excluded.exit_code, exbash_task.exit_code),
                            time_updated = excluded.time_updated",
             rusqlite::params![
                 async_id,
@@ -625,8 +638,21 @@ impl ExbashWorkdirStore for SqliteSessionHost {
                  time_start, time_end, exit_code, time_created, time_updated)
              VALUES (?1, ?2, ?3, 'workspace', ?4, ?5, ?6, ?3, ?7, ?8, ?9, ?10, ?10)
              ON CONFLICT(session_id, workspace, executor, async_id)
-             DO UPDATE SET time_end = excluded.time_end,
-                           exit_code = excluded.exit_code,
+             DO UPDATE SET description = CASE
+                             WHEN excluded.description <> '' THEN excluded.description
+                             ELSE exbash_task.description
+                           END,
+                           command = CASE
+                             WHEN excluded.command <> '' THEN excluded.command
+                             ELSE exbash_task.command
+                           END,
+                           cwd = CASE
+                             WHEN excluded.cwd <> '' THEN excluded.cwd
+                             ELSE exbash_task.cwd
+                           END,
+                           time_start = MIN(exbash_task.time_start, excluded.time_start),
+                           time_end = COALESCE(excluded.time_end, exbash_task.time_end),
+                           exit_code = COALESCE(excluded.exit_code, exbash_task.exit_code),
                            time_updated = excluded.time_updated",
             rusqlite::params![
                 async_id,

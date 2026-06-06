@@ -1967,6 +1967,10 @@ function BlockTool(props: {
   part?: ToolPart
   spinner?: boolean
   label?: string
+  tool?: string
+  input?: unknown
+  output?: string
+  metadata?: unknown
   suffix?: string
 }) {
   const { theme } = useTheme()
@@ -1974,6 +1978,31 @@ function BlockTool(props: {
   const dialog = useDialog()
   const [hover, setHover] = createSignal(false)
   const error = createMemo(() => (props.part?.state.status === "error" ? props.part.state.error : undefined))
+  const click = createMemo(() => !!props.onClick || !!props.tool)
+  const toolInput = createMemo(() => props.input ?? props.part?.state.input ?? {})
+  const toolOutput = createMemo(() => props.output ?? (props.part?.state.status === "completed" ? props.part.state.output : undefined))
+  const toolMetadata = createMemo(() => props.metadata ?? (props.part?.state.status === "pending" ? {} : props.part?.state.metadata))
+  const toolAttachments = createMemo(() => (props.part?.state.status === "completed" ? props.part.state.attachments : undefined))
+  const openDetails = () => {
+    if (props.onClick) {
+      props.onClick()
+      return
+    }
+    if (!props.tool) return
+    dialog.replace(() => (
+      <DialogTool
+        tool={props.tool!}
+        sessionID={props.part?.sessionID}
+        messageID={props.part?.messageID}
+        partID={props.part?.id}
+        input={toolInput()}
+        output={toolOutput()}
+        metadata={toolMetadata()}
+        attachments={toolAttachments()}
+        error={error()}
+      />
+    ))
+  }
   const head = () => (
     <Show
       when={props.spinner}
@@ -1997,11 +2026,11 @@ function BlockTool(props: {
       backgroundColor={hover() ? theme.backgroundMenu : theme.backgroundPanel}
       customBorderChars={SplitBorder.customBorderChars}
       borderColor={theme.background}
-      onMouseOver={() => props.onClick && setHover(true)}
+      onMouseOver={() => click() && setHover(true)}
       onMouseOut={() => setHover(false)}
       onMouseUp={() => {
         if (renderer.getSelection()?.getSelectedText()) return
-        props.onClick?.()
+        openDetails()
       }}
     >
       <Show when={props.suffix} fallback={head()}>
@@ -2027,8 +2056,10 @@ function BlockTool(props: {
                 sessionID={props.part?.sessionID}
                 messageID={props.part?.messageID}
                 partID={props.part?.id}
-                metadata={props.part?.state.status === "pending" ? {} : props.part?.state.metadata}
-                attachments={props.part?.state.status === "completed" ? props.part.state.attachments : undefined}
+                input={toolInput()}
+                output={toolOutput()}
+                metadata={toolMetadata()}
+                attachments={toolAttachments()}
                 error={error()}
               />
             ))
@@ -2060,9 +2091,42 @@ function ExBash(props: ToolProps<typeof ExBashTool>) {
     }
     return props.input.command ?? mode()
   })
+  const label = createMemo(() => {
+    switch (mode()) {
+      case "run":
+        return "Run"
+      case "attach":
+        return "Attach"
+      case "list":
+        return "List"
+      case "stop":
+        return "Stop"
+      case "remove":
+        return "Remove"
+      default:
+        return "Shell"
+    }
+  })
+  const icon = createMemo(() => {
+    switch (mode()) {
+      case "run":
+        return ">"
+      case "attach":
+        return "+"
+      case "list":
+        return "≡"
+      case "stop":
+        return "!"
+      case "remove":
+        return "-"
+      default:
+        return "$"
+    }
+  })
   const title = createMemo(() => {
-    const stateTitle = "title" in props.part.state && props.part.state.title ? props.part.state.title : undefined
-    return `# ${stateTitle || props.input.description || `exbash ${mode()}`}`
+    const rawTitle = "title" in props.part.state && props.part.state.title ? props.part.state.title : undefined
+    const stateTitle = rawTitle && rawTitle !== "tool" ? rawTitle : undefined
+    return `# ${stateTitle || props.input.description || props.input.command || `exbash ${mode()}`}`
   })
   const pending = createMemo(() => {
     if (mode() === "attach") return "Attaching to async run..."
@@ -2094,7 +2158,7 @@ function ExBash(props: ToolProps<typeof ExBashTool>) {
         <BlockTool
           title={title()}
           part={props.part}
-          label="Shell"
+          label={label()}
           suffix={executor(props.input)}
           spinner={isRunning()}
           onClick={() =>
@@ -2113,7 +2177,9 @@ function ExBash(props: ToolProps<typeof ExBashTool>) {
           }
         >
           <box gap={1}>
-            <text fg={theme.text}>$ {command()}</text>
+            <text fg={theme.text}>
+              {icon()} {command()}
+            </text>
             <Show when={output() && !overflow()}>
               <text fg={theme.text}>{output()}</text>
             </Show>
@@ -2125,7 +2191,7 @@ function ExBash(props: ToolProps<typeof ExBashTool>) {
       </Match>
       <Match when={true}>
         <InlineTool
-          icon="$"
+          icon={icon()}
           pending={pending()}
           complete={command()}
           part={props.part}
@@ -2172,7 +2238,15 @@ function Read(props: ToolProps<typeof ReadTool>) {
           </InlineTool>
         }
       >
-        <BlockTool title={`# Read binary ${normalizePath(target())}`} part={props.part} suffix={executor(props.input)}>
+        <BlockTool
+          title={`# Read binary ${normalizePath(target())}`}
+          part={props.part}
+          tool="Read"
+          input={props.input}
+          output={props.output}
+          metadata={props.metadata}
+          suffix={executor(props.input)}
+        >
           <text fg={theme.text}>{preview()}</text>
         </BlockTool>
       </Show>
@@ -2190,11 +2264,18 @@ function Read(props: ToolProps<typeof ReadTool>) {
 }
 
 function FileAction(props: ToolProps<typeof FileActionTool>) {
-  const { theme } = useTheme()
-  const target = createMemo(() => props.input.fileKey ?? props.input.filePath ?? "")
+  const { theme, syntax } = useTheme()
+  const ctx = use()
+  const target = createMemo(() => fileActionPath(props.input.fileKey ?? props.input.filePath))
   const nextTarget = createMemo(() => props.input.newFilePath ?? "")
   const mode = createMemo(() => props.input.mode ?? "patch")
   const output = createMemo(() => props.output?.trim() ?? "")
+  const patchDiff = createMemo(() => fileActionPatchDiff(props.input))
+  const diffView = createMemo(() => {
+    if (ctx.tui.diff_style === "stacked") return "unified"
+    return ctx.width > 120 ? "split" : "unified"
+  })
+  const diffFiletype = createMemo(() => filetype(target()))
   const title = createMemo(() => {
     const from = normalizePath(target())
     const to = normalizePath(nextTarget())
@@ -2208,8 +2289,39 @@ function FileAction(props: ToolProps<typeof FileActionTool>) {
   return (
     <Switch>
       <Match when={output()}>
-        <BlockTool title={title()} part={props.part} suffix={executor(props.input)}>
-          <text fg={theme.text}>{output()}</text>
+        <BlockTool
+          title={title()}
+          part={props.part}
+          tool="FileAction"
+          input={props.input}
+          output={props.output}
+          metadata={props.metadata}
+          suffix={executor(props.input)}
+        >
+          <box gap={1}>
+            <Show when={patchDiff()}>
+              <diff
+                diff={patchDiff()}
+                view={diffView()}
+                filetype={diffFiletype()}
+                syntaxStyle={syntax()}
+                showLineNumbers={true}
+                width="100%"
+                wrapMode={ctx.diffWrapMode()}
+                fg={theme.text}
+                addedBg={theme.diffAddedBg}
+                removedBg={theme.diffRemovedBg}
+                contextBg={theme.diffContextBg}
+                addedSignColor={theme.diffHighlightAdded}
+                removedSignColor={theme.diffHighlightRemoved}
+                lineNumberFg={theme.diffLineNumber}
+                lineNumberBg={theme.diffContextBg}
+                addedLineNumberBg={theme.diffAddedLineNumberBg}
+                removedLineNumberBg={theme.diffRemovedLineNumberBg}
+              />
+            </Show>
+            <text fg={patchDiff() ? theme.textMuted : theme.text}>{output()}</text>
+          </box>
         </BlockTool>
       </Match>
       <Match when={true}>
@@ -2228,6 +2340,28 @@ function FileAction(props: ToolProps<typeof FileActionTool>) {
       </Match>
     </Switch>
   )
+}
+
+function fileActionPath(input?: string) {
+  if (!input) return ""
+  return input.replace(/\s+#[A-Za-z0-9]{4,}\s*$/, "")
+}
+
+function fileActionPatchDiff(input: Record<string, any>) {
+  const mode = input.mode ?? "patch"
+  if (mode !== "patch") return ""
+  if ((input.patchMode ?? "text") === "binary") return ""
+
+  const patchText = typeof input.patchText === "string" ? input.patchText.trimEnd() : ""
+  if (!patchText) return ""
+
+  const trimmed = patchText.trimStart()
+  if (trimmed.startsWith("@@")) {
+    const filename = normalizePath(fileActionPath(input.fileKey ?? input.filePath)) || "file"
+    return `--- ${filename}\n+++ ${filename}\n${trimmed}`
+  }
+  if (trimmed.startsWith("--- ") || trimmed.startsWith("diff --git ")) return trimmed
+  return ""
 }
 
 function Rg(props: ToolProps<typeof RgTool>) {
@@ -2384,7 +2518,7 @@ function TodoWrite(props: ToolProps<typeof TodoWriteTool>) {
   return (
     <Switch>
       <Match when={props.metadata.todos?.length}>
-        <BlockTool title="# Todos" part={props.part}>
+        <BlockTool title="# Todos" part={props.part} tool="Todos" input={props.input} output={props.output} metadata={props.metadata}>
           <box>
             <For each={props.input.todos ?? []}>
               {(todo) => <TodoItem status={todo.status} content={todo.content} />}
@@ -2420,7 +2554,14 @@ function Question(props: ToolProps<typeof QuestionTool>) {
   return (
     <Switch>
       <Match when={props.metadata.answers}>
-        <BlockTool title="# Questions" part={props.part}>
+        <BlockTool
+          title="# Questions"
+          part={props.part}
+          tool="Question"
+          input={props.input}
+          output={props.output}
+          metadata={props.metadata}
+        >
           <box gap={1}>
             <For each={props.input.questions ?? []}>
               {(q, i) => (

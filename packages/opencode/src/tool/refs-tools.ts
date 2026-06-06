@@ -186,6 +186,18 @@ function extractOutput(parsed: {
   return { title: "tool", metadata: {}, output: result.content?.[0]?.text ?? "" }
 }
 
+function exbashTitle(args: unknown) {
+  const input = args && typeof args === "object" && !Array.isArray(args) ? (args as Record<string, unknown>) : {}
+  const mode = typeof input.mode === "string" ? input.mode : "shell"
+  const description = typeof input.description === "string" ? input.description.trim() : ""
+  if (description) return description
+  const command = typeof input.command === "string" ? input.command.trim() : ""
+  if ((mode === "shell" || mode === "run") && command) return command
+  const asyncID = typeof input.asyncID === "string" ? input.asyncID.trim() : ""
+  if ((mode === "stop" || mode === "remove" || mode === "attach") && asyncID) return `${mode} ${asyncID}`
+  return `exbash ${mode}`
+}
+
 function mcpToolToInfo(def: ToolDefinition): Tool.Info {
   const toolId = def.name
   const parameters = jsonSchemaToZod(modelInputSchema(def.inputSchema))
@@ -206,6 +218,7 @@ function mcpToolToInfo(def: ToolDefinition): Tool.Info {
         const output = extractOutput(JSON.parse(json))
         if (toolId === "exbash") {
           await ExBashTask.refresh({ sessionID: ctx.sessionID, workspace: ctx.directory ?? Instance.directory })
+          return { ...output, title: exbashTitle(args) }
         }
         return output
       },
