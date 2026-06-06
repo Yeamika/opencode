@@ -270,7 +270,7 @@ function createReadTool(def: ToolDefinition): Tool.Info {
 
         if (local && !isHashRef) {
           const stat = Filesystem.stat(resolvedPath)
-          if (stat && !stat.isDirectory() && a.mode !== "binary") {
+          if (stat && !stat.isDirectory()) {
             const mime = Filesystem.mimeType(resolvedPath)
             const image = mime.startsWith("image/") && mime !== "image/svg+xml" && mime !== "image/vnd.fastbidsheet"
             const pdf = mime === "application/pdf"

@@ -438,6 +438,32 @@ describe("tool.read truncation", () => {
     })
   })
 
+  test("image files still attach when requested as binary", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        const png = Buffer.from(
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==",
+          "base64",
+        )
+        await Bun.write(path.join(dir, "image.png"), png)
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const read = await ReadTool.init()
+        const result = await read.execute({ fileKey: path.join(tmp.path, "image.png"), mode: "binary" }, ctx)
+        expect(result.output).toBe("Image read successfully")
+        expect(result.metadata.truncated).toBe(false)
+        expect(result.attachments).toBeDefined()
+        expect(result.attachments?.length).toBe(1)
+        expect(result.attachments?.[0].type).toBe("file")
+        expect(result.attachments?.[0].mime).toBe("image/png")
+        expect(result.attachments?.[0].url).toStartWith("data:image/png;base64,")
+      },
+    })
+  })
+
   test("image and PDF reads require local executor, and PDF is rejected", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {
