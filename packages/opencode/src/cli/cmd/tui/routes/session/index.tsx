@@ -1760,8 +1760,7 @@ function GenericTool(props: ToolProps<any>) {
   const ctx = use()
   const dialog = useDialog()
   const out = createMemo(() => props.output?.trim() ?? "")
-  const row = createMemo(() => out().split("\n"))
-  const fold = createMemo(() => row().length > 3 || out().length > 240 || row().some((x) => x.length > 120))
+  const fold = createMemo(() => shouldFoldToolOutput(out()))
   const error = createMemo(() => (props.part.state.status === "error" ? props.part.state.error : undefined))
   const action = () => {
     dialog.replace(() => (
@@ -1806,6 +1805,12 @@ function GenericTool(props: ToolProps<any>) {
       {props.tool} {input(props.input)}
     </InlineTool>
   )
+}
+
+function shouldFoldToolOutput(output: string) {
+  if (!output) return false
+  const rows = output.split("\n")
+  return rows.length > 10 || output.length > 600 || rows.some((x) => x.length > 160)
 }
 
 function InlineTool(props: {
@@ -2079,8 +2084,7 @@ function ExBash(props: ToolProps<typeof ExBashTool>) {
   const isRunning = createMemo(() => props.part.state.status === "running")
   const mode = createMemo(() => props.input.mode ?? "shell")
   const output = createMemo(() => stripAnsi(props.output?.trim() ?? ""))
-  const lines = createMemo(() => output().split("\n"))
-  const overflow = createMemo(() => lines().length > 10 || output().length > 600)
+  const overflow = createMemo(() => shouldFoldToolOutput(output()))
   const command = createMemo(() => {
     if (mode() === "list") return props.input.asyncID ?? "all"
     if (mode() === "stop" || mode() === "remove") return props.input.asyncID ?? mode()
