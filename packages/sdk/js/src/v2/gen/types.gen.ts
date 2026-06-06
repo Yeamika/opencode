@@ -397,6 +397,14 @@ export type EventMcpBrowserOpenFailed = {
   }
 }
 
+export type EventExbashUpdated = {
+  type: "exbash.updated"
+  properties: {
+    sessionID: string
+    workspace: string
+  }
+}
+
 export type EventCommandExecuted = {
   type: "command.executed"
   properties: {
@@ -533,14 +541,6 @@ export type EventWorkspaceFailed = {
   type: "workspace.failed"
   properties: {
     message: string
-  }
-}
-
-export type EventExbashUpdated = {
-  type: "exbash.updated"
-  properties: {
-    sessionID: string
-    workspace: string
   }
 }
 
@@ -1071,6 +1071,7 @@ export type Event =
   | EventTuiDisplayReport
   | EventMcpToolsChanged
   | EventMcpBrowserOpenFailed
+  | EventExbashUpdated
   | EventCommandExecuted
   | EventSessionDiff
   | EventSessionError
@@ -1079,7 +1080,6 @@ export type Event =
   | EventVcsBranchUpdated
   | EventWorkspaceReady
   | EventWorkspaceFailed
-  | EventExbashUpdated
   | EventPtyCreated
   | EventPtyUpdated
   | EventPtyExited
