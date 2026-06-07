@@ -472,11 +472,13 @@ it.live("session.processor effect tests publish retry status updates", () =>
         const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
         const states: number[] = []
         const callingAttempts: number[] = []
+        const callingMessages: string[] = []
         const off = yield* bus.subscribeCallback(SessionStatus.Event.Status, (evt) => {
           if (evt.properties.sessionID !== chat.id) return
           if (evt.properties.status.type === "retry") states.push(evt.properties.status.attempt)
           if (evt.properties.status.type === "busy" && evt.properties.status.action === "Calling model") {
             callingAttempts.push(evt.properties.status.attempt ?? 0)
+            if (evt.properties.status.message) callingMessages.push(evt.properties.status.message)
           }
         })
         const handle = yield* processors.create({
@@ -509,10 +511,12 @@ it.live("session.processor effect tests publish retry status updates", () =>
         expect(states).toStrictEqual([1])
         expect(callingAttempts).toContain(0)
         expect(callingAttempts).toContain(1)
+        expect(callingMessages).toContain("boom")
         const current = yield* sts.get(chat.id)
         expect(current).toMatchObject({ type: "busy", action: "Running session" })
         if (current.type !== "busy") throw new Error("expected busy status")
         expect(current.attempt).toBeUndefined()
+        expect(current.message).toBeUndefined()
       }),
     { git: true, config: (url) => providerCfg(url) },
   ),

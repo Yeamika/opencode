@@ -19,6 +19,7 @@ export namespace SessionStatus {
     updatedAt: z.number(),
     action: z.string().optional(),
     attempt: z.number().optional(),
+    message: z.string().optional(),
   })
 
   const Retry = z.object({
@@ -47,6 +48,7 @@ export namespace SessionStatus {
   export function busy(input?: {
     action?: string
     attempt?: number
+    message?: string
     startedAt?: number
     updatedAt?: number
   }): Extract<Info, { type: "busy" }> {
@@ -57,6 +59,7 @@ export namespace SessionStatus {
       updatedAt: now,
       ...(input?.action ? { action: input.action } : {}),
       ...(input?.attempt ? { attempt: input.attempt } : {}),
+      ...(input?.message ? { message: input.message } : {}),
     }
   }
 

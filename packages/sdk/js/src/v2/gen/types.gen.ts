@@ -144,6 +144,7 @@ export type SessionStatus =
       updatedAt: number
       action?: string
       attempt?: number
+      message?: string
     }
 
 export type EventSessionStatus = {

@@ -53,6 +53,7 @@ export namespace SessionProcessor {
     currentText: MessageV2.TextPart | undefined
     reasoningMap: Record<string, MessageV2.ReasoningPart>
     attempt: number
+    reason: string | undefined
   }
 
   type StreamEvent = Event
@@ -128,6 +129,7 @@ export namespace SessionProcessor {
           currentText: undefined,
           reasoningMap: {},
           attempt: 0,
+          reason: undefined,
         }
         let aborted = false
 
@@ -137,13 +139,16 @@ export namespace SessionProcessor {
             aborted,
           })
 
+        const calling = () =>
+          SessionStatus.busy({
+            action: "Calling model",
+            ...(ctx.attempt > 0 ? { attempt: ctx.attempt, ...(ctx.reason ? { message: ctx.reason } : {}) } : {}),
+          })
+
         const handleEvent = Effect.fn("SessionProcessor.handleEvent")(function* (value: StreamEvent) {
           switch (value.type) {
             case "start":
-              yield* status.set(
-                ctx.sessionID,
-                SessionStatus.busy({ action: "Calling model", ...(ctx.attempt > 0 ? { attempt: ctx.attempt } : {}) }),
-              )
+              yield* status.set(ctx.sessionID, calling())
               return
 
             case "reasoning-start":
@@ -306,10 +311,7 @@ export namespace SessionProcessor {
             }
 
             case "start-step":
-              yield* status.set(
-                ctx.sessionID,
-                SessionStatus.busy({ action: "Calling model", ...(ctx.attempt > 0 ? { attempt: ctx.attempt } : {}) }),
-              )
+              yield* status.set(ctx.sessionID, calling())
               if (!ctx.snapshot) ctx.snapshot = yield* snapshot.track()
               yield* session.updatePart({
                 id: PartID.ascending(),
@@ -532,6 +534,7 @@ export namespace SessionProcessor {
                 if (Exit.isSuccess(exit)) {
                   const retried = attempt > 0
                   ctx.attempt = 0
+                  ctx.reason = undefined
                   if (retried) {
                     yield* status.set(ctx.sessionID, SessionStatus.busy({ action: "Running session" }))
                   }
@@ -547,6 +550,7 @@ export namespace SessionProcessor {
                 const retryMessage = message ?? (yield* Effect.fail(error))
 
                 attempt += 1
+                ctx.reason = retryMessage
                 const wait = SessionRetry.delay(attempt, MessageV2.APIError.isInstance(parsed) ? parsed : undefined)
                 const now = Date.now()
                 yield* status.set(

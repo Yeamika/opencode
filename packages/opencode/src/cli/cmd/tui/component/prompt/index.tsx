@@ -133,6 +133,13 @@ export function Prompt(props: PromptProps) {
     return "attempt" in current && typeof current.attempt === "number" ? current.attempt : undefined
   })
 
+  const busyMessage = createMemo(() => {
+    const current = status()
+    if (current.type !== "busy") return undefined
+    if (!("message" in current) || typeof current.message !== "string") return undefined
+    return current.message.length > 0 ? current.message : undefined
+  })
+
   const busyText = createMemo(() => {
     const current = status()
     if (current.type !== "busy") return ""
@@ -1036,6 +1043,7 @@ export function Prompt(props: PromptProps) {
 
     if (status().type === "busy") {
       const attempt = busyAttempt()
+      const message = busyMessage()
       return (
         <box flexDirection="row" gap={1} minWidth={0}>
           <Show when={kv.get("animations_enabled", true)} fallback={<text fg={theme.textMuted}>[⋯]</text>}>
@@ -1048,7 +1056,15 @@ export function Prompt(props: PromptProps) {
             <text fg={theme.textMuted} wrapMode="none">
               ·
             </text>
-            <box onMouseUp={() => DialogAlert.show(dialog, "Model Attempt", `${busyText()} · attempt #${attempt}`)}>
+            <box
+              onMouseUp={() =>
+                DialogAlert.show(
+                  dialog,
+                  message ? "Retry Error" : "Model Attempt",
+                  message ?? `${busyText()} · attempt #${attempt}`,
+                )
+              }
+            >
               <text fg={theme.primary} wrapMode="none">
                 attempt #{attempt}
               </text>

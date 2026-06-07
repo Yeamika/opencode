@@ -339,15 +339,7 @@ export namespace ACP {
                 this.toolStarts.delete(part.callID)
                 this.exbashSnapshots.delete(part.callID)
                 const kind = toToolKind(part.tool)
-                const content: ToolCallContent[] = [
-                  {
-                    type: "content",
-                    content: {
-                      type: "text",
-                      text: part.state.output,
-                    },
-                  },
-                ]
+                const content = completedContent(part)
 
                 if (kind === "edit") {
                   const input = part.state.input
@@ -869,15 +861,7 @@ export namespace ACP {
               this.toolStarts.delete(part.callID)
               this.exbashSnapshots.delete(part.callID)
               const kind = toToolKind(part.tool)
-              const content: ToolCallContent[] = [
-                {
-                  type: "content",
-                  content: {
-                    type: "text",
-                    text: part.state.output,
-                  },
-                },
-              ]
+              const content = completedContent(part)
 
               if (kind === "edit") {
                 const input = part.state.input
@@ -1538,6 +1522,35 @@ export namespace ACP {
       default:
         return []
     }
+  }
+
+  function completedContent(part: ToolPart): ToolCallContent[] {
+    if (part.state.status !== "completed") return []
+    const text = completedText(part)
+    return [
+      {
+        type: "content",
+        content: {
+          type: "text",
+          text,
+        },
+      },
+    ]
+  }
+
+  function completedText(part: ToolPart): string {
+    if (part.state.status !== "completed") return ""
+    if (part.tool !== "exbash") return part.state.output
+    const mode = part.state.input["mode"]
+    if (mode !== "remove" && mode !== "stop") return part.state.output
+    const id =
+      typeof part.state.input["asyncID"] === "string"
+        ? part.state.input["asyncID"]
+        : typeof part.state.input["asyncId"] === "string"
+          ? part.state.input["asyncId"]
+          : ""
+    const verb = mode === "remove" ? "removed" : "stopped"
+    return id ? `${verb} exbash ${id}` : `${verb} exbash`
   }
 
   async function defaultModel(config: ACPConfig, cwd?: string): Promise<{ providerID: ProviderID; modelID: ModelID }> {

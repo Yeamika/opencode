@@ -74,7 +74,8 @@ export namespace SessionRetry {
       if (!error.data.isRetryable) return undefined
       if (error.data.responseBody?.includes("FreeUsageLimitError"))
         return `Free usage exceeded, subscribe to Go https://opencode.ai/go`
-      return error.data.message.includes("Overloaded") ? "Provider is overloaded" : error.data.message
+      const msg = detail(error.data.responseBody) ?? error.data.message
+      return error.data.message.includes("Overloaded") && msg === error.data.message ? "Provider is overloaded" : msg
     }
 
     const json = iife(() => {
@@ -93,15 +94,42 @@ export namespace SessionRetry {
     const code = typeof json.code === "string" ? json.code : ""
 
     if (json.type === "error" && json.error?.type === "too_many_requests") {
-      return "Too Many Requests"
+      return detail(json) ?? "Too Many Requests"
     }
     if (code.includes("exhausted") || code.includes("unavailable")) {
-      return "Provider is overloaded"
+      return detail(json) ?? "Provider is overloaded"
     }
     if (json.type === "error" && typeof json.error?.code === "string" && json.error.code.includes("rate_limit")) {
-      return "Rate Limited"
+      return detail(json) ?? "Rate Limited"
     }
     return undefined
+  }
+
+  function detail(input: unknown): string | undefined {
+    const value = iife(() => {
+      if (typeof input !== "string") return input
+      try {
+        return JSON.parse(input)
+      } catch {
+        return undefined
+      }
+    })
+    if (typeof value === "string") {
+      const text = value.replace(/\s+/g, " ").trim()
+      return text === "" ? undefined : text
+    }
+    if (!value || typeof value !== "object") return undefined
+    const obj = value as Record<string, unknown>
+    const err = obj.error
+    const candidates = [
+      obj.message,
+      typeof err === "string" ? err : undefined,
+      err && typeof err === "object" ? (err as Record<string, unknown>).message : undefined,
+    ]
+    return candidates
+      .find((item): item is string => typeof item === "string" && item.trim() !== "")
+      ?.replace(/\s+/g, " ")
+      .trim()
   }
 
   export function policy(opts: {

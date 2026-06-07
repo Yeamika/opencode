@@ -1,7 +1,13 @@
 import { describe, expect, test } from "bun:test"
 import { ACP } from "../../src/acp/agent"
 import type { AgentSideConnection } from "@agentclientprotocol/sdk"
-import type { Event, EventMessagePartUpdated, ToolStatePending, ToolStateRunning } from "@opencode-ai/sdk/v2"
+import type {
+  Event,
+  EventMessagePartUpdated,
+  ToolStateCompleted,
+  ToolStatePending,
+  ToolStateRunning,
+} from "@opencode-ai/sdk/v2"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 
@@ -29,6 +35,16 @@ function inProgressText(update: SessionUpdateParams["update"]) {
   return first.content.text
 }
 
+function completedText(update: SessionUpdateParams["update"]) {
+  if (update.sessionUpdate !== "tool_call_update") return undefined
+  if (update.status !== "completed") return undefined
+  if (!update.content || !Array.isArray(update.content)) return undefined
+  const first = update.content[0]
+  if (!first || first.type !== "content") return undefined
+  if (first.content.type !== "text") return undefined
+  return first.content.text
+}
+
 function isToolCallUpdate(
   update: SessionUpdateParams["update"],
 ): update is Extract<SessionUpdateParams["update"], { sessionUpdate: "tool_call_update" }> {
@@ -42,9 +58,13 @@ function toolEvent(
     callID: string
     tool: string
     input: Record<string, unknown>
-  } & ({ status: "running"; metadata?: Record<string, unknown> } | { status: "pending"; raw: string }),
+  } & (
+    | { status: "running"; metadata?: Record<string, unknown> }
+    | { status: "pending"; raw: string }
+    | { status: "completed"; output: string; title: string; metadata: Record<string, unknown> }
+  ),
 ): GlobalEventEnvelope {
-  const state: ToolStatePending | ToolStateRunning =
+  const state: ToolStateCompleted | ToolStatePending | ToolStateRunning =
     opts.status === "running"
       ? {
           status: "running",
@@ -52,11 +72,20 @@ function toolEvent(
           ...(opts.metadata && { metadata: opts.metadata }),
           time: { start: Date.now() },
         }
-      : {
-          status: "pending",
-          input: opts.input,
-          raw: opts.raw,
-        }
+      : opts.status === "pending"
+        ? {
+            status: "pending",
+            input: opts.input,
+            raw: opts.raw,
+          }
+        : {
+            status: "completed",
+            input: opts.input,
+            output: opts.output,
+            title: opts.title,
+            metadata: opts.metadata,
+            time: { start: Date.now(), end: Date.now() },
+          }
   const payload: EventMessagePartUpdated = {
     type: "message.part.updated",
     properties: {
@@ -678,6 +707,64 @@ describe("acp.agent event subscription", () => {
           .map((u) => inProgressText(u.update))
 
         expect(snapshots).toEqual(["a", "a"])
+        stop()
+      },
+    })
+  })
+
+  test("summarizes completed exbash stop and remove while preserving raw output", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const { agent, controller, sessionUpdates, stop } = createFakeAgent()
+        const cwd = "/tmp/opencode-acp-test"
+        const sessionId = await agent.newSession({ cwd, mcpServers: [] } as any).then((x) => x.sessionId)
+        const raw = '{\n  "metadata": {\n    "asyncID": "rex-1"\n  }\n}'
+
+        controller.push(
+          toolEvent(sessionId, cwd, {
+            callID: "call_remove",
+            tool: "exbash",
+            status: "completed",
+            input: { mode: "remove", asyncID: "rex-1" },
+            output: raw,
+            title: "exbash",
+            metadata: { asyncID: "rex-1" },
+          }),
+        )
+        controller.push(
+          toolEvent(sessionId, cwd, {
+            callID: "call_stop",
+            tool: "exbash",
+            status: "completed",
+            input: { mode: "stop", asyncID: "rex-2" },
+            output: raw,
+            title: "exbash",
+            metadata: { asyncID: "rex-2" },
+          }),
+        )
+        await new Promise((r) => setTimeout(r, 20))
+
+        const updates = sessionUpdates
+          .filter((u) => u.sessionId === sessionId)
+          .map((u) => u.update)
+          .filter(isToolCallUpdate)
+          .filter((u) => u.status === "completed")
+
+        expect(updates.map(completedText)).toEqual(["removed exbash rex-1", "stopped exbash rex-2"])
+        expect(
+          updates.every((u) => {
+            const out = u.rawOutput
+            return (
+              completedText(u)?.includes("{") === false &&
+              typeof out === "object" &&
+              out !== null &&
+              "output" in out &&
+              out.output === raw
+            )
+          }),
+        ).toBe(true)
         stop()
       },
     })

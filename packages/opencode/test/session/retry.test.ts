@@ -147,6 +147,19 @@ describe("session.retry.retryable", () => {
     expect(SessionRetry.retryable(error)).toBe("Too Many Requests")
   })
 
+  test("uses specific too_many_requests messages when present", () => {
+    const error = wrap(
+      JSON.stringify({
+        type: "error",
+        error: {
+          type: "too_many_requests",
+          message: "Quota temporarily exhausted for this model",
+        },
+      }),
+    )
+    expect(SessionRetry.retryable(error)).toBe("Quota temporarily exhausted for this model")
+  })
+
   test("maps overloaded provider codes", () => {
     const error = wrap(JSON.stringify({ code: "resource_exhausted" }))
     expect(SessionRetry.retryable(error)).toBe("Provider is overloaded")
@@ -187,6 +200,30 @@ describe("session.retry.retryable", () => {
     const retryable = SessionRetry.retryable(error)
     expect(retryable).toBeDefined()
     expect(retryable).toBe("Response decompression failed")
+  })
+
+  test("uses API response body details instead of generic retry messages", () => {
+    const error = new MessageV2.APIError({
+      message: "retry",
+      isRetryable: true,
+      responseBody: JSON.stringify({
+        error: {
+          message: "Provider queue is full; retry after capacity frees up",
+        },
+      }),
+    }).toObject() as MessageV2.APIError
+
+    expect(SessionRetry.retryable(error)).toBe("Provider queue is full; retry after capacity frees up")
+  })
+
+  test("keeps API messages when response body has no structured detail", () => {
+    const error = new MessageV2.APIError({
+      message: "Gateway unavailable",
+      isRetryable: true,
+      responseBody: "<html>temporary failure</html>",
+    }).toObject() as MessageV2.APIError
+
+    expect(SessionRetry.retryable(error)).toBe("Gateway unavailable")
   })
 })
 
