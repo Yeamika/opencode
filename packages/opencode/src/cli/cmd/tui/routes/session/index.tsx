@@ -172,7 +172,6 @@ export function Session() {
   const [diffWrapMode] = kv.signal<"word" | "none">("diff_wrap_mode", "word")
   const [animationsEnabled, setAnimationsEnabled] = kv.signal("animations_enabled", true)
   const [showGenericToolOutput, setShowGenericToolOutput] = kv.signal("generic_tool_output_visibility", false)
-  const [autoPtyt, setAutoPtyt] = kv.signal("exbash_ptyt_auto_attach", false)
 
   const wide = createMemo(() => dimensions().width > 120)
   const sidebarVisible = createMemo(() => {
@@ -217,10 +216,8 @@ export function Session() {
   const args = useArgs()
   const local = useLocal()
 
-  const ptyt = new Set<string>()
-
-  function ptytBin() {
-    const exe = process.platform === "win32" ? "ptyt.exe" : "ptyt"
+  function refsPtytBin() {
+    const exe = process.platform === "win32" ? "refs-ptyt.exe" : "refs-ptyt"
     const roots = [process.env.OPENCODE_BIN_DIR, path.dirname(process.execPath), real(process.execPath)]
       .flatMap((file) => (file ? [file] : []))
       .filter((item, index, all) => all.indexOf(item) === index)
@@ -237,13 +234,6 @@ export function Session() {
     } catch {
       return undefined
     }
-  }
-
-  function ptytArgs(cmd: string) {
-    const url = /(?:^|\s)--url\s+(\S+)/.exec(cmd)?.[1]
-    const pty = /(?:^|\s)--pty\s+(\S+)/.exec(cmd)?.[1]
-    if (!url || !pty) throw new Error("ptyt attachurl is missing --url or --pty")
-    return [ptytBin(), "--url", url, "--pty", pty]
   }
 
   function quote(arg: string) {
@@ -285,47 +275,41 @@ export function Session() {
     if (process.env.OPENCODE_TERMINAL) return [process.env.OPENCODE_TERMINAL, "-e", ...args]
     const terms = [
       ["gnome-terminal", "--", ...args],
-      ["konsole", "--new-tab", "-p", "tabtitle=opencode ptyt", "-e", ...args],
-      ["xfce4-terminal", "--title", "opencode ptyt", "-e", ...args],
-      ["mate-terminal", "--title", "opencode ptyt", "-e", ...args],
-      ["tilix", "--title", "opencode ptyt", "-e", ...args],
-      ["kitty", "--title", "opencode ptyt", ...args],
-      ["alacritty", "--title", "opencode ptyt", "-e", ...args],
+      ["konsole", "--new-tab", "-p", "tabtitle=opencode refs-ptyt", "-e", ...args],
+      ["xfce4-terminal", "--title", "opencode refs-ptyt", "-e", ...args],
+      ["mate-terminal", "--title", "opencode refs-ptyt", "-e", ...args],
+      ["tilix", "--title", "opencode refs-ptyt", "-e", ...args],
+      ["kitty", "--title", "opencode refs-ptyt", ...args],
+      ["alacritty", "--title", "opencode refs-ptyt", "-e", ...args],
       ["wezterm", "start", "--", ...args],
-      ["xterm", "-T", "opencode ptyt", "-e", ...args],
+      ["xterm", "-T", "opencode refs-ptyt", "-e", ...args],
       ["x-terminal-emulator", "-e", ...args],
     ]
     return terms.find((item) => exists(item[0]))
   }
 
-  async function openPtyt(cmd: string) {
-    const cmdline = windowCommand(ptytArgs(cmd))
-    if (!cmdline) throw new Error("No terminal window launcher found for ptyt auto attach")
-    const proc = nodeSpawn(cmdline[0], cmdline.slice(1), { detached: true, stdio: "ignore", windowsHide: false })
-    proc.unref()
+  function refsMcpWsUrl(serverUrl: string) {
+    const url = new URL(`/session/${route.sessionID}/refs-mcp`, serverUrl)
+    if (url.protocol === "http:") url.protocol = "ws:"
+    else if (url.protocol === "https:") url.protocol = "wss:"
+    else if (url.protocol !== "ws:" && url.protocol !== "wss:") {
+      throw new Error(`refs-ptyt attach requires an http(s) or ws(s) server URL: ${serverUrl}`)
+    }
+    url.search = ""
+    url.hash = ""
+    return url.toString()
   }
 
-  async function attachPtyt(part: ToolPart) {
-    if (!autoPtyt()) return
-    if (part.tool !== "exbash") return
-    if (part.sessionID !== route.sessionID) return
-    if (part.state.status !== "completed") return
-    const mode = typeof part.state.input.mode === "string" ? part.state.input.mode : undefined
-    if (mode && mode !== "run" && mode !== "runexe") return
-    const id = typeof part.state.metadata.asyncID === "string" ? part.state.metadata.asyncID : undefined
-    const state = typeof part.state.metadata.state === "string" ? part.state.metadata.state : undefined
-    if (!id || state !== "running") return
-    const exec = typeof part.state.metadata.executor === "string" ? part.state.metadata.executor : undefined
-    const key = `${part.sessionID}\0${exec ?? ""}\0${id}`
-    if (ptyt.has(key)) return
-    ptyt.add(key)
-    const url = new URL(`/session/${part.sessionID}/exbash/${id}/snapshot`, sdk.url)
-    if (exec) url.searchParams.set("executor", exec)
-    const response = await sdk.fetch(url, { headers: sdk.headers })
-    if (!response.ok) throw new Error(`exbash ptyt attach failed (${response.status})`)
-    const data = (await response.json()) as { attachurl?: string }
-    if (!data.attachurl) throw new Error("exbash ptyt attach url unavailable")
-    await openPtyt(data.attachurl)
+  async function refsPtytArgs() {
+    const serverUrl = args.transport === "attach" && args.url ? args.url : await sdk.ensureServerUrl()
+    return [refsPtytBin(), "--server-url", refsMcpWsUrl(serverUrl), "--session", route.sessionID]
+  }
+
+  async function openRefsPtyt() {
+    const cmdline = windowCommand(await refsPtytArgs())
+    if (!cmdline) throw new Error("No terminal window launcher found for refs-ptyt attach")
+    const proc = nodeSpawn(cmdline[0], cmdline.slice(1), { detached: true, stdio: "ignore", windowsHide: false })
+    proc.unref()
   }
 
   async function retrySessionNow() {
@@ -364,17 +348,6 @@ export function Session() {
       local.agent.set("plan")
       lastSwitch = part.id
     }
-  })
-
-  sdk.event.on("message.part.updated", (evt) => {
-    const part = evt.properties.part
-    if (part.type !== "tool") return
-    void attachPtyt(part).catch((error) => {
-      toast.show({
-        message: error instanceof Error ? error.message : String(error),
-        variant: "error",
-      })
-    })
   })
 
   let scroll: ScrollBoxRenderable
@@ -778,16 +751,26 @@ export function Session() {
       },
     },
     {
-      title: autoPtyt() ? "Disable exbash ptyt auto attach" : "Enable exbash ptyt auto attach",
-      value: "session.toggle.exbash_ptyt_auto_attach",
+      title: "Attach refs-ptyt",
+      value: "session.refs_ptyt_attach",
       category: "Session",
+      slash: {
+        name: "refs-ptyt-attach",
+      },
       onSelect: (dialog) => {
-        const next = !autoPtyt()
-        setAutoPtyt(() => next)
-        toast.show({
-          message: next ? "exbash ptyt auto attach enabled" : "exbash ptyt auto attach disabled",
-          variant: "info",
-        })
+        void openRefsPtyt()
+          .then(() => {
+            toast.show({
+              message: "refs-ptyt attach opened",
+              variant: "info",
+            })
+          })
+          .catch((error) => {
+            toast.show({
+              message: error instanceof Error ? error.message : String(error),
+              variant: "error",
+            })
+          })
         dialog.clear()
       },
     },
@@ -2016,9 +1999,15 @@ function BlockTool(props: {
   const error = createMemo(() => (props.part?.state.status === "error" ? props.part.state.error : undefined))
   const click = createMemo(() => !!props.onClick || !!props.tool)
   const toolInput = createMemo(() => props.input ?? props.part?.state.input ?? {})
-  const toolOutput = createMemo(() => props.output ?? (props.part?.state.status === "completed" ? props.part.state.output : undefined))
-  const toolMetadata = createMemo(() => props.metadata ?? (props.part?.state.status === "pending" ? {} : props.part?.state.metadata))
-  const toolAttachments = createMemo(() => (props.part?.state.status === "completed" ? props.part.state.attachments : undefined))
+  const toolOutput = createMemo(
+    () => props.output ?? (props.part?.state.status === "completed" ? props.part.state.output : undefined),
+  )
+  const toolMetadata = createMemo(
+    () => props.metadata ?? (props.part?.state.status === "pending" ? {} : props.part?.state.metadata),
+  )
+  const toolAttachments = createMemo(() =>
+    props.part?.state.status === "completed" ? props.part.state.attachments : undefined,
+  )
   const openDetails = () => {
     if (props.onClick) {
       props.onClick()
@@ -2564,7 +2553,14 @@ function TodoWrite(props: ToolProps<typeof TodoWriteTool>) {
   return (
     <Switch>
       <Match when={props.metadata.todos?.length}>
-        <BlockTool title="# Todos" part={props.part} tool="Todos" input={props.input} output={props.output} metadata={props.metadata}>
+        <BlockTool
+          title="# Todos"
+          part={props.part}
+          tool="Todos"
+          input={props.input}
+          output={props.output}
+          metadata={props.metadata}
+        >
           <box>
             <For each={props.input.todos ?? []}>
               {(todo) => <TodoItem status={todo.status} content={todo.content} />}

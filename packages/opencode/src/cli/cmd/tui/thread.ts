@@ -40,7 +40,8 @@ function createWorkerFetch(client: RpcClient): typeof fetch {
   return fn as typeof fetch
 }
 
-function createEventSource(client: RpcClient): EventSource {
+function createEventSource(client: RpcClient, network: Awaited<ReturnType<typeof resolveNetworkOptions>>): EventSource {
+  let serverUrl: Promise<string> | undefined
   return {
     on: (handler) => client.on<TuiSdkEvent>("event", handler),
     setDirectory: (directory) => {
@@ -51,6 +52,10 @@ function createEventSource(client: RpcClient): EventSource {
     },
     setWorkspace: (workspaceID) => {
       void client.call("setWorkspace", { workspaceID })
+    },
+    ensureServerUrl: () => {
+      serverUrl ??= client.call("server", network).then(async (result) => (await result).url)
+      return serverUrl
     },
   }
 }
@@ -219,7 +224,7 @@ export const TuiThreadCommand = cmd({
         : {
             url: "http://opencode.internal",
             fetch: createWorkerFetch(client),
-            events: createEventSource(client),
+            events: createEventSource(client, network),
           }
 
       setTimeout(() => {

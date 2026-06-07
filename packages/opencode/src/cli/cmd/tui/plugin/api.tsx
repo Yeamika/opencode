@@ -176,8 +176,8 @@ function stateApi(input: Input): TuiPluginApi["state"] {
         if (executor) url.searchParams.set("executor", executor)
         const response = await input.sdk.fetch(url, { headers: input.sdk.headers })
         if (!response.ok) throw new Error(`exbash snapshot failed (${response.status})`)
-        const data = (await response.json()) as { snapshot?: string; attachurl?: string }
-        return { snapshot: data.snapshot ?? "", ...(data.attachurl === undefined ? {} : { attachurl: data.attachurl }) }
+        const data = (await response.json()) as { snapshot?: string }
+        return { snapshot: data.snapshot ?? "" }
       },
       messages(sessionID) {
         return sync.data.message[sessionID] ?? []

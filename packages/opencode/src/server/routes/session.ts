@@ -1,6 +1,7 @@
 import { Hono } from "hono"
 import { stream } from "hono/streaming"
 import { describeRoute, validator, resolver } from "hono-openapi"
+import { upgradeWebSocket } from "hono/bun"
 import { SessionID, MessageID, PartID } from "@/session/schema"
 import z from "zod"
 import { Session } from "../../session"
@@ -27,6 +28,47 @@ import { Bus } from "../../bus"
 import { NamedError } from "@opencode-ai/util/error"
 
 const log = Log.create({ service: "server" })
+
+function refsMcpRequest(input: string, sessionID: string) {
+  const value = JSON.parse(input)
+  const apply = (item: unknown) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return item
+    const request = item as Record<string, unknown>
+    if (request.method !== "tools/call") return item
+    if (!request.params || typeof request.params !== "object" || Array.isArray(request.params)) {
+      request.params = {}
+    }
+    const params = request.params as Record<string, unknown>
+    if (!params.arguments || typeof params.arguments !== "object" || Array.isArray(params.arguments)) {
+      params.arguments = {}
+    }
+    const args = params.arguments as Record<string, unknown>
+    args.ExecutorSessionID = sessionID
+    return item
+  }
+  return JSON.stringify(Array.isArray(value) ? value.map(apply) : apply(value))
+}
+
+function refsMcpRequestID(input: string) {
+  try {
+    const value = JSON.parse(input)
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null
+    return (value as Record<string, unknown>).id ?? null
+  } catch {
+    return null
+  }
+}
+
+function refsMcpError(id: unknown, code: number, message: string) {
+  return JSON.stringify({
+    jsonrpc: "2.0",
+    id: id ?? null,
+    error: {
+      code,
+      message,
+    },
+  })
+}
 
 export const SessionRoutes = lazy(() =>
   new Hono()
@@ -192,6 +234,55 @@ export const SessionRoutes = lazy(() =>
       },
     )
     .get(
+      "/:sessionID/refs-mcp",
+      describeRoute({
+        summary: "Connect to session REFS MCP",
+        description: "Establish a WebSocket JSON-RPC connection to the session-bound embedded REFS MCP endpoint.",
+        operationId: "session.refsMcp",
+        responses: {
+          200: {
+            description: "Connected REFS MCP WebSocket",
+            content: {
+              "application/json": {
+                schema: resolver(z.boolean()),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+        }),
+      ),
+      upgradeWebSocket(async (c) => {
+        const sessionID = SessionID.zod.parse(c.req.param("sessionID"))
+        const session = await Session.get(sessionID)
+        const handle = RefsBridge.getHandle({ sessionID, workdir: session.directory })
+
+        return {
+          onMessage(event, ws) {
+            if (typeof event.data !== "string") return
+            const id = refsMcpRequestID(event.data)
+            try {
+              const request = refsMcpRequest(event.data, sessionID)
+              ws.send(handle.handleRaw(request))
+            } catch (error) {
+              ws.send(
+                refsMcpError(
+                  id,
+                  error instanceof SyntaxError ? -32700 : -32603,
+                  error instanceof Error ? error.message : String(error),
+                ),
+              )
+            }
+          },
+        }
+      }),
+    )
+    .get(
       "/:sessionID/exbash",
       describeRoute({
         summary: "Get session bash tasks",
@@ -236,7 +327,6 @@ export const SessionRoutes = lazy(() =>
                 schema: resolver(
                   z.object({
                     snapshot: z.string(),
-                    attachurl: z.string().optional(),
                     metadata: z.record(z.string(), z.unknown()),
                   }),
                 ),
@@ -286,12 +376,8 @@ export const SessionRoutes = lazy(() =>
             workdir: session.directory,
           },
         )
-        const list = await RefsBridge.list(session.directory, param.sessionID)
-        const hit = list.executors.find((item) => item.id === exec)
-        const url = typeof hit?.url === "string" ? hit.url : undefined
         return c.json({
           snapshot: result.output,
-          ...(url === undefined ? {} : { attachurl: `ptyt --url ${url} --pty ${param.asyncID}` }),
           metadata: {},
         })
       },

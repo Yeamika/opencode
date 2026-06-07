@@ -15,6 +15,7 @@ export type EventSource = {
   setDirectory?: (directory: string) => void
   reload?: (directory: string) => Promise<void>
   setWorkspace?: (workspaceID?: string) => void
+  ensureServerUrl?: () => Promise<string>
 }
 
 type DisplayReportEvent = {
@@ -244,6 +245,9 @@ export const { use: useSDK, provider: SDKProvider } = createSimpleContext({
         sdk = createSDK()
         props.events?.setWorkspace?.(next)
         if (!props.events) startSSE()
+      },
+      async ensureServerUrl() {
+        return (await props.events?.ensureServerUrl?.()) ?? props.url
       },
       url: props.url,
     }

@@ -39,7 +39,6 @@ function Detail(props: { api: TuiPluginApi; session_id: string; job: Job }) {
   const theme = () => props.api.theme.current
   const term = useTerminalDimensions()
   const [shot, setShot] = createSignal("")
-  const [url, setUrl] = createSignal("")
   const [err, setErr] = createSignal("")
   const [loading, setLoading] = createSignal(true)
   const close = () => props.api.ui.dialog.clear()
@@ -55,7 +54,6 @@ function Detail(props: { api: TuiPluginApi; session_id: string; job: Job }) {
       .exbashSnapshot(props.session_id, props.job.asyncID, props.job.executor)
       .then((next) => {
         setShot(next.snapshot)
-        setUrl(next.attachurl ?? "")
       })
       .catch((error) => setErr(error instanceof Error ? error.message : String(error)))
       .finally(() => setLoading(false))
@@ -145,12 +143,6 @@ function Detail(props: { api: TuiPluginApi; session_id: string; job: Job }) {
               <text fg={shot() ? theme().text : theme().textMuted}>{shot() || "(empty)"}</text>
             </Show>
           </box>
-          <Show when={url()}>
-            <box flexDirection="column">
-              <text fg={theme().textMuted}>attachurl</text>
-              <text fg={theme().text}>{url()}</text>
-            </box>
-          </Show>
         </box>
       </scrollbox>
       <box flexDirection="row" justifyContent="flex-end" paddingBottom={1}>
@@ -168,7 +160,13 @@ function icon(props: { api: TuiPluginApi; job: Job }) {
   if (props.job.state === "unknown") return <text fg={theme().warning}>[?]</text>
   if (props.job.state === "timeout" || props.job.exitCode === "timeout") return <text fg={theme().warning}>[!]</text>
   if (props.job.state === "exit:0" || props.job.exitCode === 0) return <text fg={theme().success}>[✓]</text>
-  if (props.job.state === "stop" || props.job.exitCode === undefined || props.job.exitCode === "stopped" || props.job.exitCode === "stop") return <text fg={theme().warning}>[!]</text>
+  if (
+    props.job.state === "stop" ||
+    props.job.exitCode === undefined ||
+    props.job.exitCode === "stopped" ||
+    props.job.exitCode === "stop"
+  )
+    return <text fg={theme().warning}>[!]</text>
   return <text fg={theme().error}>[E]</text>
 }
 
