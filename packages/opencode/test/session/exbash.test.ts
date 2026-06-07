@@ -73,19 +73,13 @@ describe("ExBashTask.ensure", () => {
         )
 
         const tasks = await ExBashTask.get({ sessionID: session.id, workspace: session.directory })
-        expect(tasks.map((task) => task.asyncID).sort()).toEqual([
-          "remote-session-running",
-          "remote-workspace-running",
-        ])
+        expect(tasks.map((task) => task.asyncID).sort()).toEqual(["remote-session-running", "remote-workspace-running"])
         expect(tasks.every((task) => task.executor === "exec_1" && task.state === "running")).toBe(true)
 
         const rows = Database.use((db) =>
           db.select().from(ExBashTaskTable).where(eq(ExBashTaskTable.session_id, session.id)).all(),
         )
-        expect(rows.map((row) => row.async_id).sort()).toEqual([
-          "remote-session-running",
-          "remote-workspace-running",
-        ])
+        expect(rows.map((row) => row.async_id).sort()).toEqual(["remote-session-running", "remote-workspace-running"])
       },
     })
   })

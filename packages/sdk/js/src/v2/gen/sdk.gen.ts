@@ -143,6 +143,8 @@ import type {
   SessionPromptAsyncResponses,
   SessionPromptErrors,
   SessionPromptResponses,
+  SessionRefsMcpErrors,
+  SessionRefsMcpResponses,
   SessionResumeErrors,
   SessionResumeResponses,
   SessionRetryNowErrors,
@@ -1786,6 +1788,38 @@ export class Session2 extends HeyApiClient {
     )
     return (options?.client ?? this.client).get<SessionTodoResponses, SessionTodoErrors, ThrowOnError>({
       url: "/session/{sessionID}/todo",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Connect to session REFS MCP
+   *
+   * Establish a WebSocket JSON-RPC connection to the session-bound embedded REFS MCP endpoint.
+   */
+  public refsMcp<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionRefsMcpResponses, SessionRefsMcpErrors, ThrowOnError>({
+      url: "/session/{sessionID}/refs-mcp",
       ...options,
       ...params,
     })

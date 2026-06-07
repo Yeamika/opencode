@@ -5,6 +5,7 @@
 ## 堵塞中
 
 ## 已完成
+
 - [✅] 收口 opencode 家族记忆层级——已将共享发布规则上提到 `../AGENTS.md`，本 worktree 保留 repo 级规则[ses_hr]
 - [✅] 收紧 workspace 工具权限——已完成并通过定向测试与 typecheck[ses_gpt54]
 - [✅] 补 exbash_executor 权限与兼容测试——已完成并通过定向测试与 typecheck[ses_gpt54]
@@ -15,4 +16,5 @@
 - [✅] 移除 TUI prompt 输入锁，并带上 share/import legacy cleanup 额外变动——已完成关键包 typecheck[ses_gpt54]
 
 ## 待处理
+
 - [⏳] 运行 release-local——等待提交后继续[ses_gpt54]

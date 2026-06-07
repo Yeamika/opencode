@@ -52,11 +52,11 @@ function linuxBinding() {
   const isMusl =
     compiledLibc === "musl" ||
     (compiledLibc === undefined &&
-      !(
-        process.report?.getReport?.() as { header?: { glibcVersionRuntime?: string } } | undefined
-      )?.header?.glibcVersionRuntime)
+      !(process.report?.getReport?.() as { header?: { glibcVersionRuntime?: string } } | undefined)?.header
+        ?.glibcVersionRuntime)
   if (process.arch === "x64") return isMusl ? "refs-opencode.linux-x64-musl.node" : "refs-opencode.linux-x64-gnu.node"
-  if (process.arch === "arm64") return isMusl ? "refs-opencode.linux-arm64-musl.node" : "refs-opencode.linux-arm64-gnu.node"
+  if (process.arch === "arm64")
+    return isMusl ? "refs-opencode.linux-arm64-musl.node" : "refs-opencode.linux-arm64-gnu.node"
 }
 
 function bindingName() {
@@ -87,13 +87,15 @@ function loadAddon(): RefsAddon {
     realDir(process.execPath),
   ]
   const candidates = Array.from(
-    new Set([
-      ...binaryDirs.map((dir) => (dir ? join(dir, filename) : undefined)),
-      join(process.cwd(), filename),
-      join(process.cwd(), "../REFS-opencode", filename),
-      join(process.cwd(), "packages/REFS-opencode", filename),
-      moduleDir ? resolve(moduleDir, "../../../REFS-opencode", filename) : undefined,
-    ].filter((item): item is string => !!item)),
+    new Set(
+      [
+        ...binaryDirs.map((dir) => (dir ? join(dir, filename) : undefined)),
+        join(process.cwd(), filename),
+        join(process.cwd(), "../REFS-opencode", filename),
+        join(process.cwd(), "packages/REFS-opencode", filename),
+        moduleDir ? resolve(moduleDir, "../../../REFS-opencode", filename) : undefined,
+      ].filter((item): item is string => !!item),
+    ),
   )
   for (const file of candidates) {
     if (!existsSync(file)) continue

@@ -3439,6 +3439,40 @@ export type SessionTodoResponses = {
 
 export type SessionTodoResponse = SessionTodoResponses[keyof SessionTodoResponses]
 
+export type SessionRefsMcpData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/refs-mcp"
+}
+
+export type SessionRefsMcpErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionRefsMcpError = SessionRefsMcpErrors[keyof SessionRefsMcpErrors]
+
+export type SessionRefsMcpResponses = {
+  /**
+   * Connected REFS MCP WebSocket
+   */
+  200: boolean
+}
+
+export type SessionRefsMcpResponse = SessionRefsMcpResponses[keyof SessionRefsMcpResponses]
+
 export type SessionExbashData = {
   body?: never
   path: {
@@ -3506,7 +3540,6 @@ export type SessionExbashSnapshotResponses = {
    */
   200: {
     snapshot: string
-    attachurl?: string
     metadata: {
       [key: string]: unknown
     }

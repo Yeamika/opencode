@@ -2611,6 +2611,76 @@
         ]
       }
     },
+    "/session/{sessionID}/refs-mcp": {
+      "get": {
+        "operationId": "session.refsMcp",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sessionID",
+            "schema": {
+              "type": "string",
+              "pattern": "^ses.*"
+            },
+            "required": true
+          }
+        ],
+        "summary": "Connect to session REFS MCP",
+        "description": "Establish a WebSocket JSON-RPC connection to the session-bound embedded REFS MCP endpoint.",
+        "responses": {
+          "200": {
+            "description": "Connected REFS MCP WebSocket",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.session.refsMcp({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/session/{sessionID}/exbash": {
       "get": {
         "operationId": "session.exbash",
@@ -2738,9 +2808,6 @@
                   "type": "object",
                   "properties": {
                     "snapshot": {
-                      "type": "string"
-                    },
-                    "attachurl": {
                       "type": "string"
                     },
                     "metadata": {
@@ -8519,6 +8586,29 @@
         },
         "required": ["type", "properties"]
       },
+      "Event.exbash.updated": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "exbash.updated"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "sessionID": {
+                "type": "string",
+                "pattern": "^ses.*"
+              },
+              "workspace": {
+                "type": "string"
+              }
+            },
+            "required": ["sessionID", "workspace"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
       "Event.command.executed": {
         "type": "object",
         "properties": {
@@ -8914,29 +9004,6 @@
               }
             },
             "required": ["message"]
-          }
-        },
-        "required": ["type", "properties"]
-      },
-      "Event.exbash.updated": {
-        "type": "object",
-        "properties": {
-          "type": {
-            "type": "string",
-            "const": "exbash.updated"
-          },
-          "properties": {
-            "type": "object",
-            "properties": {
-              "sessionID": {
-                "type": "string",
-                "pattern": "^ses.*"
-              },
-              "workspace": {
-                "type": "string"
-              }
-            },
-            "required": ["sessionID", "workspace"]
           }
         },
         "required": ["type", "properties"]
@@ -10531,6 +10598,9 @@
             "$ref": "#/components/schemas/Event.mcp.browser.open.failed"
           },
           {
+            "$ref": "#/components/schemas/Event.exbash.updated"
+          },
+          {
             "$ref": "#/components/schemas/Event.command.executed"
           },
           {
@@ -10553,9 +10623,6 @@
           },
           {
             "$ref": "#/components/schemas/Event.workspace.failed"
-          },
-          {
-            "$ref": "#/components/schemas/Event.exbash.updated"
           },
           {
             "$ref": "#/components/schemas/Event.pty.created"
@@ -12836,13 +12903,21 @@
               },
               {
                 "type": "string",
-                "enum": ["stopped", "timeout"]
+                "enum": ["stop", "stopped", "timeout"]
               }
             ]
           },
           "state": {
-            "type": "string",
-            "enum": ["running", "stopped", "unknown"]
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["running", "stop", "timeout", "unknown"]
+              },
+              {
+                "type": "string",
+                "pattern": "^exit:-?\\d+$"
+              }
+            ]
           },
           "memory": {
             "type": "boolean"

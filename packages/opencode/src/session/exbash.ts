@@ -10,10 +10,7 @@ import { SessionID } from "./schema"
 export namespace ExBashTask {
   export const Scope = z.enum(["local", "workspace"])
   export type Scope = z.infer<typeof Scope>
-  export const State = z.union([
-    z.enum(["running", "stop", "timeout", "unknown"]),
-    z.string().regex(/^exit:-?\d+$/),
-  ])
+  export const State = z.union([z.enum(["running", "stop", "timeout", "unknown"]), z.string().regex(/^exit:-?\d+$/)])
   export type State = z.infer<typeof State>
   export const ExitCode = z.union([z.number(), z.enum(["stop", "stopped", "timeout"])])
   export type ExitCode = z.infer<typeof ExitCode>

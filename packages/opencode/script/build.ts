@@ -178,7 +178,11 @@ const targets = singleFlag
 type Target = (typeof allTargets)[number]
 
 const targetFilter = process.env.OPENCODE_BUILD_TARGETS
-  ? new Set(process.env.OPENCODE_BUILD_TARGETS.split(",").map((item) => item.trim()).filter(Boolean))
+  ? new Set(
+      process.env.OPENCODE_BUILD_TARGETS.split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
+    )
   : undefined
 
 const buildTargets = targetFilter
