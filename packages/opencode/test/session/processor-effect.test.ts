@@ -461,6 +461,7 @@ it.live("session.processor effect tests publish retry status updates", () =>
       Effect.gen(function* () {
         const { processors, session, provider } = yield* boot()
         const bus = yield* Bus.Service
+        const sts = yield* SessionStatus.Service
 
         yield* llm.error(503, { error: "boom" })
         yield* llm.text("")
@@ -508,6 +509,10 @@ it.live("session.processor effect tests publish retry status updates", () =>
         expect(states).toStrictEqual([1])
         expect(callingAttempts).toContain(0)
         expect(callingAttempts).toContain(1)
+        const current = yield* sts.get(chat.id)
+        expect(current).toMatchObject({ type: "busy", action: "Running session" })
+        if (current.type !== "busy") throw new Error("expected busy status")
+        expect(current.attempt).toBeUndefined()
       }),
     { git: true, config: (url) => providerCfg(url) },
   ),

@@ -530,7 +530,11 @@ export namespace SessionProcessor {
                 ctx.attempt = attempt
                 const exit = yield* runAttempt.pipe(Effect.exit)
                 if (Exit.isSuccess(exit)) {
+                  const retried = attempt > 0
                   ctx.attempt = 0
+                  if (retried) {
+                    yield* status.set(ctx.sessionID, SessionStatus.busy({ action: "Running session" }))
+                  }
                   break
                 }
                 if (Cause.hasInterruptsOnly(exit.cause)) {
