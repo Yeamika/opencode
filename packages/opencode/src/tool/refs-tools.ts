@@ -11,7 +11,7 @@
 import z from "zod"
 import * as path from "path"
 import { Tool } from "./tool"
-import { getHandle } from "./refs-bridge"
+import { callToolAsync, getHandle } from "./refs-bridge"
 import { Instance } from "../project/instance"
 import { Filesystem } from "../util/filesystem"
 import { Instruction } from "../session/instruction"
@@ -144,16 +144,19 @@ function modelInputSchema(schema: Record<string, unknown>): Record<string, unkno
   return next
 }
 
-function callRefsTool(def: ToolDefinition, args: unknown, ctx: Tool.Context) {
+async function callRefsTool(def: ToolDefinition, args: unknown, ctx: Tool.Context) {
   const values =
     args && typeof args === "object" && !Array.isArray(args)
       ? { ExecutorSessionID: ctx.sessionID, ...(args as Record<string, unknown>) }
       : { ExecutorSessionID: ctx.sessionID }
   values.ExecutorSessionID = ctx.sessionID
-  return getHandle({
+  const workdir = ctx.directory ?? Instance.directory
+  return callToolAsync({
     sessionID: ctx.sessionID,
-    workdir: ctx.directory ?? Instance.directory,
-  }).callTool(def.name, JSON.stringify(values))
+    workdir,
+    tool: def.name,
+    argsJson: JSON.stringify(values),
+  })
 }
 
 type RefsToolStubParams = ReturnType<typeof z.any>
@@ -216,7 +219,7 @@ function mcpToolToInfo(def: ToolDefinition): Tool.Info {
           always: ["*"],
           metadata: { tool: toolId },
         })
-        const json = callRefsTool(def, args, ctx)
+        const json = await callRefsTool(def, args, ctx)
         const output = extractOutput(JSON.parse(json))
         if (toolId === "exbash") {
           await ExBashTask.refresh({ sessionID: ctx.sessionID, workspace: ctx.directory ?? Instance.directory })
@@ -294,7 +297,7 @@ function createReadTool(def: ToolDefinition): Tool.Info {
           }
         }
 
-        const json = callRefsTool(def, args, ctx)
+        const json = await callRefsTool(def, args, ctx)
         return extractOutput(JSON.parse(json))
       },
     }),

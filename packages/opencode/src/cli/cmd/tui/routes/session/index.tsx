@@ -2412,6 +2412,8 @@ function ExecutorManager(props: ToolProps<typeof ExecutorManagerTool>) {
       part={props.part}
       tool="Executor Manager"
       input={props.input}
+      output={props.output}
+      suffix={executor(props.input)}
     >
       Executor Manager {method()}
       <Show when={target()}> {target()}</Show>

@@ -16,12 +16,32 @@ import { existsSync, realpathSync } from "fs"
 import { dirname, join, resolve } from "path"
 
 declare const OPENCODE_LIBC: string | undefined
+declare const OPENCODE_REFS_WORKER_PATH: string | undefined
 
 type Result = {
   title: string
   metadata: Record<string, unknown>
   output: string
 }
+
+type WorkerRequest = {
+  id: number
+  dbPath: string
+  sessionID: string
+  workdir: string
+  tool: string
+  args: string
+}
+
+type WorkerResponse =
+  | {
+      id: number
+      json: string
+    }
+  | {
+      id: number
+      error: string
+    }
 
 export type ExecutorListItem = {
   id: string
@@ -33,8 +53,12 @@ export type ExecutorListItem = {
 }
 
 const handles = new Map<string, SessionMcpHandle>()
+const pending = new Map<number, { resolve: (json: string) => void; reject: (error: Error) => void }>()
 type RefsAddon = { createSessionMcp(dbPath: string, sessionID: string, workdir: string): SessionMcpHandle }
 let addon: RefsAddon | undefined
+let worker: Worker | undefined
+let seq = 0
+let idle: ReturnType<typeof setTimeout> | undefined
 
 type HandleInput = {
   dbPath?: string
@@ -103,6 +127,86 @@ function loadAddon(): RefsAddon {
     return addon
   }
   throw new Error(`REFS-opencode native addon ${filename} not found. Checked: ${candidates.join(", ")}`)
+}
+
+function workerTarget() {
+  if (typeof OPENCODE_REFS_WORKER_PATH !== "undefined") return OPENCODE_REFS_WORKER_PATH
+  return new URL("./refs-worker.ts", import.meta.url)
+}
+
+function clearIdle() {
+  if (!idle) return
+  clearTimeout(idle)
+  idle = undefined
+}
+
+function scheduleIdle() {
+  if (pending.size > 0) return
+  clearIdle()
+  idle = setTimeout(() => {
+    worker?.terminate()
+    worker = undefined
+    idle = undefined
+  }, 1000)
+  const timer = idle as ReturnType<typeof setTimeout> & { unref?: () => void }
+  timer.unref?.()
+}
+
+function refsWorker() {
+  if (worker) {
+    clearIdle()
+    return worker
+  }
+  worker = new Worker(workerTarget())
+  const ref = worker as Worker & { unref?: () => void }
+  ref.unref?.()
+  worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
+    const item = pending.get(event.data.id)
+    if (!item) return
+    pending.delete(event.data.id)
+    if ("error" in event.data) {
+      item.reject(new Error(event.data.error))
+      scheduleIdle()
+      return
+    }
+    item.resolve(event.data.json)
+    scheduleIdle()
+  }
+  worker.onerror = (event) => {
+    const error = new Error(event.message)
+    for (const item of pending.values()) item.reject(error)
+    pending.clear()
+    worker = undefined
+    clearIdle()
+  }
+  return worker
+}
+
+export function callToolAsync(input: {
+  dbPath?: string
+  sessionID: string
+  workdir: string
+  tool: string
+  argsJson: string
+}): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const id = ++seq
+    pending.set(id, { resolve, reject })
+    try {
+      refsWorker().postMessage({
+        id,
+        dbPath: input.dbPath ?? Database.Path,
+        sessionID: input.sessionID,
+        workdir: input.workdir,
+        tool: input.tool,
+        args: input.argsJson,
+      } satisfies WorkerRequest)
+    } catch (error) {
+      pending.delete(id)
+      reject(error instanceof Error ? error : new Error(String(error)))
+      scheduleIdle()
+    }
+  })
 }
 
 /**
