@@ -2,6 +2,7 @@ import { describe, test, expect, beforeEach, afterEach, afterAll } from "bun:tes
 import { tmpdir } from "../fixture/fixture"
 import z from "zod"
 import { Bus } from "../../src/bus"
+import { GlobalBus } from "../../src/bus/global"
 import { Instance } from "../../src/project/instance"
 import { SyncEvent } from "../../src/sync"
 import { Database } from "../../src/storage/db"
@@ -128,6 +129,24 @@ describe("SyncEvent", () => {
             name: "test",
           },
         })
+      }),
+    )
+
+    test(
+      "emits global bus payload before returning",
+      withInstance(() => {
+        const { Created } = setup()
+        const events: Array<{ payload?: { type?: string } }> = []
+        const handler = (event: { payload?: { type?: string } }) => {
+          events.push(event)
+        }
+        GlobalBus.on("event", handler)
+        try {
+          SyncEvent.run(Created, { id: "evt_1", name: "test" })
+          expect(events.some((event) => event.payload?.type === "item.created")).toBe(true)
+        } finally {
+          GlobalBus.off("event", handler)
+        }
       }),
     )
   })

@@ -149,10 +149,10 @@ export namespace SyncEvent {
           const result = convertEvent(def.type, event.data)
           if (result instanceof Promise) {
             result.then((data) => {
-              ProjectBus.publish({ type: def.type, properties: def.schema }, data)
+              ProjectBus.publishSync({ type: def.type, properties: def.schema }, data)
             })
           } else {
-            ProjectBus.publish({ type: def.type, properties: def.schema }, result)
+            ProjectBus.publishSync({ type: def.type, properties: def.schema }, result)
           }
         }
       })

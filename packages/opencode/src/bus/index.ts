@@ -184,8 +184,16 @@ export namespace Bus {
     return runPromise((svc) => svc.publish(def, properties))
   }
 
+  export function publishSync<D extends BusEvent.Definition>(def: D, properties: z.output<D["properties"]>) {
+    return runSync((svc) => svc.publish(def, properties))
+  }
+
   export async function publishRaw(type: string, properties?: Record<string, unknown>) {
     return runPromise((svc) => svc.publishRaw(type, properties))
+  }
+
+  export function publishRawSync(type: string, properties?: Record<string, unknown>) {
+    return runSync((svc) => svc.publishRaw(type, properties))
   }
 
   export function subscribe<D extends BusEvent.Definition>(

@@ -11,7 +11,6 @@ import { createOpencodeClient, type Event } from "@opencode-ai/sdk/v2"
 import { Flag } from "@/flag/flag"
 import { setTimeout as sleep } from "node:timers/promises"
 import { writeHeapSnapshot } from "node:v8"
-import { WorkspaceID } from "@/control-plane/schema"
 import { Heap } from "@/cli/heap"
 
 await Log.init({
@@ -37,11 +36,6 @@ process.on("uncaughtException", (e) => {
   })
 })
 
-// Subscribe to global events and forward them via RPC
-GlobalBus.on("event", (event) => {
-  Rpc.emit("global.event", event)
-})
-
 let server: Awaited<ReturnType<typeof Server.listen>> | undefined
 
 const eventStream = {
@@ -53,6 +47,22 @@ const state = {
   workspaceID: undefined as string | undefined,
   displayID: process.env.OPENCODE_DISPLAY_ID,
 }
+
+function forward(event: { directory?: string; payload?: { type?: unknown } }) {
+  Rpc.emit("global.event", event)
+  const type = typeof event.payload?.type === "string" ? event.payload.type : ""
+  if (!type) return
+  if (type.startsWith("tui.")) {
+    if (!state.workspaceID) Rpc.emit("event", event.payload)
+    return
+  }
+  if (state.workspaceID) return
+  if (event.directory === undefined || event.directory === "global" || event.directory === state.directory) {
+    Rpc.emit("event", event.payload)
+  }
+}
+
+GlobalBus.on("event", forward)
 
 const startEventStream = (input: { directory: string; workspaceID?: string }) => {
   const restarting = Boolean(eventStream.abort)
@@ -80,14 +90,7 @@ const startEventStream = (input: { directory: string; workspaceID?: string }) =>
 
   ;(async () => {
     while (!signal.aborted) {
-      const events = await Promise.resolve(
-        sdk.event.subscribe(
-          {},
-          {
-            signal,
-          },
-        ),
-      ).catch(() => undefined)
+      const events = await Promise.resolve(sdk.event.subscribe({}, { signal })).catch(() => undefined)
 
       if (!events) {
         await sleep(250)
@@ -121,6 +124,11 @@ const startEventStream = (input: { directory: string; workspaceID?: string }) =>
   })
 }
 
+function stopEventStream() {
+  eventStream.abort?.abort()
+  eventStream.abort = undefined
+}
+
 async function requestReload(directory: string) {
   const url = new URL("/project/reload", "http://opencode.internal")
   url.searchParams.set("directory", directory)
@@ -137,8 +145,6 @@ async function requestReload(directory: string) {
     throw new Error(`reload failed (${response.status})`)
   }
 }
-
-startEventStream({ directory: state.directory })
 
 export const rpc = {
   async fetch(input: { url: string; method: string; headers: Record<string, string>; body?: string }) {
@@ -182,23 +188,23 @@ export const rpc = {
     const restart = state.directory !== input.directory || state.workspaceID !== undefined
     state.directory = input.directory
     state.workspaceID = undefined
+    if (restart) stopEventStream()
     await requestReload(state.directory)
-    if (restart) {
-      startEventStream({ directory: state.directory })
-    }
   },
   async setDirectory(input: { directory: string }) {
     state.directory = input.directory
     state.workspaceID = undefined
-    startEventStream({ directory: state.directory })
+    stopEventStream()
   },
   async setWorkspace(input: { workspaceID?: string }) {
     state.workspaceID = input.workspaceID
-    startEventStream({ directory: state.directory, workspaceID: state.workspaceID })
+    if (state.workspaceID) startEventStream({ directory: state.directory, workspaceID: state.workspaceID })
+    else stopEventStream()
   },
   async shutdown() {
     Log.Default.info("worker shutting down")
-    if (eventStream.abort) eventStream.abort.abort()
+    GlobalBus.off("event", forward)
+    stopEventStream()
     await Instance.disposeAll()
     if (server) await server.stop(true)
   },
