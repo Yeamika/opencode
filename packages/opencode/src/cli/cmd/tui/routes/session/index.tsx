@@ -37,6 +37,7 @@ import { Locale } from "@/util/locale"
 import type { Tool } from "@/tool/tool"
 import type { ExecutorManagerTool, FileActionTool, ReadTool } from "@/tool/refs-tools"
 import { ExBashTool } from "@/tool/refs-tools"
+import { preview as fileActionPreview } from "@/tool/fileaction-diff"
 import { TodoWriteTool } from "@/tool/todo"
 import type { RgTool } from "@/tool/refs-tools"
 import type { WebFetchTool } from "@/tool/webfetch"
@@ -2305,7 +2306,7 @@ function FileAction(props: ToolProps<typeof FileActionTool>) {
   const nextTarget = createMemo(() => props.input.newFilePath ?? "")
   const mode = createMemo(() => props.input.mode ?? "patch")
   const output = createMemo(() => props.output?.trim() ?? "")
-  const patchDiff = createMemo(() => fileActionPatchDiff(props.input))
+  const patchDiff = createMemo(() => fileActionPreview(props.input, normalizePath(target()) || "file"))
   const diffView = createMemo(() => {
     if (ctx.tui.diff_style === "stacked") return "unified"
     return ctx.width > 120 ? "split" : "unified"
@@ -2380,23 +2381,6 @@ function FileAction(props: ToolProps<typeof FileActionTool>) {
 function fileActionPath(input?: string) {
   if (!input) return ""
   return input.replace(/\s+#[A-Za-z0-9]{4,}\s*$/, "")
-}
-
-function fileActionPatchDiff(input: Record<string, any>) {
-  const mode = input.mode ?? "patch"
-  if (mode !== "patch") return ""
-  if ((input.patchMode ?? "text") === "binary") return ""
-
-  const patchText = typeof input.patchText === "string" ? input.patchText.trimEnd() : ""
-  if (!patchText) return ""
-
-  const trimmed = patchText.trimStart()
-  if (trimmed.startsWith("@@")) {
-    const filename = normalizePath(fileActionPath(input.fileKey ?? input.filePath)) || "file"
-    return `--- ${filename}\n+++ ${filename}\n${trimmed}`
-  }
-  if (trimmed.startsWith("--- ") || trimmed.startsWith("diff --git ")) return trimmed
-  return ""
 }
 
 function Rg(props: ToolProps<typeof RgTool>) {
