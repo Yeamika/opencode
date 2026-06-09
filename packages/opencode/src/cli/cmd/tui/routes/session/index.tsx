@@ -1882,7 +1882,13 @@ function InlineTool(props: {
         <Spinner color={fg()} children={props.children} />
       </Match>
       <Match when={true}>
-        <text paddingLeft={3} fg={fg()} attributes={denied() ? TextAttributes.STRIKETHROUGH : undefined}>
+        <text
+          paddingLeft={3}
+          fg={fg()}
+          attributes={denied() ? TextAttributes.STRIKETHROUGH : undefined}
+          wrapMode="none"
+          overflow="hidden"
+        >
           <Show fallback={<>~ {props.pending}</>} when={props.complete}>
             <span style={{ fg: props.iconColor }}>{props.icon}</span> {props.children}
           </Show>
@@ -1942,8 +1948,10 @@ function InlineTool(props: {
       }}
     >
       <Show when={props.suffix} fallback={line()}>
-        <box flexDirection="row" justifyContent="space-between" width="100%">
-          {line()}
+        <box flexDirection="row" justifyContent="space-between" width="100%" gap={1}>
+          <box minWidth={0} flexShrink={1}>
+            {line()}
+          </box>
           <text fg={theme.textMuted} flexShrink={0}>
             {props.suffix}
           </text>
@@ -1981,7 +1989,7 @@ function InlineTool(props: {
 }
 
 function BlockTool(props: {
-  title: string
+  title?: string
   children: JSX.Element
   onClick?: () => void
   part?: ToolPart
@@ -1999,6 +2007,8 @@ function BlockTool(props: {
   const [hover, setHover] = createSignal(false)
   const error = createMemo(() => (props.part?.state.status === "error" ? props.part.state.error : undefined))
   const click = createMemo(() => !!props.onClick || !!props.tool)
+  const title = createMemo(() => props.title?.trim() ?? "")
+  const header = createMemo(() => title().length > 0 || !!props.suffix)
   const toolInput = createMemo(() => props.input ?? props.part?.state.input ?? {})
   const toolOutput = createMemo(
     () => props.output ?? (props.part?.state.status === "completed" ? props.part.state.output : undefined),
@@ -2031,14 +2041,14 @@ function BlockTool(props: {
   }
   const head = () => (
     <Show
-      when={props.spinner}
+      when={props.spinner && title()}
       fallback={
-        <text paddingLeft={3} fg={theme.textMuted}>
-          {props.title}
+        <text paddingLeft={3} fg={theme.textMuted} wrapMode="none" overflow="hidden">
+          {title()}
         </text>
       }
     >
-      <Spinner color={theme.textMuted}>{props.title.replace(/^# /, "")}</Spinner>
+      <Spinner color={theme.textMuted}>{title().replace(/^# /, "")}</Spinner>
     </Show>
   )
   return (
@@ -2059,13 +2069,17 @@ function BlockTool(props: {
         openDetails()
       }}
     >
-      <Show when={props.suffix} fallback={head()}>
-        <box flexDirection="row" justifyContent="space-between" width="100%">
-          {head()}
-          <text fg={theme.textMuted} flexShrink={0}>
-            {props.suffix}
-          </text>
-        </box>
+      <Show when={header()}>
+        <Show when={props.suffix} fallback={head()}>
+          <box flexDirection="row" justifyContent="space-between" width="100%" gap={1}>
+            <box minWidth={0} flexShrink={1}>
+              {head()}
+            </box>
+            <text fg={theme.textMuted} flexShrink={0}>
+              {props.suffix}
+            </text>
+          </box>
+        </Show>
       </Show>
       {props.children}
       <Show when={error()}>
@@ -2107,6 +2121,9 @@ function ExBash(props: ToolProps<typeof ExBashTool>) {
   const output = createMemo(() => stripAnsi(props.output?.trim() ?? ""))
   const overflow = createMemo(() => shouldFoldToolOutput(output()))
   const preview = createMemo(() => previewToolOutput(output()))
+  const description = createMemo(() =>
+    typeof props.input.description === "string" ? props.input.description.trim() : "",
+  )
   const command = createMemo(() => {
     if (mode() === "list") return props.input.asyncID ?? "all"
     if (mode() === "stop" || mode() === "remove") return props.input.asyncID ?? mode()
@@ -2118,8 +2135,7 @@ function ExBash(props: ToolProps<typeof ExBashTool>) {
     return props.input.command ?? mode()
   })
   const display = createMemo(() => {
-    const description = typeof props.input.description === "string" ? props.input.description.trim() : ""
-    if (description) return description
+    if (description()) return description()
     return command()
   })
   const label = createMemo(() => {
@@ -2156,8 +2172,9 @@ function ExBash(props: ToolProps<typeof ExBashTool>) {
   })
   const title = createMemo(() => {
     const rawTitle = "title" in props.part.state && props.part.state.title ? props.part.state.title : undefined
-    const stateTitle = rawTitle && rawTitle !== "tool" ? rawTitle : undefined
-    return `# ${stateTitle || display()}`
+    const stateTitle = rawTitle && rawTitle !== "tool" ? rawTitle.trim() : ""
+    const value = stateTitle || description()
+    return value ? `# ${value}` : ""
   })
   const pending = createMemo(() => {
     if (mode() === "attach") return "Attaching to async run..."
@@ -2190,7 +2207,7 @@ function ExBash(props: ToolProps<typeof ExBashTool>) {
           title={title()}
           part={props.part}
           label={label()}
-          suffix={executor(props.input)}
+          suffix={title() ? executor(props.input) : undefined}
           spinner={isRunning()}
           onClick={() =>
             dialog.replace(() => (
@@ -2208,9 +2225,16 @@ function ExBash(props: ToolProps<typeof ExBashTool>) {
           }
         >
           <box gap={1}>
-            <text fg={theme.text}>
-              {icon()} {command()}
-            </text>
+            <box flexDirection="row" justifyContent="space-between" width="100%" gap={1}>
+              <text fg={theme.text} overflow="hidden" wrapMode="none" flexShrink={1}>
+                {icon()} {command()}
+              </text>
+              <Show when={!title()}>
+                <text fg={theme.textMuted} flexShrink={0}>
+                  {executor(props.input)}
+                </text>
+              </Show>
+            </box>
             <Show when={output() && !overflow()}>
               <text fg={theme.text}>{output()}</text>
             </Show>

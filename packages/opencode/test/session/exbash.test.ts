@@ -12,6 +12,63 @@ afterEach(async () => {
 })
 
 describe("ExBashTask.ensure", () => {
+  test("sorts tmp running tasks after described tasks", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const now = Date.now()
+
+        Database.use((db) =>
+          db
+            .insert(ExBashTaskTable)
+            .values([
+              {
+                async_id: "tmp-running",
+                session_id: session.id,
+                workspace: session.directory,
+                scope: "local",
+                executor: "exec_1",
+                description: "Tmp Running",
+                command: "sleep 1",
+                cwd: session.directory,
+                time_start: now + 3,
+              },
+              {
+                async_id: "described-stopped",
+                session_id: session.id,
+                workspace: session.directory,
+                scope: "local",
+                executor: "exec_1",
+                description: "build done",
+                command: "true",
+                cwd: session.directory,
+                time_start: now + 2,
+                time_end: now + 2,
+                exit_code: 0,
+              },
+              {
+                async_id: "described-running",
+                session_id: session.id,
+                workspace: session.directory,
+                scope: "local",
+                executor: "exec_1",
+                description: "build running",
+                command: "sleep 1",
+                cwd: session.directory,
+                time_start: now + 1,
+              },
+            ])
+            .run(),
+        )
+
+        const tasks = await ExBashTask.get({ sessionID: session.id, workspace: session.directory })
+        expect(tasks.map((task) => task.asyncID)).toEqual(["described-running", "described-stopped", "tmp-running"])
+      },
+    })
+  })
+
   test("cleans persisted local running tasks and preserves remote running tasks", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({

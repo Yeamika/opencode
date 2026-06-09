@@ -201,11 +201,13 @@ function extractOutput(parsed: {
   }
 }
 
-function exbashTitle(args: unknown) {
+function exbashTitle(args: unknown, metadata: Record<string, any>) {
   const input = args && typeof args === "object" && !Array.isArray(args) ? (args as Record<string, unknown>) : {}
   const description = typeof input.description === "string" ? input.description.trim() : ""
   if (description) return description
-  return "tool"
+  const state = typeof metadata.description === "string" ? metadata.description.trim() : ""
+  if (state) return state
+  return ""
 }
 
 function mcpToolToInfo(def: ToolDefinition): Tool.Info {
@@ -236,7 +238,7 @@ function mcpToolToInfo(def: ToolDefinition): Tool.Info {
           )
           return {
             ...output,
-            title: exbashTitle(args),
+            title: exbashTitle(args, output.metadata),
             output: truncated.content,
             metadata: {
               ...output.metadata,

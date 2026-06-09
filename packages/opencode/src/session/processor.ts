@@ -53,6 +53,7 @@ export namespace SessionProcessor {
     currentText: MessageV2.TextPart | undefined
     reasoningMap: Record<string, MessageV2.ReasoningPart>
     attempt: number
+    attemptShown: boolean
     reason: string | undefined
   }
 
@@ -129,6 +130,7 @@ export namespace SessionProcessor {
           currentText: undefined,
           reasoningMap: {},
           attempt: 0,
+          attemptShown: false,
           reason: undefined,
         }
         let aborted = false
@@ -144,6 +146,16 @@ export namespace SessionProcessor {
             action: "Calling model",
             ...(ctx.attempt > 0 ? { attempt: ctx.attempt, ...(ctx.reason ? { message: ctx.reason } : {}) } : {}),
           })
+        const step = () => {
+          if (ctx.attempt > 0 && ctx.attemptShown) {
+            ctx.attempt = 0
+            ctx.reason = undefined
+            ctx.attemptShown = false
+          }
+          const next = calling()
+          if (ctx.attempt > 0) ctx.attemptShown = true
+          return next
+        }
 
         const handleEvent = Effect.fn("SessionProcessor.handleEvent")(function* (value: StreamEvent) {
           switch (value.type) {
@@ -311,7 +323,7 @@ export namespace SessionProcessor {
             }
 
             case "start-step":
-              yield* status.set(ctx.sessionID, calling())
+              yield* status.set(ctx.sessionID, step())
               if (!ctx.snapshot) ctx.snapshot = yield* snapshot.track()
               yield* session.updatePart({
                 id: PartID.ascending(),
@@ -535,6 +547,7 @@ export namespace SessionProcessor {
                   const retried = attempt > 0
                   ctx.attempt = 0
                   ctx.reason = undefined
+                  ctx.attemptShown = false
                   if (retried) {
                     yield* status.set(ctx.sessionID, SessionStatus.busy({ action: "Running session" }))
                   }
@@ -551,6 +564,7 @@ export namespace SessionProcessor {
 
                 attempt += 1
                 ctx.reason = retryMessage
+                ctx.attemptShown = false
                 const wait = SessionRetry.delay(attempt, MessageV2.APIError.isInstance(parsed) ? parsed : undefined)
                 const now = Date.now()
                 yield* status.set(

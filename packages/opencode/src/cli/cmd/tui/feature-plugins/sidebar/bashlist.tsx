@@ -35,6 +35,23 @@ function short(job: Job) {
   return `${text.slice(0, 27)}…`
 }
 
+function scope(scope: string) {
+  if (scope === "workspace") return "Workspace"
+  if (scope === "local") return "Local"
+  return scope
+}
+
+function sections(jobs: readonly Job[]) {
+  const order = ["local", "workspace"]
+  const keys = Array.from(new Set([...order, ...jobs.map((job) => job.scope)]))
+  return keys
+    .map((key) => ({
+      scope: key,
+      jobs: jobs.filter((job) => job.scope === key),
+    }))
+    .filter((group) => group.jobs.length > 0)
+}
+
 function Detail(props: { api: TuiPluginApi; session_id: string; job: Job }) {
   const theme = () => props.api.theme.current
   const term = useTerminalDimensions()
@@ -157,23 +174,24 @@ function Detail(props: { api: TuiPluginApi; session_id: string; job: Job }) {
 function icon(props: { api: TuiPluginApi; job: Job }) {
   const theme = () => props.api.theme.current
   if (props.job.state === "running") return <Spinner color={theme().info} />
-  if (props.job.state === "unknown") return <text fg={theme().warning}>[?]</text>
-  if (props.job.state === "timeout" || props.job.exitCode === "timeout") return <text fg={theme().warning}>[!]</text>
-  if (props.job.state === "exit:0" || props.job.exitCode === 0) return <text fg={theme().success}>[✓]</text>
+  if (props.job.state === "unknown") return <text fg={theme().warning}>?</text>
+  if (props.job.state === "timeout" || props.job.exitCode === "timeout") return <text fg={theme().warning}>■</text>
+  if (props.job.state === "exit:0" || props.job.exitCode === 0) return <text fg={theme().success}>✓</text>
   if (
     props.job.state === "stop" ||
     props.job.exitCode === undefined ||
     props.job.exitCode === "stopped" ||
     props.job.exitCode === "stop"
   )
-    return <text fg={theme().warning}>[!]</text>
-  return <text fg={theme().error}>[E]</text>
+    return <text fg={theme().warning}>□</text>
+  return <text fg={theme().error}>E</text>
 }
 
 function View(props: { api: TuiPluginApi; session_id: string }) {
   const [open, setOpen] = createSignal(true)
   const theme = () => props.api.theme.current
   const list = createMemo(() => props.api.state.session.exbash(props.session_id))
+  const groups = createMemo(() => sections(list()))
 
   return (
     <Show when={list().length > 0}>
@@ -187,22 +205,30 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
           </text>
         </box>
         <Show when={list().length <= 2 || open()}>
-          <For each={list()}>
-            {(job) => (
-              <box flexDirection="row" gap={1}>
-                {icon({ api: props.api, job })}
-                <text
-                  fg={theme().textMuted}
-                  wrapMode="none"
-                  onMouseUp={() => {
-                    props.api.ui.dialog.setSize("large")
-                    props.api.ui.dialog.replace(() => (
-                      <Detail api={props.api} session_id={props.session_id} job={job} />
-                    ))
-                  }}
-                >
-                  {short(job)}
-                </text>
+          <For each={groups()}>
+            {(group) => (
+              <box flexDirection="column">
+                <text fg={theme().textMuted}>─ {scope(group.scope)}</text>
+                <For each={group.jobs}>
+                  {(job) => (
+                    <box flexDirection="row" gap={1}>
+                      {icon({ api: props.api, job })}
+                      <text
+                        fg={theme().textMuted}
+                        wrapMode="none"
+                        overflow="hidden"
+                        onMouseUp={() => {
+                          props.api.ui.dialog.setSize("large")
+                          props.api.ui.dialog.replace(() => (
+                            <Detail api={props.api} session_id={props.session_id} job={job} />
+                          ))
+                        }}
+                      >
+                        {short(job)}
+                      </text>
+                    </box>
+                  )}
+                </For>
               </box>
             )}
           </For>

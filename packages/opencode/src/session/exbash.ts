@@ -174,6 +174,9 @@ export namespace ExBashTask {
 
       const sort = (list: Entry[]) =>
         list.toSorted((a, b) => {
+          const ax = a.description.trim() === "Tmp Running" ? 1 : 0
+          const bx = b.description.trim() === "Tmp Running" ? 1 : 0
+          if (ax !== bx) return ax - bx
           const x = a.state === "running" ? 0 : 1
           const y = b.state === "running" ? 0 : 1
           if (x !== y) return x - y
