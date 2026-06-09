@@ -1,5 +1,7 @@
 #![deny(clippy::all)]
 
+use napi::threadsafe_function::ThreadSafeCallContext;
+use napi::{JsFunction, JsString};
 use napi_derive::napi;
 use serde_json::Value;
 use std::path::PathBuf;
@@ -23,6 +25,7 @@ use sqlite_host::SqliteSessionHost;
 pub struct SessionMcpHandle {
     ep: JsonRpcEndpoint<EmbeddedMcp<SessionMcpHandler<SqliteSessionHost>>>,
     manager: Arc<Caller>,
+    host: Arc<SqliteSessionHost>,
     runtime: Runtime,
 }
 
@@ -129,6 +132,21 @@ impl SessionMcpHandle {
         let resp = self.runtime.block_on(self.ep.handle_value(value));
         serde_json::to_string_pretty(&resp).map_err(|e| napi::Error::from_reason(e.to_string()))
     }
+
+    /// Register a JS callback for host-side exbash task changes.
+    ///
+    /// The callback receives one JSON string: `{ "sessionID": "...", "workspace": "..." }`.
+    #[napi]
+    pub fn set_exbash_changed_callback(&self, callback: JsFunction) -> napi::Result<()> {
+        let tsfn = callback.create_threadsafe_function(
+            0,
+            |ctx: ThreadSafeCallContext<String>| -> napi::Result<Vec<JsString>> {
+                Ok(vec![ctx.env.create_string(&ctx.value)?])
+            },
+        )?;
+        self.host.set_exbash_changed_callback(tsfn);
+        Ok(())
+    }
 }
 
 /// Create a new session MCP handler backed by OpenCode's SQLite database.
@@ -161,12 +179,13 @@ pub fn create_session_mcp(
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     let shared_manager = Arc::new(manager);
 
-    let mcp = create_session_mcp_with_manager(ctx, host, shared_manager.clone(), shell_manager);
+    let mcp = create_session_mcp_with_manager(ctx, host.clone(), shared_manager.clone(), shell_manager);
     let ep = JsonRpcEndpoint::new(mcp);
 
     Ok(SessionMcpHandle {
         ep,
         manager: shared_manager,
+        host,
         runtime,
     })
 }

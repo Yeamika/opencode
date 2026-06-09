@@ -12,6 +12,8 @@
 import type { SessionMcpHandle, ToolCallResult } from "./refs-opencode"
 import { Database } from "@/storage/db"
 import { Instance } from "@/project/instance"
+import { ExBashTask } from "@/session/exbash"
+import { SessionID } from "@/session/schema"
 import { existsSync, realpathSync } from "fs"
 import { dirname, join, resolve } from "path"
 
@@ -41,6 +43,11 @@ type WorkerResponse =
   | {
       id: number
       error: string
+    }
+  | {
+      event: "exbash.changed"
+      sessionID: string
+      workspace: string
     }
 
 export type ExecutorListItem = {
@@ -161,6 +168,15 @@ function refsWorker() {
   const ref = worker as Worker & { unref?: () => void }
   ref.unref?.()
   worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
+    if ("event" in event.data) {
+      if (event.data.event === "exbash.changed") {
+        void ExBashTask.refresh({
+          sessionID: SessionID.zod.parse(event.data.sessionID),
+          workspace: event.data.workspace,
+        }).catch(() => undefined)
+      }
+      return
+    }
     const item = pending.get(event.data.id)
     if (!item) return
     pending.delete(event.data.id)

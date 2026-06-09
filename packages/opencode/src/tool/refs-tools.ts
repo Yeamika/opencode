@@ -220,20 +220,7 @@ function mcpToolToInfo(def: ToolDefinition): Tool.Info {
           metadata: { tool: toolId },
         })
         const workspace = ctx.directory ?? Instance.directory
-        let exbashRefresh: ReturnType<typeof setInterval> | undefined
-        if (toolId === "exbash") {
-          await ExBashTask.refresh({ sessionID: ctx.sessionID, workspace }).catch(() => undefined)
-          exbashRefresh = setInterval(() => {
-            void ExBashTask.refresh({ sessionID: ctx.sessionID, workspace }).catch(() => undefined)
-          }, 1000)
-          exbashRefresh.unref?.()
-        }
-        let json: string
-        try {
-          json = await callRefsTool(def, args, ctx)
-        } finally {
-          if (exbashRefresh) clearInterval(exbashRefresh)
-        }
+        const json = await callRefsTool(def, args, ctx)
         const output = extractOutput(JSON.parse(json))
         if (toolId === "exbash") {
           await ExBashTask.refresh({ sessionID: ctx.sessionID, workspace })

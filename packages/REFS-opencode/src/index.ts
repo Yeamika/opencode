@@ -27,6 +27,7 @@ export interface SessionMcpHandle {
   callToolText(name: string, argsJson: string): string
   listExecutorsJson(): string
   handleRaw(request: string): string
+  setExbashChangedCallback(callback: (eventJson: string) => void): void
 }
 
 // Lazy-loaded native addon reference

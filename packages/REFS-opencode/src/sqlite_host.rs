@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use napi::threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use rusqlite::{Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -49,6 +50,7 @@ use remote_executor_for_session::types::{
 pub struct SqliteSessionHost {
     workdir: String,
     conn: Mutex<Connection>,
+    exbash_changed: Mutex<Option<ThreadsafeFunction<String, ErrorStrategy::Fatal>>>,
 }
 
 const EXBASH_TASK_LIMIT: i64 = 10;
@@ -61,7 +63,26 @@ impl SqliteSessionHost {
         Ok(Self {
             workdir,
             conn: Mutex::new(conn),
+            exbash_changed: Mutex::new(None),
         })
+    }
+
+    pub fn set_exbash_changed_callback(
+        &self,
+        callback: ThreadsafeFunction<String, ErrorStrategy::Fatal>,
+    ) {
+        *self.exbash_changed.lock().unwrap() = Some(callback);
+    }
+
+    fn notify_exbash_changed(&self, session_id: &str, workdir: &str) {
+        let payload = json!({
+            "sessionID": session_id,
+            "workspace": workdir,
+        })
+        .to_string();
+        if let Some(callback) = self.exbash_changed.lock().unwrap().as_ref() {
+            let _ = callback.call(payload, ThreadsafeFunctionCallMode::NonBlocking);
+        }
     }
 }
 
@@ -466,6 +487,8 @@ impl ExbashSessionStore for SqliteSessionHost {
         )
         .map_err(|e| e.to_string())?;
 
+        self.notify_exbash_changed(&session_id, &workdir);
+
         Ok(ExbashTaskSnapshot {
             async_id,
             executor,
@@ -534,6 +557,9 @@ impl ExbashSessionStore for SqliteSessionHost {
                 rusqlite::params![session_id, async_id, executor],
             )
             .map_err(|e| e.to_string())?;
+        if rows > 0 {
+            self.notify_exbash_changed(session_id, &self.workdir);
+        }
         Ok(rows > 0)
     }
 }
@@ -669,6 +695,8 @@ impl ExbashWorkdirStore for SqliteSessionHost {
         )
         .map_err(|e| e.to_string())?;
 
+        self.notify_exbash_changed(&session_id, workdir);
+
         Ok(ExbashTaskSnapshot {
             async_id,
             executor,
@@ -736,6 +764,9 @@ impl ExbashWorkdirStore for SqliteSessionHost {
                 rusqlite::params![workdir, async_id, executor],
             )
             .map_err(|e| e.to_string())?;
+        if rows > 0 {
+            self.notify_exbash_changed(_session_id, workdir);
+        }
         Ok(rows > 0)
     }
 }

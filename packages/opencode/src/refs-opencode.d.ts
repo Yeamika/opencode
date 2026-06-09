@@ -20,6 +20,7 @@ declare module "@opencode-ai/refs-opencode" {
     callToolText(name: string, argsJson: string): string
     listExecutorsJson(): string
     handleRaw(request: string): string
+    setExbashChangedCallback(callback: (eventJson: string) => void): void
   }
 
   export function createSessionMcp(dbPath: string, sessionId: string, workdir: string): SessionMcpHandle
