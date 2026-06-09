@@ -65,7 +65,6 @@ type RefsAddon = { createSessionMcp(dbPath: string, sessionID: string, workdir: 
 let addon: RefsAddon | undefined
 let worker: Worker | undefined
 let seq = 0
-let idle: ReturnType<typeof setTimeout> | undefined
 
 type HandleInput = {
   dbPath?: string
@@ -141,29 +140,8 @@ function workerTarget() {
   return new URL("./refs-worker.ts", import.meta.url)
 }
 
-function clearIdle() {
-  if (!idle) return
-  clearTimeout(idle)
-  idle = undefined
-}
-
-function scheduleIdle() {
-  if (pending.size > 0) return
-  clearIdle()
-  idle = setTimeout(() => {
-    worker?.terminate()
-    worker = undefined
-    idle = undefined
-  }, 1000)
-  const timer = idle as ReturnType<typeof setTimeout> & { unref?: () => void }
-  timer.unref?.()
-}
-
 function refsWorker() {
-  if (worker) {
-    clearIdle()
-    return worker
-  }
+  if (worker) return worker
   worker = new Worker(workerTarget())
   const ref = worker as Worker & { unref?: () => void }
   ref.unref?.()
@@ -182,18 +160,15 @@ function refsWorker() {
     pending.delete(event.data.id)
     if ("error" in event.data) {
       item.reject(new Error(event.data.error))
-      scheduleIdle()
       return
     }
     item.resolve(event.data.json)
-    scheduleIdle()
   }
   worker.onerror = (event) => {
     const error = new Error(event.message)
     for (const item of pending.values()) item.reject(error)
     pending.clear()
     worker = undefined
-    clearIdle()
   }
   return worker
 }
@@ -220,7 +195,6 @@ export function callToolAsync(input: {
     } catch (error) {
       pending.delete(id)
       reject(error instanceof Error ? error : new Error(String(error)))
-      scheduleIdle()
     }
   })
 }
