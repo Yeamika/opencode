@@ -2102,7 +2102,6 @@ function BlockTool(props: {
 function ExBash(props: ToolProps<typeof ExBashTool>) {
   const { theme } = useTheme()
   const dialog = useDialog()
-  const defaultTitle = "running command"
   const isRunning = createMemo(() => props.part.state.status === "running")
   const mode = createMemo(() => props.input.mode ?? "shell")
   const output = createMemo(() => stripAnsi(props.output?.trim() ?? ""))
@@ -2121,7 +2120,6 @@ function ExBash(props: ToolProps<typeof ExBashTool>) {
   const display = createMemo(() => {
     const description = typeof props.input.description === "string" ? props.input.description.trim() : ""
     if (description) return description
-    if (mode() === "shell" || mode() === "run") return defaultTitle
     return command()
   })
   const label = createMemo(() => {

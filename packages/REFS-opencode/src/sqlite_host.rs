@@ -9,7 +9,7 @@ use remote_executor_for_session::host::{
     ExbashSessionStore, ExbashSyncInput, ExbashWorkdirStore, HashRefSessionStore,
     RemoteExecutorConfigStore, SessionWorkdirProvider, EXBASH_TASK_STACK_FULL_MESSAGE,
 };
-use remote_executor_for_session::refs::{make_entry_parts, parse_hash_ref, small_hash_code};
+use remote_executor_for_session::refs::{basename, make_entry_parts, parse_hash_ref, small_hash_code};
 use remote_executor_for_session::types::{
     ExbashTaskSnapshot, FileRefEntry, FileRefUpdate, RemoteExecutorConfigSnapshot,
 };
@@ -133,14 +133,22 @@ impl HashRefSessionStore for SqliteSessionHost {
             .prepare(
                 "SELECT file_key_ref, file_path, hash_code
                  FROM session_file_read
-                 WHERE session_id = ?1 AND filename = ?2 AND small_hash_code = ?3
+                 WHERE session_id = ?1
+                   AND (filename = ?2 OR filename = ?3)
+                   AND small_hash_code = ?4
                  ORDER BY read_time DESC
                  LIMIT 1",
             )
             .map_err(|e| e.to_string())?;
+        let filename = basename(&parsed.filename);
         let entry = stmt
             .query_row(
-                rusqlite::params![session_id, parsed.filename, parsed.small_hash_code],
+                rusqlite::params![
+                    session_id,
+                    parsed.filename,
+                    filename,
+                    parsed.small_hash_code
+                ],
                 |row| {
                     let fkr: String = row.get(0)?;
                     let executor = fkr[..fkr.find(':').unwrap_or(0)].to_string();
@@ -443,7 +451,7 @@ impl ExbashSessionStore for SqliteSessionHost {
         let async_id = input.async_id.clone().unwrap_or_default();
         let executor = input.executor.clone().unwrap_or_else(|| "local".into());
         let command = input.command.clone().unwrap_or_default();
-        let description = input.description.clone().unwrap_or_else(|| command.clone());
+        let description = input.description.clone().unwrap_or_default();
         let time_start = input.started_at.unwrap_or_else(now_ms);
         let exit_code = exbash_exit_storage(&input);
         let time_end = exbash_time_end(&input, exit_code.as_deref());
@@ -641,7 +649,7 @@ impl ExbashWorkdirStore for SqliteSessionHost {
         let async_id = input.async_id.clone().unwrap_or_default();
         let executor = input.executor.clone().unwrap_or_else(|| "local".into());
         let command = input.command.clone().unwrap_or_default();
-        let description = input.description.clone().unwrap_or_else(|| command.clone());
+        let description = input.description.clone().unwrap_or_default();
         let time_start = input.started_at.unwrap_or_else(now_ms);
         let exit_code = exbash_exit_storage(&input);
         let time_end = exbash_time_end(&input, exit_code.as_deref());

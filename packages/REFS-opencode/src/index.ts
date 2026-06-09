@@ -19,6 +19,7 @@ export interface ToolDefinition {
 
 export interface ToolCallResult {
   content: Array<{ type: string; text: string }>
+  structuredContent?: unknown
 }
 
 export interface SessionMcpHandle {

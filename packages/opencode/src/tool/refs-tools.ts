@@ -29,7 +29,6 @@ interface ToolDefinition {
 
 const HIDDEN_MCP_PARAMS = new Set(["ExecutorSessionID", "includeStructuredContent"])
 const EXBASH_MAX_OUTPUT_BYTES = 5 * 1024
-const EXBASH_DEFAULT_TITLE = "running command"
 
 function withJsonSchemaMetadata(schema: Record<string, any>, value: z.ZodTypeAny): z.ZodTypeAny {
   let next = value
@@ -145,11 +144,12 @@ function modelInputSchema(schema: Record<string, unknown>): Record<string, unkno
 }
 
 async function callRefsTool(def: ToolDefinition, args: unknown, ctx: Tool.Context) {
-  const values =
+  const values: Record<string, unknown> =
     args && typeof args === "object" && !Array.isArray(args)
       ? { ExecutorSessionID: ctx.sessionID, ...(args as Record<string, unknown>) }
       : { ExecutorSessionID: ctx.sessionID }
   values.ExecutorSessionID = ctx.sessionID
+  if (def.name === "FileAction") values.includeStructuredContent = true
   const workdir = ctx.directory ?? Instance.directory
   return callToolAsync({
     sessionID: ctx.sessionID,
@@ -183,24 +183,29 @@ export const ExecutorManagerTool = refsToolStub("RemoteExecutorManager")
 
 function extractOutput(parsed: {
   error?: { code: number; message: string }
-  result?: { content: Array<{ type: string; text: string }> }
+  result?: { content: Array<{ type: string; text: string }>; structuredContent?: unknown }
 }): { title: string; metadata: Record<string, any>; output: string } {
   if (parsed.error) throw new Error(parsed.error.message || "SDK call failed")
   const result = parsed.result
   if (!result) throw new Error("SDK returned no result")
+  const data = result.structuredContent
+  const meta =
+    data && typeof data === "object" && !Array.isArray(data)
+      ? (data as Record<string, unknown>).metadata
+      : undefined
 
-  return { title: "tool", metadata: {}, output: result.content?.[0]?.text ?? "" }
+  return {
+    title: "tool",
+    metadata: meta && typeof meta === "object" && !Array.isArray(meta) ? (meta as Record<string, any>) : {},
+    output: result.content?.[0]?.text ?? "",
+  }
 }
 
 function exbashTitle(args: unknown) {
   const input = args && typeof args === "object" && !Array.isArray(args) ? (args as Record<string, unknown>) : {}
-  const mode = typeof input.mode === "string" ? input.mode : "shell"
   const description = typeof input.description === "string" ? input.description.trim() : ""
   if (description) return description
-  if (mode === "shell" || mode === "run") return EXBASH_DEFAULT_TITLE
-  const asyncID = typeof input.asyncID === "string" ? input.asyncID.trim() : ""
-  if ((mode === "stop" || mode === "remove" || mode === "attach") && asyncID) return `${mode} ${asyncID}`
-  return `exbash ${mode}`
+  return "tool"
 }
 
 function mcpToolToInfo(def: ToolDefinition): Tool.Info {
