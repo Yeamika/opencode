@@ -2306,7 +2306,11 @@ function FileAction(props: ToolProps<typeof FileActionTool>) {
   const nextTarget = createMemo(() => props.input.newFilePath ?? "")
   const mode = createMemo(() => props.input.mode ?? "patch")
   const output = createMemo(() => props.output?.trim() ?? "")
-  const patchDiff = createMemo(() => fileActionPreview(props.input, normalizePath(target()) || "file"))
+  const patchDiff = createMemo(() => {
+    const metadata = props.metadata as Record<string, unknown>
+    if (typeof metadata.diff === "string" && metadata.diff.trim()) return metadata.diff
+    return fileActionPreview(props.input, normalizePath(target()) || "file")
+  })
   const diffView = createMemo(() => {
     if (ctx.tui.diff_style === "stacked") return "unified"
     return ctx.width > 120 ? "split" : "unified"
