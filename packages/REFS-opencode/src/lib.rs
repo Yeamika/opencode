@@ -13,9 +13,7 @@ use remote_executor_for_session::jsonrpc::JsonRpcEndpoint;
 use remote_executor_for_session::mcp::{
     create_session_mcp_with_manager, EmbeddedMcp, SessionMcpHandler,
 };
-use remote_executor_for_session::rec::{
-    manager_handle, Caller, ExecutorRequest, ShellManager, ToolContext,
-};
+use remote_executor_for_session::rec::{Caller, ShellManager, ToolContext};
 
 mod sqlite_host;
 use sqlite_host::SqliteSessionHost;
@@ -24,8 +22,9 @@ use sqlite_host::SqliteSessionHost;
 #[napi]
 pub struct SessionMcpHandle {
     ep: JsonRpcEndpoint<EmbeddedMcp<SessionMcpHandler<SqliteSessionHost>>>,
-    manager: Arc<Caller>,
+    _manager: Arc<Caller>,
     host: Arc<SqliteSessionHost>,
+    session_id: String,
     runtime: Runtime,
 }
 
@@ -91,34 +90,38 @@ impl SessionMcpHandle {
         Ok(text)
     }
 
-    /// Return the current executor list as JSON from the underlying manager.
+    /// Return the current workspace executor list as JSON from the MCP host config.
     ///
     /// This is an OpenCode host helper; model-visible MCP tool calls should keep
     /// using plaintext `content[0].text`.
     #[napi]
     pub fn list_executors_json(&self) -> napi::Result<String> {
-        let response = self.runtime.block_on(manager_handle(
-            self.manager.as_ref(),
-            ExecutorRequest {
-                id: serde_json::json!(1),
-                method: "list_executor".to_string(),
-                executor: Some("local".to_string()),
-                params: serde_json::json!({}),
-                directory: None,
-                tool_timeout_ms: None,
-            },
-        ));
-        if !response.ok {
+        let response = self
+            .runtime
+            .block_on(self.ep.handle_value(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "RemoteExecutorManager",
+                    "arguments": {
+                        "ExecutorSessionID": self.session_id.clone(),
+                        "includeStructuredContent": true,
+                        "method": "list_executor"
+                    }
+                }
+            })));
+        if let Some(error) = response.get("error") {
             return Err(napi::Error::from_reason(
-                response
-                    .error
-                    .unwrap_or_else(|| "list_executor failed".to_string()),
+                error
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("list_executor failed")
+                    .to_string(),
             ));
         }
         let metadata = response
-            .result
-            .as_ref()
-            .and_then(|result| result.get("metadata"))
+            .pointer("/result/structuredContent/metadata")
             .cloned()
             .unwrap_or_else(|| serde_json::json!({ "executors": [] }));
         serde_json::to_string_pretty(&metadata).map_err(|e| napi::Error::from_reason(e.to_string()))
@@ -166,7 +169,7 @@ pub fn create_session_mcp(
         .enable_all()
         .build()
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-    let host = SqliteSessionHost::new(session_id, workdir.clone(), PathBuf::from(&db_path))
+    let host = SqliteSessionHost::new(session_id.clone(), workdir.clone(), PathBuf::from(&db_path))
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     let host = Arc::new(host);
     let settings = SettingsStore::load(Some(opencode_re_settings_path()))
@@ -179,13 +182,15 @@ pub fn create_session_mcp(
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     let shared_manager = Arc::new(manager);
 
-    let mcp = create_session_mcp_with_manager(ctx, host.clone(), shared_manager.clone(), shell_manager);
+    let mcp =
+        create_session_mcp_with_manager(ctx, host.clone(), shared_manager.clone(), shell_manager);
     let ep = JsonRpcEndpoint::new(mcp);
 
     Ok(SessionMcpHandle {
         ep,
-        manager: shared_manager,
+        _manager: shared_manager,
         host,
+        session_id,
         runtime,
     })
 }

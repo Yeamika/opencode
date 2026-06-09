@@ -9,7 +9,9 @@ use remote_executor_for_session::host::{
     ExbashSessionStore, ExbashSyncInput, ExbashWorkdirStore, HashRefSessionStore,
     RemoteExecutorConfigStore, SessionWorkdirProvider, EXBASH_TASK_STACK_FULL_MESSAGE,
 };
-use remote_executor_for_session::refs::{basename, make_entry_parts, parse_hash_ref, small_hash_code};
+use remote_executor_for_session::refs::{
+    basename, make_entry_parts, parse_hash_ref, small_hash_code,
+};
 use remote_executor_for_session::types::{
     ExbashTaskSnapshot, FileRefEntry, FileRefUpdate, RemoteExecutorConfigSnapshot,
 };
