@@ -1948,11 +1948,11 @@ function InlineTool(props: {
       }}
     >
       <Show when={props.suffix} fallback={line()}>
-        <box flexDirection="row" justifyContent="space-between" width="100%" gap={1}>
-          <box minWidth={0} flexShrink={1}>
+        <box flexDirection="row" justifyContent="space-between" width="100%" gap={1} flexWrap="wrap">
+          <box minWidth={1} flexShrink={1}>
             {line()}
           </box>
-          <text fg={theme.textMuted} flexShrink={0}>
+          <text fg={theme.textMuted} minWidth={1} flexShrink={1} wrapMode="word">
             {props.suffix}
           </text>
         </box>
@@ -2242,12 +2242,12 @@ function ExBash(props: ToolProps<typeof ExBashTool>) {
           }
         >
           <box gap={1}>
-            <box flexDirection="row" justifyContent="space-between" width="100%" gap={1}>
-              <text fg={theme.text} overflow="hidden" wrapMode="none" flexShrink={1}>
+            <box flexDirection="row" justifyContent="space-between" width="100%" gap={1} flexWrap="wrap">
+              <text fg={theme.text} overflow="hidden" wrapMode="none" minWidth={1} flexShrink={1}>
                 {icon()} {command()}
               </text>
               <Show when={!title()}>
-                <text fg={theme.textMuted} flexShrink={0}>
+                <text fg={theme.textMuted} minWidth={1} flexShrink={1} wrapMode="word">
                   {executor(props.input)}
                 </text>
               </Show>
