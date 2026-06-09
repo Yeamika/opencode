@@ -29,7 +29,7 @@ interface ToolDefinition {
 
 const HIDDEN_MCP_PARAMS = new Set(["ExecutorSessionID", "includeStructuredContent"])
 const EXBASH_MAX_OUTPUT_BYTES = 5 * 1024
-const EXBASH_DEFAULT_TITLE = "runing command"
+const EXBASH_DEFAULT_TITLE = "running command"
 
 function withJsonSchemaMetadata(schema: Record<string, any>, value: z.ZodTypeAny): z.ZodTypeAny {
   let next = value
@@ -219,10 +219,24 @@ function mcpToolToInfo(def: ToolDefinition): Tool.Info {
           always: ["*"],
           metadata: { tool: toolId },
         })
-        const json = await callRefsTool(def, args, ctx)
+        const workspace = ctx.directory ?? Instance.directory
+        let exbashRefresh: ReturnType<typeof setInterval> | undefined
+        if (toolId === "exbash") {
+          await ExBashTask.refresh({ sessionID: ctx.sessionID, workspace }).catch(() => undefined)
+          exbashRefresh = setInterval(() => {
+            void ExBashTask.refresh({ sessionID: ctx.sessionID, workspace }).catch(() => undefined)
+          }, 1000)
+          exbashRefresh.unref?.()
+        }
+        let json: string
+        try {
+          json = await callRefsTool(def, args, ctx)
+        } finally {
+          if (exbashRefresh) clearInterval(exbashRefresh)
+        }
         const output = extractOutput(JSON.parse(json))
         if (toolId === "exbash") {
-          await ExBashTask.refresh({ sessionID: ctx.sessionID, workspace: ctx.directory ?? Instance.directory })
+          await ExBashTask.refresh({ sessionID: ctx.sessionID, workspace })
           const truncated = await Truncate.output(
             output.output,
             { maxBytes: EXBASH_MAX_OUTPUT_BYTES, maxLines: Number.POSITIVE_INFINITY },
