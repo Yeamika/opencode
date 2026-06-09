@@ -2163,9 +2163,9 @@ function ExBash(props: ToolProps<typeof ExBashTool>) {
       case "list":
         return "≡"
       case "stop":
-        return "!"
+        return "■"
       case "remove":
-        return "-"
+        return "▷"
       default:
         return "$"
     }
@@ -2196,6 +2196,23 @@ function ExBash(props: ToolProps<typeof ExBashTool>) {
         suffix={executor(props.input)}
       >
         ExBash tasks <Show when={props.input.asyncID}>for {props.input.asyncID}</Show>
+      </InlineTool>
+    )
+  }
+
+  if (mode() === "stop" || mode() === "remove") {
+    return (
+      <InlineTool
+        icon={icon()}
+        pending={pending()}
+        complete={display()}
+        part={props.part}
+        tool="ExBash"
+        input={props.input}
+        output={output() || undefined}
+        suffix={title() ? executor(props.input) : undefined}
+      >
+        {display()}
       </InlineTool>
     )
   }
