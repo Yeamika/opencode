@@ -157,6 +157,8 @@ function fileAction(info: ToolProps<typeof FileActionTool>) {
   const mode = info.input.mode ?? "action"
   const from = normalizePath(info.input.fileKey ?? info.input.filePath)
   const to = normalizePath(info.input.newFilePath)
+  const diff = typeof info.metadata.diff === "string" && info.metadata.diff.trim() ? info.metadata.diff.trim() : ""
+  const output = info.part.state.status === "completed" ? info.part.state.output?.trim() : undefined
   const suffix = [
     from,
     to ? `-> ${to}` : undefined,
@@ -169,7 +171,7 @@ function fileAction(info: ToolProps<typeof FileActionTool>) {
       icon: "←",
       title: `FileAction ${mode}${suffix ? ` ${suffix}` : ""}`,
     },
-    info.part.state.status === "completed" ? info.part.state.output : undefined,
+    [diff, output].filter(Boolean).join("\n"),
   )
 }
 
