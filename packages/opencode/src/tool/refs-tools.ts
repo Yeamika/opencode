@@ -152,6 +152,16 @@ function modelInputSchema(schema: Record<string, unknown>): Record<string, unkno
   return next
 }
 
+function readInputSchema(schema: Record<string, unknown>): Record<string, unknown> {
+  const next = modelInputSchema(schema) as Record<string, any>
+  const mode = next.properties?.mode
+  if (mode && typeof mode === "object" && Array.isArray(mode.enum) && !mode.enum.includes("img")) {
+    mode.enum = [...mode.enum, "img"]
+    mode.description = "Read mode: text for normal files, binary for hexdump bytes, img for local image/PDF attachments."
+  }
+  return next
+}
+
 async function callRefsTool(def: ToolDefinition, args: unknown, ctx: Tool.Context) {
   const values: Record<string, unknown> =
     args && typeof args === "object" && !Array.isArray(args)
@@ -484,7 +494,7 @@ function mcpToolToInfo(def: ToolDefinition): Tool.Info {
 }
 
 function createReadTool(def: ToolDefinition): Tool.Info {
-  const parameters = jsonSchemaToZod(modelInputSchema(def.inputSchema))
+  const parameters = jsonSchemaToZod(readInputSchema(def.inputSchema))
 
   return {
     id: "read",
@@ -496,6 +506,7 @@ function createReadTool(def: ToolDefinition): Tool.Info {
         const target = a.filePath ?? a.fileKey ?? ""
         const executor = a.executor ?? "local"
         const local = executor === "local"
+        const mode = a.mode ?? "text"
         const isHashRef = /\s+#[0-9a-fA-F]{4}$/.test(target)
         const localTarget =
           typeof target === "string" ? (path.isAbsolute(target) ? target : path.resolve(Instance.directory, target)) : ""
@@ -508,8 +519,8 @@ function createReadTool(def: ToolDefinition): Tool.Info {
         const image = mime.startsWith("image/") && mime !== "image/svg+xml" && mime !== "image/vnd.fastbidsheet"
         const pdf = mime === "application/pdf"
 
-        if (!local && (image || pdf)) {
-          throw new Error(`${image ? "Image" : "PDF"} reads require executor=local`)
+        if (mode === "img" && !local) {
+          throw new Error("Image/PDF reads require executor=local")
         }
 
         if (local && !isHashRef) {
@@ -522,9 +533,9 @@ function createReadTool(def: ToolDefinition): Tool.Info {
 
         if (local && !isHashRef) {
           if (stat && !stat.isDirectory()) {
-            if (image || pdf) {
-              if (pdf) throw new Error("PDF read is not supported yet")
-              const msg = "Image read successfully"
+            if (mode === "img") {
+              if (!image && !pdf) throw new Error("mode=img only supports local image or PDF files")
+              const msg = `${image ? "Image" : "PDF"} read successfully`
               const instructions = await Instruction.resolve(ctx.messages, resolvedPath, ctx.messageID)
               return {
                 title: path.relative(Instance.worktree, resolvedPath),
@@ -544,11 +555,13 @@ function createReadTool(def: ToolDefinition): Tool.Info {
                 ],
               }
             }
-            if (a.mode !== "binary" && File.isKnownBinary(resolvedPath)) {
+            if (mode !== "binary" && File.isKnownBinary(resolvedPath)) {
               throw new Error("Cannot read binary file")
             }
           }
         }
+
+        if (mode === "img") throw new Error("mode=img only supports local image or PDF files")
 
         const json = await callRefsTool(
           def,
@@ -556,10 +569,10 @@ function createReadTool(def: ToolDefinition): Tool.Info {
           ctx,
         )
         const result = readResult(extractOutput(JSON.parse(json)), a)
-        if (local && !isHashRef && a.mode !== "binary" && stat && !stat.isDirectory()) {
+        if (local && !isHashRef && mode !== "binary" && stat && !stat.isDirectory()) {
           return remind(result, await nearby(def, ctx, executor, resolvedPath))
         }
-        if (a.mode !== "binary" && result.metadata.file?.kind === "file") {
+        if (mode !== "binary" && result.metadata.file?.kind === "file") {
           const filepath = result.metadata.file.canonicalPath
           if (typeof filepath === "string") return remind(result, await nearby(def, ctx, executor, filepath))
         }

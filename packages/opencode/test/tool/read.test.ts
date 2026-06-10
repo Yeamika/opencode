@@ -427,7 +427,7 @@ describe("tool.read truncation", () => {
       directory: tmp.path,
       fn: async () => {
         const read = await ReadTool.init()
-        const result = await read.execute({ filePath: path.join(tmp.path, "image.png") }, ctx)
+        const result = await read.execute({ filePath: path.join(tmp.path, "image.png"), mode: "img" }, ctx)
         expect(result.metadata.truncated).toBe(false)
         expect(result.attachments).toBeDefined()
         expect(result.attachments?.length).toBe(1)
@@ -438,7 +438,7 @@ describe("tool.read truncation", () => {
     })
   })
 
-  test("image files still attach when requested as binary", async () => {
+  test("image files use binary hexdump when requested as binary", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {
         const png = Buffer.from(
@@ -453,18 +453,14 @@ describe("tool.read truncation", () => {
       fn: async () => {
         const read = await ReadTool.init()
         const result = await read.execute({ fileKey: path.join(tmp.path, "image.png"), mode: "binary" }, ctx)
-        expect(result.output).toBe("Image read successfully")
+        expect(result.output).toContain("00000000")
         expect(result.metadata.truncated).toBe(false)
-        expect(result.attachments).toBeDefined()
-        expect(result.attachments?.length).toBe(1)
-        expect(result.attachments?.[0].type).toBe("file")
-        expect(result.attachments?.[0].mime).toBe("image/png")
-        expect(result.attachments?.[0].url).toStartWith("data:image/png;base64,")
+        expect(result.attachments).toBeUndefined()
       },
     })
   })
 
-  test("image and PDF reads require local executor, and PDF is rejected", async () => {
+  test("image and PDF img mode requires local executor", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {
         await Bun.write(
@@ -482,14 +478,18 @@ describe("tool.read truncation", () => {
       fn: async () => {
         const read = await ReadTool.init()
         await expect(
-          read.execute({ filePath: path.join(tmp.path, "image.png"), executor: "box" }, ctx),
-        ).rejects.toThrow("Image reads require executor=local")
-        await expect(read.execute({ filePath: path.join(tmp.path, "file.pdf") }, ctx)).rejects.toThrow(
-          "PDF read is not supported yet",
+          read.execute({ filePath: path.join(tmp.path, "image.png"), mode: "img", executor: "box" }, ctx),
+        ).rejects.toThrow("Image/PDF reads require executor=local")
+        await expect(
+          read.execute({ filePath: path.join(tmp.path, "file.pdf"), mode: "img", executor: "box" }, ctx),
+        ).rejects.toThrow("Image/PDF reads require executor=local")
+        await expect(read.execute({ filePath: path.join(tmp.path, "image.png") }, ctx)).rejects.toThrow(
+          "Cannot read binary file",
         )
-        await expect(read.execute({ filePath: path.join(tmp.path, "file.pdf"), executor: "box" }, ctx)).rejects.toThrow(
-          "PDF reads require executor=local",
-        )
+        const result = await read.execute({ filePath: path.join(tmp.path, "file.pdf"), mode: "img" }, ctx)
+        expect(result.output).toBe("PDF read successfully")
+        expect(result.metadata.truncated).toBe(false)
+        expect(result.attachments?.[0].mime).toBe("application/pdf")
       },
     })
   })
@@ -499,7 +499,7 @@ describe("tool.read truncation", () => {
       directory: FIXTURES_DIR,
       fn: async () => {
         const read = await ReadTool.init()
-        const result = await read.execute({ filePath: path.join(FIXTURES_DIR, "large-image.png") }, ctx)
+        const result = await read.execute({ filePath: path.join(FIXTURES_DIR, "large-image.png"), mode: "img" }, ctx)
         expect(result.metadata.truncated).toBe(false)
         expect(result.attachments).toBeDefined()
         expect(result.attachments?.length).toBe(1)
