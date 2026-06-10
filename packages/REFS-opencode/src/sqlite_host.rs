@@ -832,6 +832,34 @@ fn merge_executor_configs(user: Value, workspace: Value) -> Value {
     json!({ "executors": executors })
 }
 
+fn workspace_overlay_config(config: Value) -> Result<Value, String> {
+    let mut overlay = Vec::new();
+    let user = crate::opencode_config_path(EXECUTOR_CONFIG_FILE);
+    let users = if user.exists() {
+        executor_entries(read_json_config(&user)?)
+    } else {
+        Vec::new()
+    };
+    for entry in executor_entries(config) {
+        let id = entry
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|id| !id.is_empty());
+        let unchanged = id
+            .and_then(|id| {
+                users
+                    .iter()
+                    .find(|user| user.get("id").and_then(Value::as_str) == Some(id))
+            })
+            .is_some_and(|user| user == &entry);
+        if !unchanged {
+            overlay.push(entry);
+        }
+    }
+    Ok(json!({ "executors": overlay }))
+}
+
 fn executor_entries(value: Value) -> Vec<Value> {
     match value {
         Value::Array(entries) => entries,
@@ -864,6 +892,20 @@ impl RemoteExecutorConfigStore for SqliteSessionHost {
         patch: Value,
     ) -> Result<RemoteExecutorConfigSnapshot, Self::Error> {
         let config_path = workspace_executor_config_path(workdir);
+        let patch = workspace_overlay_config(patch)?;
+        if patch
+            .get("executors")
+            .and_then(Value::as_array)
+            .is_some_and(Vec::is_empty)
+        {
+            if config_path.exists() {
+                std::fs::remove_file(&config_path).map_err(|e| e.to_string())?;
+            }
+            return Ok(RemoteExecutorConfigSnapshot {
+                workdir: workdir.to_string(),
+                config: patch,
+            });
+        }
         if let Some(parent) = config_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
@@ -962,6 +1004,38 @@ mod tests {
         assert!(value["executors"][1]["system"].is_null());
         assert_eq!(value["executors"][1]["device"], "workspace-device");
         assert_eq!(value["executors"][2]["id"], "workspace-exec");
+
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn remote_executor_config_write_keeps_only_workspace_overlay() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let root = temp_root("executor-config-overlay");
+        let user = root.join("user");
+        let workdir = root.join("workspace");
+        std::fs::create_dir_all(&user).unwrap();
+        std::fs::create_dir_all(&workdir).unwrap();
+        let _env = EnvGuard::set("OPENCODE_CONFIG_DIR", &user);
+
+        let user_config = json!({"executors":[
+            {"id":"user-exec","url":"ws://user"},
+            {"id":"shared-exec","url":"ws://user-shared"}
+        ]});
+        std::fs::write(user.join(EXECUTOR_CONFIG_FILE), user_config.to_string()).unwrap();
+
+        let overlay = workspace_overlay_config(json!({"executors":[
+            {"id":"user-exec","url":"ws://user"},
+            {"id":"shared-exec","url":"ws://workspace-shared"},
+            {"id":"workspace-exec","url":"ws://workspace"}
+        ]}))
+        .unwrap();
+        assert_eq!(overlay["executors"].as_array().unwrap().len(), 2);
+        assert_eq!(overlay["executors"][0]["id"], "shared-exec");
+        assert_eq!(overlay["executors"][1]["id"], "workspace-exec");
+
+        let overlay = workspace_overlay_config(user_config).unwrap();
+        assert!(overlay["executors"].as_array().unwrap().is_empty());
 
         std::fs::remove_dir_all(root).ok();
     }
