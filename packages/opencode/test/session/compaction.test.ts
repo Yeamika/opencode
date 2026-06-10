@@ -122,7 +122,13 @@ async function assistant(sessionID: SessionID, parentID: MessageID, root: string
   return msg
 }
 
-async function tool(sessionID: SessionID, messageID: MessageID, tool: string, output: string) {
+async function tool(
+  sessionID: SessionID,
+  messageID: MessageID,
+  tool: string,
+  output: string,
+  metadata: Record<string, unknown> = {},
+) {
   return Session.updatePart({
     id: PartID.ascending(),
     messageID,
@@ -135,7 +141,7 @@ async function tool(sessionID: SessionID, messageID: MessageID, tool: string, ou
       input: {},
       output,
       title: "done",
-      metadata: {},
+      metadata,
       time: { start: Date.now(), end: Date.now() },
     },
   })
@@ -563,6 +569,12 @@ describe("session.compaction.process", () => {
       directory: tmp.path,
       fn: async () => {
         const session = await Session.create({})
+        const first = await user(session.id, "first")
+        const reply = await assistant(session.id, first.id, tmp.path)
+        await tool(session.id, reply.id, "read", "x", {
+          loaded: ["local:/tmp/AGENTS.md"],
+          loadedRefs: { "local:/tmp/AGENTS.md": "sha256:abc" },
+        })
         const msg = await user(session.id, "hello")
         const msgs = await Session.messages({ sessionID: session.id })
         const done = defer()
@@ -599,6 +611,13 @@ describe("session.compaction.process", () => {
           ])
           expect(result).toBe("continue")
           expect(seen).toBe(true)
+          const next = await Session.messages({ sessionID: session.id })
+          const part = next.flatMap((msg) => msg.parts).find((part) => part.type === "tool" && part.tool === "read")
+          expect(part?.type).toBe("tool")
+          if (part?.type === "tool" && part.state.status === "completed") {
+            expect(part.state.metadata.loadedRefs).toBeUndefined()
+            expect(part.state.metadata.loaded).toEqual(["local:/tmp/AGENTS.md"])
+          }
         } finally {
           unsub?.()
           await rt.dispose()

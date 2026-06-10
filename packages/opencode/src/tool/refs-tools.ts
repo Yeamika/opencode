@@ -18,6 +18,8 @@ import { Instruction } from "../session/instruction"
 import { ExBashTask } from "../session/exbash"
 import { assertExternalDirectory } from "./external-directory"
 import { Truncate } from "./truncate"
+import { Flag } from "../flag/flag"
+import { File } from "../file"
 
 // ─── Local types (avoid importing from native addon) ───
 
@@ -29,6 +31,13 @@ interface ToolDefinition {
 
 const HIDDEN_MCP_PARAMS = new Set(["ExecutorSessionID", "includeStructuredContent"])
 const EXBASH_MAX_OUTPUT_BYTES = 5 * 1024
+const READ_MAX_LINES = 2000
+const READ_MAX_BYTES = 50 * 1024
+const READ_MAX_BYTES_LABEL = `${READ_MAX_BYTES / 1024} KB`
+const INSTRUCTIONS = ["AGENTS.md", ...(Flag.OPENCODE_DISABLE_CLAUDE_CODE_PROMPT ? [] : ["CLAUDE.md"]), "CONTEXT.md"]
+
+type Found = { filepath: string; content: string; hash?: string }
+type Seen = { paths: Set<string>; refs: Map<string, string>; system: Set<string> }
 
 function withJsonSchemaMetadata(schema: Record<string, any>, value: z.ZodTypeAny): z.ZodTypeAny {
   let next = value
@@ -190,9 +199,7 @@ function extractOutput(parsed: {
   if (!result) throw new Error("SDK returned no result")
   const data = result.structuredContent
   const meta =
-    data && typeof data === "object" && !Array.isArray(data)
-      ? (data as Record<string, unknown>).metadata
-      : undefined
+    data && typeof data === "object" && !Array.isArray(data) ? (data as Record<string, unknown>).metadata : undefined
 
   return {
     title: "tool",
@@ -208,6 +215,229 @@ function exbashTitle(args: unknown, metadata: Record<string, any>) {
   const state = typeof metadata.description === "string" ? metadata.description.trim() : ""
   if (state) return state
   return ""
+}
+
+function lineNo(line: string) {
+  return Number(line.match(/^(\d+):/)?.[1])
+}
+
+function readResult(result: { title: string; metadata: Record<string, any>; output: string }, args: Record<string, any>) {
+  if (args.mode === "binary" || result.metadata.file?.kind !== "file") {
+    if (result.metadata.truncated === undefined) {
+      result.metadata.truncated = result.output.includes("Use offset=")
+    }
+    return result
+  }
+
+  const lines = result.output.split("\n")
+  const total = lines.findIndex((line) => /^total \d+ lines$/.test(line))
+  if (total < 0) {
+    const footer = lines.findIndex((line) => /^Showing lines \d+-\d+ of \d+\. Use offset=\d+ to continue\.$/.test(line))
+    if (footer >= 0) {
+      const refs = lines.slice(0, footer).filter((line) => line.startsWith("<fileRef>"))
+      const body = lines.slice(0, footer).filter((line) => !line.startsWith("<fileRef>"))
+      const kept: string[] = []
+      let bytes = 0
+
+      for (const line of body) {
+        const size = Buffer.byteLength(line, "utf8") + (kept.length > 0 ? 1 : 0)
+        if (bytes + size > READ_MAX_BYTES) {
+          const offset = Number(args.offset ?? 1)
+          const last = kept.map(lineNo).filter((n) => Number.isFinite(n)).at(-1) ?? offset + kept.length - 1
+          return {
+            ...result,
+            output: [
+              ...kept,
+              ...refs,
+              "",
+              `(Output capped at ${READ_MAX_BYTES_LABEL}. Showing lines ${offset}-${last}. Use offset=${last + 1} to continue.)`,
+            ].join("\n"),
+            metadata: { ...result.metadata, truncated: true },
+          }
+        }
+        kept.push(line)
+        bytes += size
+      }
+    }
+    if (result.metadata.truncated === undefined) {
+      result.metadata.truncated = lines.some((line) => /^(Showing lines|Showing bytes) .*Use offset=/.test(line))
+    }
+    return result
+  }
+
+  const count = Number(lines[total]!.match(/^total (\d+) lines$/)?.[1] ?? 0)
+  const refs = lines.slice(0, total).filter((line) => line.startsWith("<fileRef>"))
+  const body = lines.slice(0, total).filter((line) => !line.startsWith("<fileRef>"))
+  const kept: string[] = []
+  let bytes = 0
+  let capped = false
+
+  for (const line of body) {
+    const size = Buffer.byteLength(line, "utf8") + (kept.length > 0 ? 1 : 0)
+    if (kept.length >= READ_MAX_LINES || bytes + size > READ_MAX_BYTES) {
+      capped = true
+      break
+    }
+    kept.push(line)
+    bytes += size
+  }
+
+  const offset = Number(args.offset ?? 1)
+  const last = kept.map(lineNo).filter((n) => Number.isFinite(n)).at(-1) ?? offset + kept.length - 1
+  const hint = capped
+    ? `Output capped at ${READ_MAX_BYTES_LABEL}. Showing lines ${offset}-${last}. Use offset=${last + 1} to continue.`
+    : `End of file - total ${count} lines`
+
+  return {
+    ...result,
+    output: [...kept, ...refs, "", `(${hint})`].join("\n"),
+    metadata: { ...result.metadata, truncated: capped },
+  }
+}
+
+function remind<T extends { title: string; metadata: Record<string, any>; output: string }>(
+  result: T,
+  instructions: Found[],
+) {
+  if (instructions.length === 0) return result
+  const table =
+    result.metadata.loadedRefs &&
+    typeof result.metadata.loadedRefs === "object" &&
+    !Array.isArray(result.metadata.loadedRefs)
+      ? result.metadata.loadedRefs
+      : {}
+  const hashes = Object.fromEntries(instructions.flatMap((item) => (item.hash ? [[item.filepath, item.hash]] : [])))
+  return {
+    ...result,
+    output: [
+      result.output,
+      "<opencode-system-reminder>",
+      instructions.map((item) => item.content).join("\n\n"),
+      "</opencode-system-reminder>",
+    ].join("\n"),
+    metadata: {
+      ...result.metadata,
+      loaded: [
+        ...(Array.isArray(result.metadata.loaded) ? result.metadata.loaded : []),
+        ...instructions.map((item) => item.filepath),
+      ],
+      loadedRefs: {
+        ...table,
+        ...hashes,
+      },
+    },
+  } as T
+}
+
+function paths(filepath: string) {
+  return /^[a-zA-Z]:[\\/]/.test(filepath) || filepath.includes("\\") ? path.win32 : path.posix
+}
+
+function inside(api: path.PlatformPath, root: string, dir: string) {
+  const rel = api.relative(root, dir)
+  return rel === "" || (!rel.startsWith("..") && !api.isAbsolute(rel))
+}
+
+function plain(output: string) {
+  return output
+    .split("\n")
+    .filter((line) => !line.startsWith("<fileRef>") && !/^total \d+ lines$/.test(line) && !/^Showing lines /.test(line))
+    .map((line) => line.replace(/^\d+: ?/, ""))
+    .join("\n")
+    .trimEnd()
+}
+
+function refs(ctx: Tool.Context) {
+  const result = new Map<string, string>()
+  for (const msg of ctx.messages) {
+    for (const part of msg.parts) {
+      if (part.type !== "tool" || part.tool !== "read" || part.state.status !== "completed") continue
+      if (part.state.time.compacted) continue
+      const table = part.state.metadata?.loadedRefs
+      if (!table || typeof table !== "object" || Array.isArray(table)) continue
+      for (const [key, value] of Object.entries(table)) {
+        if (typeof value === "string") result.set(key, value)
+      }
+    }
+  }
+  return result
+}
+
+async function loaded(ctx: Tool.Context, executor: string): Promise<Seen> {
+  const system = new Set<string>()
+  if (executor === "local") {
+    for (const item of await Instruction.systemPaths()) system.add(item)
+  }
+  return { paths: Instruction.loaded(ctx.messages), refs: refs(ctx), system }
+}
+
+function key(executor: string, filepath: string) {
+  return `${executor}:${filepath}`
+}
+
+async function localRefs(
+  def: ToolDefinition,
+  ctx: Tool.Context,
+  instructions: { filepath: string; content: string }[],
+) {
+  const entries = await Promise.all(
+    instructions.map(async (item) => {
+      const data = await load(def, ctx, "local", item.filepath).catch(() => undefined)
+      return [key("local", item.filepath), data?.hash]
+    }),
+  )
+  return Object.fromEntries(entries.filter((item): item is [string, string] => typeof item[1] === "string"))
+}
+
+function root(api: path.PlatformPath, executor: string, target: string, ctx: Tool.Context) {
+  if (executor === "local") return api.normalize(ctx.directory ?? Instance.directory)
+  return api.normalize(api.parse(target).root || api.dirname(target))
+}
+
+async function load(def: ToolDefinition, ctx: Tool.Context, executor: string, filepath: string) {
+  const json = await callRefsTool(
+    def,
+    { filePath: filepath, executor, mode: "text", includeStructuredContent: true },
+    ctx,
+  )
+  const result = extractOutput(JSON.parse(json))
+  if (result.metadata.file?.kind !== "file") return
+  const content = plain(result.output)
+  const code = typeof result.metadata.hashCode === "string" ? result.metadata.hashCode : undefined
+  return { content, ...(code ? { hash: code } : {}) }
+}
+
+async function nearby(def: ToolDefinition, ctx: Tool.Context, executor: string, filepath: string) {
+  const api = paths(filepath)
+  const seen = await loaded(ctx, executor)
+  const found: Found[] = []
+  const target = api.normalize(filepath)
+  const base = root(api, executor, target, ctx)
+  let dir = api.dirname(target)
+
+  for (let i = 0; i < 64 && inside(api, base, dir) && dir !== base; i++) {
+    for (const file of INSTRUCTIONS) {
+      const item = api.join(dir, file)
+      const ref = key(executor, item)
+      if (item === target || (executor === "local" && seen.system.has(item))) continue
+      try {
+        const data = await load(def, ctx, executor, item)
+        if (!data) continue
+        const old = seen.refs.get(ref) ?? (executor === "local" ? seen.refs.get(item) : undefined)
+        const known = seen.paths.has(ref) || (executor === "local" && seen.paths.has(item))
+        if (known && old && data.hash && old === data.hash) continue
+        found.push({ filepath: ref, content: `Instructions from: ${ref}\n${data.content}`, hash: data.hash })
+        break
+      } catch {
+        continue
+      }
+    }
+    const parent = api.dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+
+  return found
 }
 
 function mcpToolToInfo(def: ToolDefinition): Tool.Info {
@@ -267,24 +497,31 @@ function createReadTool(def: ToolDefinition): Tool.Info {
         const executor = a.executor ?? "local"
         const local = executor === "local"
         const isHashRef = /\s+#[0-9a-fA-F]{4}$/.test(target)
+        const localTarget =
+          typeof target === "string" ? (path.isAbsolute(target) ? target : path.resolve(Instance.directory, target)) : ""
 
         const resolvedPath =
           local && !isHashRef ? (path.isAbsolute(target) ? target : path.resolve(Instance.directory, target)) : target
+        const stat = local && !isHashRef ? Filesystem.stat(resolvedPath) : undefined
+        const localStat = localTarget && !isHashRef ? Filesystem.stat(localTarget) : undefined
+        const mime = localTarget && !localStat?.isDirectory() ? Filesystem.mimeType(localTarget) : ""
+        const image = mime.startsWith("image/") && mime !== "image/svg+xml" && mime !== "image/vnd.fastbidsheet"
+        const pdf = mime === "application/pdf"
+
+        if (!local && (image || pdf)) {
+          throw new Error(`${image ? "Image" : "PDF"} reads require executor=local`)
+        }
 
         if (local && !isHashRef) {
           await assertExternalDirectory(ctx, resolvedPath, {
             bypass: Boolean(ctx.extra?.["bypassCwdCheck"]),
-            kind: Filesystem.stat(resolvedPath)?.isDirectory() ? "directory" : "file",
+            kind: stat?.isDirectory() ? "directory" : "file",
           })
           await ctx.ask({ permission: "read", patterns: [resolvedPath], always: ["*"], metadata: {} })
         }
 
         if (local && !isHashRef) {
-          const stat = Filesystem.stat(resolvedPath)
           if (stat && !stat.isDirectory()) {
-            const mime = Filesystem.mimeType(resolvedPath)
-            const image = mime.startsWith("image/") && mime !== "image/svg+xml" && mime !== "image/vnd.fastbidsheet"
-            const pdf = mime === "application/pdf"
             if (image || pdf) {
               if (pdf) throw new Error("PDF read is not supported yet")
               const msg = "Image read successfully"
@@ -292,7 +529,12 @@ function createReadTool(def: ToolDefinition): Tool.Info {
               return {
                 title: path.relative(Instance.worktree, resolvedPath),
                 output: msg,
-                metadata: { preview: msg, truncated: false, loaded: instructions.map((i) => i.filepath) },
+                metadata: {
+                  preview: msg,
+                  truncated: false,
+                  loaded: instructions.map((i) => key("local", i.filepath)),
+                  loadedRefs: await localRefs(def, ctx, instructions),
+                },
                 attachments: [
                   {
                     type: "file" as const,
@@ -302,11 +544,26 @@ function createReadTool(def: ToolDefinition): Tool.Info {
                 ],
               }
             }
+            if (a.mode !== "binary" && File.isKnownBinary(resolvedPath)) {
+              throw new Error("Cannot read binary file")
+            }
           }
         }
 
-        const json = await callRefsTool(def, args, ctx)
-        return extractOutput(JSON.parse(json))
+        const json = await callRefsTool(
+          def,
+          { ...a, includeStructuredContent: true, ...(stat?.isDirectory() ? { hashCheckMode: false } : {}) },
+          ctx,
+        )
+        const result = readResult(extractOutput(JSON.parse(json)), a)
+        if (local && !isHashRef && a.mode !== "binary" && stat && !stat.isDirectory()) {
+          return remind(result, await nearby(def, ctx, executor, resolvedPath))
+        }
+        if (a.mode !== "binary" && result.metadata.file?.kind === "file") {
+          const filepath = result.metadata.file.canonicalPath
+          if (typeof filepath === "string") return remind(result, await nearby(def, ctx, executor, filepath))
+        }
+        return result
       },
     }),
   }

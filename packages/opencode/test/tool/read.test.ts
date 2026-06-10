@@ -557,8 +557,50 @@ describe("tool.read loaded instructions", () => {
         expect(result.output).toContain("test content")
         expect(result.output).toContain("system-reminder")
         expect(result.output).toContain("Test Instructions")
+        expect(result.metadata.hashCode).toEqual(expect.stringMatching(/^sha256:/))
         expect(result.metadata.loaded).toBeDefined()
-        expect(result.metadata.loaded).toContain(path.join(tmp.path, "subdir", "AGENTS.md"))
+        expect(result.metadata.loaded).toContain(`local:${path.join(tmp.path, "subdir", "AGENTS.md")}`)
+        expect(result.metadata.loadedRefs).toMatchObject({
+          [`local:${path.join(tmp.path, "subdir", "AGENTS.md")}`]: expect.stringMatching(/^sha256:/),
+        })
+      },
+    })
+  })
+
+  test("reloads AGENTS.md when loaded hash changes", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "subdir", "AGENTS.md"), "# Test Instructions\nOriginal.")
+        await Bun.write(path.join(dir, "subdir", "nested", "test.txt"), "test content")
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const read = await ReadTool.init()
+        const file = path.join(tmp.path, "subdir", "nested", "test.txt")
+        const ref = `local:${path.join(tmp.path, "subdir", "AGENTS.md")}`
+        const result = await read.execute({ filePath: file }, ctx)
+        const messages = [
+          {
+            parts: [
+              {
+                type: "tool",
+                tool: "read",
+                state: { status: "completed", time: { compacted: false }, metadata: result.metadata },
+              },
+            ],
+          },
+        ]
+        const next = { ...ctx, messages } as unknown as typeof ctx
+
+        const same = await read.execute({ filePath: file }, next)
+        expect(same.output).not.toContain("Original.")
+
+        await Bun.write(path.join(tmp.path, "subdir", "AGENTS.md"), "# Test Instructions\nUpdated.")
+        const changed = await read.execute({ filePath: file }, next)
+        expect(changed.output).toContain("Updated.")
+        expect(changed.metadata.loadedRefs[ref]).not.toBe(result.metadata.loadedRefs[ref])
       },
     })
   })

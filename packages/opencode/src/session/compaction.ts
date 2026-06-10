@@ -82,6 +82,23 @@ export namespace SessionCompaction {
       const processors = yield* SessionProcessor.Service
       const provider = yield* Provider.Service
 
+      const clearLoadedRefs = Effect.fn("SessionCompaction.clearLoadedRefs")(function* (sessionID: SessionID) {
+        const msgs = yield* session
+          .messages({ sessionID })
+          .pipe(Effect.catchIf(NotFoundError.isInstance, () => Effect.succeed(undefined)))
+        if (!msgs) return
+
+        for (const msg of msgs) {
+          for (const part of msg.parts) {
+            if (part.type !== "tool" || part.tool !== "read" || part.state.status !== "completed") continue
+            if (!part.state.metadata.loadedRefs) continue
+            const metadata = { ...part.state.metadata }
+            delete metadata.loadedRefs
+            yield* session.updatePart({ ...part, state: { ...part.state, metadata } })
+          }
+        }
+      })
+
       const isOverflow = Effect.fn("SessionCompaction.isOverflow")(function* (input: {
         tokens: MessageV2.Assistant["tokens"]
         model: Provider.Model
@@ -345,6 +362,7 @@ When constructing the summary, try to stick to this template:
         if (processor.message.error) return "stop"
         if (result === "continue") {
           yield* Effect.sync(() => SessionHashRef.clear(input.sessionID))
+          yield* clearLoadedRefs(input.sessionID)
           yield* bus.publish(Event.Compacted, { sessionID: input.sessionID })
         }
         return result
