@@ -136,8 +136,9 @@ export namespace ToolRegistry {
 
       // REFS-backed tools: read from MCP tools/list dynamically
       // Replaces the old built-in tool IDs with MCP-defined REFS tools.
-      const refsTools = getRefsTools()
-      const refsMap = new Map(refsTools.map((t) => [t.id, t]))
+      const allRefsTools = getRefsTools()
+      const refsTools = allRefsTools.filter((t) => t.id !== "skill")
+      const refsMap = new Map(allRefsTools.map((t) => [t.id, t]))
       const read = refsMap.get("read")!
 
       const all = Effect.fn("ToolRegistry.all")(function* (custom: Tool.Info[]) {

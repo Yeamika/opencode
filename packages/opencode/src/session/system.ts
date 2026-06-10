@@ -14,7 +14,6 @@ import PROMPT_TRINITY from "./prompt/trinity.txt"
 import type { Provider } from "@/provider/provider"
 import type { Agent } from "@/agent/agent"
 import { Permission } from "@/permission"
-import { Skill } from "@/skill"
 
 export namespace SystemPrompt {
   export function provider(model: Provider.Model) {
@@ -64,14 +63,10 @@ export namespace SystemPrompt {
   export async function skills(agent: Agent.Info) {
     if (Permission.disabled(["skill"], agent.permission).has("skill")) return
 
-    const list = await Skill.available(agent)
-
     return [
       "Skills provide specialized instructions and workflows for specific tasks.",
-      "Use the skill tool to load a skill when a task matches its description.",
-      // the agents seem to ingest the information about skills a bit better if we present a more verbose
-      // version of them here and a less verbose version in tool description, rather than vice versa.
-      Skill.fmt(list, { verbose: true }),
+      'Use the skill tool with mode "list" to discover available skill names, descriptions, and paths.',
+      'Use the skill tool with mode "read" and a name regex to load one skill only when its details are needed.',
     ].join("\n")
   }
 }

@@ -2662,16 +2662,19 @@ function Question(props: ToolProps<typeof QuestionTool>) {
 }
 
 function Skill(props: ToolProps<typeof SkillTool>) {
+  const mode = createMemo(() => props.input.mode ?? "list")
+  const name = createMemo(() => props.input.name?.trim())
+  const title = createMemo(() => (name() ? `Skill ${mode()} "${name()}"` : `Skill ${mode()}`))
   return (
     <InlineTool
       icon="→"
       pending="Loading skill..."
-      complete={props.input.name}
+      complete={name() ?? mode()}
       part={props.part}
       tool="Skill"
       input={props.input}
     >
-      Skill "{props.input.name}"
+      {title()}
     </InlineTool>
   )
 }

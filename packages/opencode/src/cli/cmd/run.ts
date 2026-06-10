@@ -135,9 +135,11 @@ function task(info: ToolProps<typeof TaskTool>) {
 }
 
 function skill(info: ToolProps<typeof SkillTool>) {
+  const mode = info.input.mode ?? "list"
+  const name = info.input.name?.trim()
   inline({
     icon: "→",
-    title: `Skill "${info.input.name}"`,
+    title: name ? `Skill ${mode} "${name}"` : `Skill ${mode}`,
   })
 }
 

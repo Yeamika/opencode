@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import path from "path"
-import { pathToFileURL } from "url"
 import type { Permission } from "../../src/permission"
 import type { Tool } from "../../src/tool/tool"
 import { Instance } from "../../src/project/instance"
@@ -23,13 +22,12 @@ afterEach(async () => {
 })
 
 describe("tool.skill", () => {
-  test("description lists skill location URL", async () => {
+  test("description points agents to list and read modes without injecting skills", async () => {
     await using tmp = await tmpdir({
       git: true,
       init: async (dir) => {
-        const skillDir = path.join(dir, ".opencode", "skill", "tool-skill")
         await Bun.write(
-          path.join(skillDir, "SKILL.md"),
+          path.join(dir, ".opencode", "skill", "tool-skill", "SKILL.md"),
           `---
 name: tool-skill
 description: Skill for tool tests.
@@ -49,8 +47,11 @@ description: Skill for tool tests.
         directory: tmp.path,
         fn: async () => {
           const tool = await SkillTool.init()
-          const skillPath = path.join(tmp.path, ".opencode", "skill", "tool-skill", "SKILL.md")
-          expect(tool.description).toContain(`**tool-skill**: Skill for tool tests.`)
+
+          expect(tool.description).toContain('mode "list"')
+          expect(tool.description).toContain('mode "read"')
+          expect(tool.description).not.toContain("tool-skill")
+          expect(tool.description).not.toContain("Skill for tool tests.")
         },
       })
     } finally {
@@ -58,7 +59,7 @@ description: Skill for tool tests.
     }
   })
 
-  test("description sorts skills by name and is stable across calls", async () => {
+  test("list returns visible local skill summaries filtered by regex", async () => {
     await using tmp = await tmpdir({
       git: true,
       init: async (dir) => {
@@ -67,9 +68,8 @@ description: Skill for tool tests.
           ["alpha-skill", "Alpha skill."],
           ["middle-skill", "Middle skill."],
         ]) {
-          const skillDir = path.join(dir, ".opencode", "skill", name)
           await Bun.write(
-            path.join(skillDir, "SKILL.md"),
+            path.join(dir, ".opencode", "skill", name, "SKILL.md"),
             `---
 name: ${name}
 description: ${description}
@@ -89,18 +89,20 @@ description: ${description}
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          const first = await SkillTool.init()
-          const second = await SkillTool.init()
+          const tool = await SkillTool.init()
+          const result = await tool.execute(
+            { mode: "list", name: "alpha|middle" },
+            {
+              ...baseCtx,
+              ask: async () => {},
+            },
+          )
 
-          expect(first.description).toBe(second.description)
-
-          const alpha = first.description.indexOf("**alpha-skill**: Alpha skill.")
-          const middle = first.description.indexOf("**middle-skill**: Middle skill.")
-          const zeta = first.description.indexOf("**zeta-skill**: Zeta skill.")
-
-          expect(alpha).toBeGreaterThan(-1)
-          expect(middle).toBeGreaterThan(alpha)
-          expect(zeta).toBeGreaterThan(middle)
+          expect(result.output).toContain("name: alpha-skill")
+          expect(result.output).toContain("description: Alpha skill.")
+          expect(result.output).toContain("name: middle-skill")
+          expect(result.output).not.toContain("zeta-skill")
+          expect(result.output).not.toContain("# alpha-skill")
         },
       })
     } finally {
@@ -108,13 +110,13 @@ description: ${description}
     }
   })
 
-  test("execute returns skill content block with files", async () => {
+  test("read loads one local skill through REFS", async () => {
     await using tmp = await tmpdir({
       git: true,
       init: async (dir) => {
-        const skillDir = path.join(dir, ".opencode", "skill", "tool-skill")
+        const root = path.join(dir, ".opencode", "skill", "tool-skill")
         await Bun.write(
-          path.join(skillDir, "SKILL.md"),
+          path.join(root, "SKILL.md"),
           `---
 name: tool-skill
 description: Skill for tool tests.
@@ -125,7 +127,7 @@ description: Skill for tool tests.
 Use this skill.
 `,
         )
-        await Bun.write(path.join(skillDir, "scripts", "demo.txt"), "demo")
+        await Bun.write(path.join(root, "scripts", "demo.txt"), "demo")
       },
     })
 
@@ -145,19 +147,19 @@ Use this skill.
             },
           }
 
-          const result = await tool.execute({ name: "tool-skill" }, ctx)
-          const dir = path.join(tmp.path, ".opencode", "skill", "tool-skill")
-          const file = path.resolve(dir, "scripts", "demo.txt")
+          const result = await tool.execute({ mode: "read", name: "^tool-skill$" }, ctx)
+          const root = path.join(tmp.path, ".opencode", "skill", "tool-skill")
 
           expect(requests.length).toBe(1)
           expect(requests[0].permission).toBe("skill")
           expect(requests[0].patterns).toContain("tool-skill")
           expect(requests[0].always).toContain("tool-skill")
 
-          expect(result.metadata.dir).toBe(dir)
+          expect(result.metadata.dir).toBe(root)
           expect(result.output).toContain(`<skill_content name="tool-skill">`)
-          expect(result.output).toContain(`Base directory for this skill: ${pathToFileURL(dir).href}`)
-          expect(result.output).toContain(`<file>${file}</file>`)
+          expect(result.output).toContain(`Base directory for this skill: ${root}`)
+          expect(result.output).toContain("Use this skill.")
+          expect(result.output).toContain("scripts/demo.txt")
         },
       })
     } finally {

@@ -1,103 +1,128 @@
-import path from "path"
-import { pathToFileURL } from "url"
 import z from "zod"
+import { Instance } from "@/project/instance"
+import { Skill } from "@/skill"
+import { callToolAsync } from "./refs-bridge"
 import { Tool } from "./tool"
-import { Skill } from "../skill"
-import { Ripgrep } from "../file/ripgrep"
-import { iife } from "@/util/iife"
 
-export const SkillTool = Tool.define("skill", async (ctx) => {
-  const list = await Skill.available(ctx?.agent)
+const parameters = z.object({
+  mode: z.enum(["list", "read"]).default("list").describe("list discovers skills; read loads one full skill."),
+  name: z.string().optional().describe("Regex filter over skill names. Required for read."),
+  path: z
+    .string()
+    .optional()
+    .describe("Skill root folder or SKILL.md file. Use executor:/path for remote executors. Omit for local skills."),
+})
 
-  const description =
-    list.length === 0
-      ? "Load a specialized skill that provides domain-specific instructions and workflows. No skills are currently available."
-      : [
-          "Load a specialized skill that provides domain-specific instructions and workflows.",
-          "",
-          "When you recognize that a task matches one of the available skills listed below, use this tool to load the full skill instructions.",
-          "",
-          "The skill will inject detailed instructions, workflows, and access to bundled resources (scripts, references, templates) into the conversation context.",
-          "",
-          'Tool output includes a `<skill_content name="...">` block with the loaded content.',
-          "",
-          "The following skills provide specialized sets of instructions for particular tasks",
-          "Invoke this tool to load a skill when a task matches one of the available skills listed below:",
-          "",
-          Skill.fmt(list, { verbose: false }),
-        ].join("\n")
+type Params = z.infer<typeof parameters>
+type Metadata = {
+  mode: "list" | "read"
+  path?: string
+  name?: string
+  dir?: string
+  skills?: Array<{ name: string; description: string; path: string }>
+}
 
-  const examples = list
-    .map((skill) => `'${skill.name}'`)
-    .slice(0, 3)
-    .join(", ")
-  const hint = examples.length > 0 ? ` (e.g., ${examples}, ...)` : ""
+function escape(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
 
-  const parameters = z.object({
-    name: z.string().describe(`The name of the skill from available_skills${hint}`),
-  })
+function output(list: Skill.Info[]) {
+  if (list.length === 0) return "No skills found."
+  return list
+    .map((skill) => [`name: ${skill.name}`, `description: ${skill.description}`, `path: ${skill.location}`].join("\n"))
+    .join("\n\n")
+}
 
+function parse(json: string): string {
+  const result = JSON.parse(json)
+  if (result.error) throw new Error(result.error.message || "REFS skill call failed")
+  return result.result?.content?.[0]?.text ?? ""
+}
+
+function local(path?: string) {
+  return !path || path === "local"
+}
+
+async function refs(args: { mode: "list" | "read"; name?: string; path: string }, ctx: Tool.Context) {
+  return parse(
+    await callToolAsync({
+      sessionID: ctx.sessionID,
+      workdir: ctx.directory ?? Instance.directory,
+      tool: "skill",
+      argsJson: JSON.stringify({ ExecutorSessionID: ctx.sessionID, ...args }),
+    }),
+  )
+}
+
+export const SkillTool = Tool.define<typeof parameters, Metadata>("skill", async (init) => {
   return {
-    description,
+    description: [
+      "Discover or load specialized skills that provide domain-specific instructions and workflows.",
+      'Use mode "list" to inspect available skill names, descriptions, and paths.',
+      'Use mode "read" with a name regex to load one skill\'s full instructions and bundled file summary.',
+      "Omit path for local skills. Use path like executor:/path/to/skills for remote executor skills.",
+    ].join("\n"),
     parameters,
-    async execute(params: z.infer<typeof parameters>, ctx) {
-      const skill = await Skill.get(params.name)
+    async execute(params: Params, ctx) {
+      const mode = params.mode ?? "list"
+      if (!local(params.path)) {
+        if (mode === "read" && !params.name) throw new Error("skill mode=read requires name regex")
+        if (mode === "read") {
+          await ctx.ask({
+            permission: "skill",
+            patterns: [params.name!],
+            always: [params.name!],
+            metadata: { path: params.path },
+          })
+        }
+        return {
+          title: mode === "read" ? `Loaded skill: ${params.name}` : "Skills",
+          output: await refs({ mode, name: params.name, path: params.path! }, ctx),
+          metadata: { mode, path: params.path },
+        }
+      }
 
+      const skills = await Skill.available(init?.agent)
+      const regex = params.name ? new RegExp(params.name) : undefined
+      const filtered = regex ? skills.filter((skill) => regex.test(skill.name)) : skills
+      if (mode === "list") {
+        return {
+          title: "Skills",
+          output: output(filtered),
+          metadata: {
+            mode,
+            skills: filtered.map((skill) => ({
+              name: skill.name,
+              description: skill.description,
+              path: skill.location,
+            })),
+          },
+        }
+      }
+
+      if (!params.name) throw new Error("skill mode=read requires name regex")
+      const [skill] = filtered
       if (!skill) {
-        const available = await Skill.all().then((x) => x.map((skill) => skill.name).join(", "))
-        throw new Error(`Skill "${params.name}" not found. Available skills: ${available || "none"}`)
+        throw new Error(`Skill not found. Available skills: ${skills.map((item) => item.name).join(", ") || "none"}`)
+      }
+      if (filtered.length > 1) {
+        throw new Error(`Skill name regex matched multiple skills: ${filtered.map((item) => item.name).join(", ")}`)
       }
 
       await ctx.ask({
         permission: "skill",
-        patterns: [params.name],
-        always: [params.name],
+        patterns: [skill.name],
+        always: [skill.name],
         metadata: {},
       })
 
-      const dir = path.dirname(skill.location)
-      const base = pathToFileURL(dir).href
-
-      const limit = 10
-      const files = await iife(async () => {
-        const arr = []
-        for await (const file of Ripgrep.files({
-          cwd: dir,
-          follow: false,
-          hidden: true,
-          signal: ctx.abort,
-        })) {
-          if (file.includes("SKILL.md")) {
-            continue
-          }
-          arr.push(path.resolve(dir, file))
-          if (arr.length >= limit) {
-            break
-          }
-        }
-        return arr
-      }).then((f) => f.map((file) => `<file>${file}</file>`).join("\n"))
-
       return {
         title: `Loaded skill: ${skill.name}`,
-        output: [
-          `<skill_content name="${skill.name}">`,
-          `# Skill: ${skill.name}`,
-          "",
-          skill.content.trim(),
-          "",
-          `Base directory for this skill: ${base}`,
-          "Relative paths in this skill (e.g., scripts/, reference/) are relative to this base directory.",
-          "Note: file list is sampled.",
-          "",
-          "<skill_files>",
-          files,
-          "</skill_files>",
-          "</skill_content>",
-        ].join("\n"),
+        output: await refs({ mode: "read", name: `^${escape(skill.name)}$`, path: skill.location }, ctx),
         metadata: {
+          mode,
           name: skill.name,
-          dir,
+          dir: skill.location.replace(/[\\/][^\\/]*$/, ""),
         },
       }
     },

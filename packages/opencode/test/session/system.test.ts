@@ -7,7 +7,7 @@ import { SystemPrompt } from "../../src/session/system"
 import { tmpdir } from "../fixture/fixture"
 
 describe("session.system", () => {
-  test("skills output is sorted by name and stable across calls", async () => {
+  test("skills output points to skill tool without injecting names", async () => {
     await using tmp = await tmpdir({
       git: true,
       init: async (dir) => {
@@ -43,14 +43,11 @@ description: ${description}
           const second = await SystemPrompt.skills(build!)
 
           expect(first).toBe(second)
-
-          const alpha = first!.indexOf("<name>alpha-skill</name>")
-          const middle = first!.indexOf("<name>middle-skill</name>")
-          const zeta = first!.indexOf("<name>zeta-skill</name>")
-
-          expect(alpha).toBeGreaterThan(-1)
-          expect(middle).toBeGreaterThan(alpha)
-          expect(zeta).toBeGreaterThan(middle)
+          expect(first).toContain('mode "list"')
+          expect(first).toContain('mode "read"')
+          expect(first).not.toContain("alpha-skill")
+          expect(first).not.toContain("middle-skill")
+          expect(first).not.toContain("zeta-skill")
         },
       })
     } finally {
