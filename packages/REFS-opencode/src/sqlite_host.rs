@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use napi::threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use rusqlite::{Connection, OptionalExtension};
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use remote_executor_for_session::host::{
@@ -783,6 +783,66 @@ impl ExbashWorkdirStore for SqliteSessionHost {
 
 // ─── RemoteExecutorConfigStore ───
 
+const EXECUTOR_CONFIG_FILE: &str = "remote_executor_infos.json";
+
+fn workspace_executor_config_path(workdir: &str) -> PathBuf {
+    Path::new(workdir)
+        .join(".opencode")
+        .join(EXECUTOR_CONFIG_FILE)
+}
+
+fn read_json_config(path: &Path) -> Result<Value, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    Ok(serde_json::from_str(&text).unwrap_or_else(|_| json!({})))
+}
+
+fn read_remote_executor_config_value(workdir: &str) -> Result<Value, String> {
+    let user = crate::opencode_config_path(EXECUTOR_CONFIG_FILE);
+    let user = if user.exists() {
+        read_json_config(&user)?
+    } else {
+        json!({})
+    };
+    let workspace = workspace_executor_config_path(workdir);
+    if !workspace.exists() {
+        return Ok(user);
+    }
+    Ok(merge_executor_configs(user, read_json_config(&workspace)?))
+}
+
+fn merge_executor_configs(user: Value, workspace: Value) -> Value {
+    let mut executors = executor_entries(user);
+    for entry in executor_entries(workspace) {
+        let id = entry
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|id| !id.is_empty());
+        if let Some(id) = id {
+            if let Some(existing) = executors
+                .iter_mut()
+                .find(|existing| existing.get("id").and_then(Value::as_str) == Some(id))
+            {
+                *existing = entry;
+                continue;
+            }
+        }
+        executors.push(entry);
+    }
+    json!({ "executors": executors })
+}
+
+fn executor_entries(value: Value) -> Vec<Value> {
+    match value {
+        Value::Array(entries) => entries,
+        Value::Object(mut object) => object
+            .remove("executors")
+            .and_then(|value| value.as_array().cloned())
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
 #[async_trait]
 impl RemoteExecutorConfigStore for SqliteSessionHost {
     type Error = String;
@@ -791,15 +851,7 @@ impl RemoteExecutorConfigStore for SqliteSessionHost {
         &self,
         workdir: &str,
     ) -> Result<RemoteExecutorConfigSnapshot, Self::Error> {
-        let config_path = std::path::Path::new(workdir)
-            .join(".opencode")
-            .join("remote_executor_infos.json");
-        let config = if config_path.exists() {
-            let text = std::fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
-            serde_json::from_str(&text).unwrap_or_else(|_| json!({}))
-        } else {
-            json!({})
-        };
+        let config = read_remote_executor_config_value(workdir)?;
         Ok(RemoteExecutorConfigSnapshot {
             workdir: workdir.to_string(),
             config,
@@ -811,9 +863,7 @@ impl RemoteExecutorConfigStore for SqliteSessionHost {
         workdir: &str,
         patch: Value,
     ) -> Result<RemoteExecutorConfigSnapshot, Self::Error> {
-        let config_path = std::path::Path::new(workdir)
-            .join(".opencode")
-            .join("remote_executor_infos.json");
+        let config_path = workspace_executor_config_path(workdir);
         if let Some(parent) = config_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
@@ -823,5 +873,96 @@ impl RemoteExecutorConfigStore for SqliteSessionHost {
             workdir: workdir.to_string(),
             config: patch,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::OsString;
+    use std::sync::Mutex as StdMutex;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static ENV_LOCK: StdMutex<()> = StdMutex::new(());
+
+    struct EnvGuard {
+        key: &'static str,
+        old: Option<OsString>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: &Path) -> Self {
+            let old = std::env::var_os(key);
+            std::env::set_var(key, value);
+            Self { key, old }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            if let Some(old) = self.old.as_ref() {
+                std::env::set_var(self.key, old);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
+
+    fn temp_root(name: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "refs-opencode-{name}-{}-{nanos}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    #[test]
+    fn remote_executor_config_merges_user_and_workspace_config() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let root = temp_root("executor-config-fallback");
+        let user = root.join("user");
+        let workdir = root.join("workspace");
+        std::fs::create_dir_all(&user).unwrap();
+        std::fs::create_dir_all(&workdir).unwrap();
+        let _env = EnvGuard::set("OPENCODE_CONFIG_DIR", &user);
+
+        std::fs::write(
+            user.join(EXECUTOR_CONFIG_FILE),
+            json!({"executors":[
+                {"id":"user-exec","url":"ws://user"},
+                {"id":"shared-exec","url":"ws://user-shared","system":"user-system"}
+            ]})
+            .to_string(),
+        )
+        .unwrap();
+        let value = read_remote_executor_config_value(workdir.to_str().unwrap()).unwrap();
+        assert_eq!(value["executors"][0]["id"], "user-exec");
+        assert_eq!(value["executors"][1]["id"], "shared-exec");
+
+        let workspace_config = workspace_executor_config_path(workdir.to_str().unwrap());
+        std::fs::create_dir_all(workspace_config.parent().unwrap()).unwrap();
+        std::fs::write(
+            workspace_config,
+            json!({"executors":[
+                {"id":"shared-exec","url":"ws://workspace-shared","device":"workspace-device"},
+                {"id":"workspace-exec","url":"ws://workspace"}
+            ]})
+            .to_string(),
+        )
+        .unwrap();
+        let value = read_remote_executor_config_value(workdir.to_str().unwrap()).unwrap();
+        assert_eq!(value["executors"][0]["id"], "user-exec");
+        assert_eq!(value["executors"][1]["id"], "shared-exec");
+        assert_eq!(value["executors"][1]["url"], "ws://workspace-shared");
+        assert!(value["executors"][1]["system"].is_null());
+        assert_eq!(value["executors"][1]["device"], "workspace-device");
+        assert_eq!(value["executors"][2]["id"], "workspace-exec");
+
+        std::fs::remove_dir_all(root).ok();
     }
 }

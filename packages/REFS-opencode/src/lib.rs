@@ -205,29 +205,33 @@ pub fn default_db_path() -> napi::Result<String> {
 }
 
 fn opencode_re_settings_path() -> PathBuf {
+    opencode_config_path(".re-setting.json")
+}
+
+pub(crate) fn opencode_config_path(filename: &str) -> PathBuf {
     if let Some(dir) = non_empty_env("OPENCODE_CONFIG_DIR") {
-        return PathBuf::from(dir).join(".re-setting.json");
+        return PathBuf::from(dir).join(filename);
     }
     if let Some(dir) = non_empty_env("XDG_CONFIG_HOME") {
-        return PathBuf::from(dir).join("opencode").join(".re-setting.json");
+        return PathBuf::from(dir).join("opencode").join(filename);
     }
     #[cfg(windows)]
     {
         if let Some(dir) = non_empty_env("APPDATA") {
-            return PathBuf::from(dir).join("opencode").join(".re-setting.json");
+            return PathBuf::from(dir).join("opencode").join(filename);
         }
         if let Some(dir) = non_empty_env("USERPROFILE") {
             return PathBuf::from(dir)
                 .join(".config")
                 .join("opencode")
-                .join(".re-setting.json");
+                .join(filename);
         }
     }
     let home = non_empty_env("HOME").unwrap_or_else(|| ".".to_string());
     PathBuf::from(home)
         .join(".config")
         .join("opencode")
-        .join(".re-setting.json")
+        .join(filename)
 }
 
 fn non_empty_env(key: &str) -> Option<String> {
