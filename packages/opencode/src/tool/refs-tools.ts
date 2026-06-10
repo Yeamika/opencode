@@ -157,7 +157,8 @@ function readInputSchema(schema: Record<string, unknown>): Record<string, unknow
   const mode = next.properties?.mode
   if (mode && typeof mode === "object" && Array.isArray(mode.enum) && !mode.enum.includes("img")) {
     mode.enum = [...mode.enum, "img"]
-    mode.description = "Read mode: text for normal files, binary for hexdump bytes, img for local image/PDF attachments."
+    mode.description =
+      "Read mode: text for normal files, binary for hexdump bytes, img for local image/PDF attachments."
   }
   return next
 }
@@ -231,7 +232,10 @@ function lineNo(line: string) {
   return Number(line.match(/^(\d+):/)?.[1])
 }
 
-function readResult(result: { title: string; metadata: Record<string, any>; output: string }, args: Record<string, any>) {
+function readResult(
+  result: { title: string; metadata: Record<string, any>; output: string },
+  args: Record<string, any>,
+) {
   if (args.mode === "binary" || result.metadata.file?.kind !== "file") {
     if (result.metadata.truncated === undefined) {
       result.metadata.truncated = result.output.includes("Use offset=")
@@ -253,7 +257,11 @@ function readResult(result: { title: string; metadata: Record<string, any>; outp
         const size = Buffer.byteLength(line, "utf8") + (kept.length > 0 ? 1 : 0)
         if (bytes + size > READ_MAX_BYTES) {
           const offset = Number(args.offset ?? 1)
-          const last = kept.map(lineNo).filter((n) => Number.isFinite(n)).at(-1) ?? offset + kept.length - 1
+          const last =
+            kept
+              .map(lineNo)
+              .filter((n) => Number.isFinite(n))
+              .at(-1) ?? offset + kept.length - 1
           return {
             ...result,
             output: [
@@ -293,7 +301,11 @@ function readResult(result: { title: string; metadata: Record<string, any>; outp
   }
 
   const offset = Number(args.offset ?? 1)
-  const last = kept.map(lineNo).filter((n) => Number.isFinite(n)).at(-1) ?? offset + kept.length - 1
+  const last =
+    kept
+      .map(lineNo)
+      .filter((n) => Number.isFinite(n))
+      .at(-1) ?? offset + kept.length - 1
   const hint = capped
     ? `Output capped at ${READ_MAX_BYTES_LABEL}. Showing lines ${offset}-${last}. Use offset=${last + 1} to continue.`
     : `End of file - total ${count} lines`
@@ -509,7 +521,11 @@ function createReadTool(def: ToolDefinition): Tool.Info {
         const mode = a.mode ?? "text"
         const isHashRef = /\s+#[0-9a-fA-F]{4}$/.test(target)
         const localTarget =
-          typeof target === "string" ? (path.isAbsolute(target) ? target : path.resolve(Instance.directory, target)) : ""
+          typeof target === "string"
+            ? path.isAbsolute(target)
+              ? target
+              : path.resolve(Instance.directory, target)
+            : ""
 
         const resolvedPath =
           local && !isHashRef ? (path.isAbsolute(target) ? target : path.resolve(Instance.directory, target)) : target

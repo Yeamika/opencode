@@ -8058,6 +8058,9 @@
               },
               "attempt": {
                 "type": "number"
+              },
+              "message": {
+                "type": "string"
               }
             },
             "required": ["type", "startedAt", "updatedAt"]
@@ -8317,6 +8320,29 @@
               }
             },
             "required": ["sessionID", "todos"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.exbash.updated": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "exbash.updated"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "sessionID": {
+                "type": "string",
+                "pattern": "^ses.*"
+              },
+              "workspace": {
+                "type": "string"
+              }
+            },
+            "required": ["sessionID", "workspace"]
           }
         },
         "required": ["type", "properties"]
@@ -8586,25 +8612,21 @@
         },
         "required": ["type", "properties"]
       },
-      "Event.exbash.updated": {
+      "Event.file.edited": {
         "type": "object",
         "properties": {
           "type": {
             "type": "string",
-            "const": "exbash.updated"
+            "const": "file.edited"
           },
           "properties": {
             "type": "object",
             "properties": {
-              "sessionID": {
-                "type": "string",
-                "pattern": "^ses.*"
-              },
-              "workspace": {
+              "file": {
                 "type": "string"
               }
             },
-            "required": ["sessionID", "workspace"]
+            "required": ["file"]
           }
         },
         "required": ["type", "properties"]
@@ -8894,25 +8916,6 @@
                 ]
               }
             }
-          }
-        },
-        "required": ["type", "properties"]
-      },
-      "Event.file.edited": {
-        "type": "object",
-        "properties": {
-          "type": {
-            "type": "string",
-            "const": "file.edited"
-          },
-          "properties": {
-            "type": "object",
-            "properties": {
-              "file": {
-                "type": "string"
-              }
-            },
-            "required": ["file"]
           }
         },
         "required": ["type", "properties"]
@@ -10571,6 +10574,9 @@
             "$ref": "#/components/schemas/Event.todo.updated"
           },
           {
+            "$ref": "#/components/schemas/Event.exbash.updated"
+          },
+          {
             "$ref": "#/components/schemas/Event.project.reload.updated"
           },
           {
@@ -10598,7 +10604,7 @@
             "$ref": "#/components/schemas/Event.mcp.browser.open.failed"
           },
           {
-            "$ref": "#/components/schemas/Event.exbash.updated"
+            "$ref": "#/components/schemas/Event.file.edited"
           },
           {
             "$ref": "#/components/schemas/Event.command.executed"
@@ -10608,9 +10614,6 @@
           },
           {
             "$ref": "#/components/schemas/Event.session.error"
-          },
-          {
-            "$ref": "#/components/schemas/Event.file.edited"
           },
           {
             "$ref": "#/components/schemas/Event.file.watcher.updated"

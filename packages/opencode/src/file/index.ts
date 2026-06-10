@@ -294,7 +294,8 @@ export namespace File {
   const isBinaryByExtension = (file: string) => binary.has(ext(file))
   const isImage = (mimeType: string) => mimeType.startsWith("image/")
   const getImageMimeType = (file: string) => mime[ext(file)] || "image/" + ext(file)
-  export const isKnownBinary = (file: string) => isBinaryByExtension(file) && !isTextByExtension(file) && !isTextByName(file)
+  export const isKnownBinary = (file: string) =>
+    isBinaryByExtension(file) && !isTextByExtension(file) && !isTextByName(file)
 
   function shouldEncode(mimeType: string) {
     const type = mimeType.toLowerCase()

@@ -263,6 +263,14 @@ export type EventTodoUpdated = {
   }
 }
 
+export type EventExbashUpdated = {
+  type: "exbash.updated"
+  properties: {
+    sessionID: string
+    workspace: string
+  }
+}
+
 export type EventProjectReloadUpdated = {
   type: "project.reload.updated"
   properties: {
@@ -398,11 +406,10 @@ export type EventMcpBrowserOpenFailed = {
   }
 }
 
-export type EventExbashUpdated = {
-  type: "exbash.updated"
+export type EventFileEdited = {
+  type: "file.edited"
   properties: {
-    sessionID: string
-    workspace: string
+    file: string
   }
 }
 
@@ -506,13 +513,6 @@ export type EventSessionError = {
       | StructuredOutputError
       | ContextOverflowError
       | ApiError
-  }
-}
-
-export type EventFileEdited = {
-  type: "file.edited"
-  properties: {
-    file: string
   }
 }
 
@@ -1063,6 +1063,7 @@ export type Event =
   | EventQuestionRejected
   | EventSessionCompacted
   | EventTodoUpdated
+  | EventExbashUpdated
   | EventProjectReloadUpdated
   | EventTuiPromptAppend
   | EventTuiCommandExecute
@@ -1072,11 +1073,10 @@ export type Event =
   | EventTuiDisplayReport
   | EventMcpToolsChanged
   | EventMcpBrowserOpenFailed
-  | EventExbashUpdated
+  | EventFileEdited
   | EventCommandExecuted
   | EventSessionDiff
   | EventSessionError
-  | EventFileEdited
   | EventFileWatcherUpdated
   | EventVcsBranchUpdated
   | EventWorkspaceReady
