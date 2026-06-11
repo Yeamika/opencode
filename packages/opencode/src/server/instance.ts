@@ -18,7 +18,7 @@ import { QuestionRoutes } from "./routes/question"
 import { PermissionRoutes } from "./routes/permission"
 import { Snapshot } from "@/snapshot"
 import { ProjectRoutes } from "./routes/project"
-import { SessionRoutes } from "./routes/session"
+import { RefsRoutes, SessionRoutes } from "./routes/session"
 import { PtyRoutes } from "./routes/pty"
 import { McpRoutes } from "./routes/mcp"
 import { FileRoutes } from "./routes/file"
@@ -49,6 +49,7 @@ export const InstanceRoutes = (app?: Hono) =>
     .route("/config", ConfigRoutes())
     .route("/experimental", ExperimentalRoutes())
     .route("/session", SessionRoutes())
+    .route("/refs", RefsRoutes())
     .route("/permission", PermissionRoutes())
     .route("/question", QuestionRoutes())
     .route("/provider", ProviderRoutes())

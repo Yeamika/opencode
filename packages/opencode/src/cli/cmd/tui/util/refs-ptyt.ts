@@ -65,8 +65,8 @@ export function bin() {
   )
 }
 
-export function refsUrl(serverUrl: string, sessionID: string) {
-  const url = new URL(`/session/${sessionID}/refs-mcp`, serverUrl)
+export function refsUrl(serverUrl: string) {
+  const url = new URL("/refs", serverUrl)
   if (url.protocol === "http:") url.protocol = "ws:"
   else if (url.protocol === "https:") url.protocol = "wss:"
   else if (url.protocol !== "ws:" && url.protocol !== "wss:") {
@@ -78,7 +78,7 @@ export function refsUrl(serverUrl: string, sessionID: string) {
 }
 
 export function args(input: { serverUrl: string; sessionID: string }) {
-  return [bin(), "--server-url", refsUrl(input.serverUrl, input.sessionID), "--session", input.sessionID]
+  return [bin(), "--server-url", refsUrl(input.serverUrl), "--session", input.sessionID]
 }
 
 export function command(args: string[]) {

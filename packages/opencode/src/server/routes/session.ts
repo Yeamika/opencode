@@ -16,6 +16,7 @@ import { SessionSummary } from "@/session/summary"
 import { Todo } from "../../session/todo"
 import { ExBashTask } from "@/session/exbash"
 import * as RefsBridge from "@/tool/refs-bridge"
+import { Instance } from "@/project/instance"
 import { Agent } from "../../agent/agent"
 import { Snapshot } from "@/snapshot"
 import { Log } from "../../util/log"
@@ -69,6 +70,90 @@ function refsMcpError(id: unknown, code: number, message: string) {
     },
   })
 }
+
+function refsMcpSession(input: string) {
+  const value = JSON.parse(input)
+  const ids = new Set<string>()
+  let calls = 0
+  const scan = (item: unknown) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return
+    const request = item as Record<string, unknown>
+    if (request.method !== "tools/call") return
+    calls++
+    const params = request.params
+    if (!params || typeof params !== "object" || Array.isArray(params)) return
+    const args = (params as Record<string, unknown>).arguments
+    if (!args || typeof args !== "object" || Array.isArray(args)) return
+    const sessionID = (args as Record<string, unknown>).ExecutorSessionID
+    if (typeof sessionID === "string" && sessionID.trim()) ids.add(sessionID)
+  }
+  if (Array.isArray(value)) value.forEach(scan)
+  else scan(value)
+  if (ids.size > 1) throw new Error("REFS /refs does not support batch calls with multiple ExecutorSessionID values")
+  const sessionID = ids.values().next().value
+  if (calls > 0 && !sessionID) throw new Error("REFS /refs tools/call requires arguments.ExecutorSessionID")
+  return typeof sessionID === "string" ? sessionID : undefined
+}
+
+export const RefsRoutes = lazy(() =>
+  new Hono().get(
+    "/",
+    describeRoute({
+      summary: "Connect to REFS MCP",
+      description: "Establish a WebSocket JSON-RPC connection to embedded REFS MCP.",
+      operationId: "refs.mcp",
+      responses: {
+        200: {
+          description: "Connected REFS MCP WebSocket",
+          content: {
+            "application/json": {
+              schema: resolver(z.boolean()),
+            },
+          },
+        },
+        ...errors(400, 404),
+      },
+    }),
+    upgradeWebSocket(async () => {
+      return {
+        async onMessage(event, ws) {
+          if (typeof event.data !== "string") return
+          const id = refsMcpRequestID(event.data)
+          try {
+            const found = refsMcpSession(event.data)
+            if (found) {
+              const sessionID = SessionID.zod.parse(found)
+              const session = await Session.get(sessionID)
+              ws.send(
+                await RefsBridge.handleRawAsync({
+                  sessionID,
+                  workdir: session.directory,
+                  request: refsMcpRequest(event.data, sessionID),
+                }),
+              )
+              return
+            }
+            ws.send(
+              await RefsBridge.handleRawAsync({
+                sessionID: "default",
+                workdir: Instance.directory,
+                request: event.data,
+              }),
+            )
+          } catch (error) {
+            ws.send(
+              refsMcpError(
+                id,
+                error instanceof SyntaxError ? -32700 : -32603,
+                error instanceof Error ? error.message : String(error),
+              ),
+            )
+          }
+        },
+      }
+    }),
+  ),
+)
 
 export const SessionRoutes = lazy(() =>
   new Hono()
