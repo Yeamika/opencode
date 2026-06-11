@@ -112,6 +112,8 @@ import type {
   QuestionRejectResponses,
   QuestionReplyErrors,
   QuestionReplyResponses,
+  RefsMcpErrors,
+  RefsMcpResponses,
   SessionAbortErrors,
   SessionAbortResponses,
   SessionChildrenErrors,
@@ -2755,6 +2757,38 @@ export class Permission extends HeyApiClient {
   }
 }
 
+export class Refs extends HeyApiClient {
+  /**
+   * Connect to REFS MCP
+   *
+   * Establish a WebSocket JSON-RPC connection to embedded REFS MCP.
+   */
+  public mcp<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<RefsMcpResponses, RefsMcpErrors, ThrowOnError>({
+      url: "/refs",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class Question extends HeyApiClient {
   /**
    * List pending questions
@@ -4371,6 +4405,11 @@ export class OpencodeClient extends HeyApiClient {
   private _permission?: Permission
   get permission(): Permission {
     return (this._permission ??= new Permission({ client: this.client }))
+  }
+
+  private _refs?: Refs
+  get refs(): Refs {
+    return (this._refs ??= new Refs({ client: this.client }))
   }
 
   private _question?: Question

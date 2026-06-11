@@ -4272,6 +4272,38 @@ export type PermissionRespondResponses = {
 
 export type PermissionRespondResponse = PermissionRespondResponses[keyof PermissionRespondResponses]
 
+export type RefsMcpData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/refs"
+}
+
+export type RefsMcpErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type RefsMcpError = RefsMcpErrors[keyof RefsMcpErrors]
+
+export type RefsMcpResponses = {
+  /**
+   * Connected REFS MCP WebSocket
+   */
+  200: boolean
+}
+
+export type RefsMcpResponse = RefsMcpResponses[keyof RefsMcpResponses]
+
 export type PermissionReplyData = {
   body?: {
     reply: "once" | "always" | "reject"
