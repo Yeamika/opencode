@@ -4,6 +4,7 @@ import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { TextAttributes } from "@opentui/core"
 import { Spinner } from "@tui/component/spinner"
 import { getScrollAcceleration } from "../../util/scroll"
+import { DialogRefsPtyt } from "../../ui/dialog-refs-ptyt"
 
 const id = "internal:sidebar-bashlist"
 
@@ -59,6 +60,24 @@ function Detail(props: { api: TuiPluginApi; session_id: string; job: Job }) {
   const [err, setErr] = createSignal("")
   const [loading, setLoading] = createSignal(true)
   const close = () => props.api.ui.dialog.clear()
+  const openPtyt = () => {
+    props.api.display
+      .openRefsPtyt({ sessionID: props.session_id })
+      .then((result) => {
+        props.api.ui.dialog.setSize("large")
+        props.api.ui.dialog.replace(() => <DialogRefsPtyt command={result.command} error={result.error} />)
+        props.api.ui.toast({
+          message: result.error ?? "refs-ptyt attach opened",
+          variant: result.error ? "error" : "info",
+        })
+      })
+      .catch((error) => {
+        props.api.ui.toast({
+          message: error instanceof Error ? error.message : String(error),
+          variant: "error",
+        })
+      })
+  }
   useKeyboard((evt) => {
     if (evt.name === "return" || evt.name === "escape") close()
   })
@@ -159,6 +178,17 @@ function Detail(props: { api: TuiPluginApi; session_id: string; job: Job }) {
             <Show when={props.job.memory && !loading() && !err()}>
               <text fg={shot() ? theme().text : theme().textMuted}>{shot() || "(empty)"}</text>
             </Show>
+          </box>
+          <box flexDirection="column">
+            <text fg={theme().textMuted}>refs-ptyt</text>
+            <box
+              paddingLeft={2}
+              paddingRight={2}
+              backgroundColor={theme().backgroundPanel}
+              onMouseUp={openPtyt}
+            >
+              <text fg={theme().text}>open attach command</text>
+            </box>
           </box>
         </box>
       </scrollbox>

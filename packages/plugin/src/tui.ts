@@ -503,6 +503,7 @@ export type TuiDisplay = {
   report: () => Promise<void>
   selectSession: (input: { sessionID: string; directory?: string; displayID?: string }) => Promise<void>
   attachToRunningSession: (input: { sessionID: string; displayID?: string }) => Promise<void>
+  openRefsPtyt: (input?: { sessionID?: string }) => Promise<{ command: string; error?: string }>
 }
 
 export type TuiPluginApi = {

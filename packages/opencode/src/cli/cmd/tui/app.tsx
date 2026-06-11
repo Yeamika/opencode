@@ -262,6 +262,7 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
   const keybind = useKeybind()
   const sdk = useSDK()
   const toast = useToast()
+  const args = useArgs()
   const themeState = useTheme()
   const { theme, mode, setMode, locked, lock, unlock } = themeState
   const sync = useSync()
@@ -275,6 +276,7 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
   }
 
   const api = createTuiApi({
+    args,
     command,
     tuiConfig,
     dialog,
@@ -374,7 +376,6 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
     }
   })
 
-  const args = useArgs()
   onMount(() => {
     batch(() => {
       if (args.agent) local.agent.set(args.agent)

@@ -260,15 +260,20 @@ export const SessionRoutes = lazy(() =>
       upgradeWebSocket(async (c) => {
         const sessionID = SessionID.zod.parse(c.req.param("sessionID"))
         const session = await Session.get(sessionID)
-        const handle = RefsBridge.getHandle({ sessionID, workdir: session.directory })
 
         return {
-          onMessage(event, ws) {
+          async onMessage(event, ws) {
             if (typeof event.data !== "string") return
             const id = refsMcpRequestID(event.data)
             try {
               const request = refsMcpRequest(event.data, sessionID)
-              ws.send(handle.handleRaw(request))
+              ws.send(
+                await RefsBridge.handleRawAsync({
+                  sessionID,
+                  workdir: session.directory,
+                  request,
+                }),
+              )
             } catch (error) {
               ws.send(
                 refsMcpError(

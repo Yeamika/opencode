@@ -1,6 +1,7 @@
 import type { ParsedKey } from "@opentui/core"
 import type { TuiDialogSelectOption, TuiPluginApi, TuiRouteDefinition, TuiSlotProps } from "@opencode-ai/plugin/tui"
 import type { useCommandDialog } from "@tui/component/dialog-command"
+import type { useArgs } from "@tui/context/args"
 import type { useKeybind } from "@tui/context/keybind"
 import type { useRoute } from "@tui/context/route"
 import type { useSDK } from "@tui/context/sdk"
@@ -19,6 +20,7 @@ import { Slot as HostSlot } from "./slots"
 import type { useToast } from "../ui/toast"
 import { Installation } from "@/installation"
 import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/v2"
+import * as RefsPtyt from "../util/refs-ptyt"
 
 type RouteEntry = {
   key: symbol
@@ -28,6 +30,7 @@ type RouteEntry = {
 export type RouteMap = Map<string, RouteEntry[]>
 
 type Input = {
+  args: ReturnType<typeof useArgs>
   command: ReturnType<typeof useCommandDialog>
   tuiConfig: TuiConfig.Info
   dialog: ReturnType<typeof useDialog>
@@ -291,6 +294,19 @@ function displayApi(input: Input): TuiPluginApi["display"] {
       })
       if (!response.ok) {
         throw new Error(`display.attachToRunningSession failed (${response.status})`)
+      }
+    },
+    async openRefsPtyt(value) {
+      const sessionID = value?.sessionID ?? this.sessionID
+      if (!sessionID) throw new Error("display.openRefsPtyt requires a sessionID")
+      const serverUrl = input.args.transport === "attach" && input.args.url ? input.args.url : await input.sdk.ensureServerUrl()
+      const argv = RefsPtyt.args({ serverUrl, sessionID })
+      const command = RefsPtyt.command(argv)
+      try {
+        RefsPtyt.open(argv)
+        return { command }
+      } catch (error) {
+        return { command, error: error instanceof Error ? error.message : String(error) }
       }
     },
   }

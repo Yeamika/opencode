@@ -13,8 +13,6 @@ import {
   useContext,
 } from "solid-js"
 import { Dynamic } from "solid-js/web"
-import fs from "fs"
-import { spawn as nodeSpawn, spawnSync } from "child_process"
 import path from "path"
 import { useRoute, useRouteData } from "@tui/context/route"
 import { useSync } from "@tui/context/sync"
@@ -83,6 +81,8 @@ import { UI } from "@/cli/ui.ts"
 import { useTuiConfig } from "../../context/tui-config"
 import { getScrollAcceleration } from "../../util/scroll"
 import { TuiPluginRuntime } from "../../plugin"
+import * as RefsPtyt from "../../util/refs-ptyt"
+import { DialogRefsPtyt } from "../../ui/dialog-refs-ptyt"
 
 addDefaultParsers(parsers.parsers)
 
@@ -217,100 +217,22 @@ export function Session() {
   const args = useArgs()
   const local = useLocal()
 
-  function refsPtytBin() {
-    const exe = process.platform === "win32" ? "refs-ptyt.exe" : "refs-ptyt"
-    const roots = [process.env.OPENCODE_BIN_DIR, path.dirname(process.execPath), real(process.execPath)]
-      .flatMap((file) => (file ? [file] : []))
-      .filter((item, index, all) => all.indexOf(item) === index)
-    return (
-      roots
-        .flatMap((root) => [exe, `.${exe}`].map((name) => path.join(root, name)))
-        .find((file) => fs.existsSync(file)) ?? exe
-    )
-  }
-
-  function real(file: string) {
-    try {
-      return path.dirname(fs.realpathSync.native(file))
-    } catch {
-      return undefined
-    }
-  }
-
-  function quote(arg: string) {
-    if (/^[A-Za-z0-9_/:=.,@%+-]+$/.test(arg)) return arg
-    return `'${arg.replaceAll("'", `'\\''`)}'`
-  }
-
-  function psquote(arg: string) {
-    return `'${arg.replaceAll("'", "''")}'`
-  }
-
-  function psline(args: string[]) {
-    return `& ${args.map(psquote).join(" ")}`
-  }
-
-  function exists(cmd: string) {
-    return (
-      spawnSync(
-        process.platform === "win32" ? "where" : "command",
-        process.platform === "win32" ? [cmd] : ["-v", cmd],
-        {
-          shell: process.platform !== "win32",
-          stdio: "ignore",
-        },
-      ).status === 0
-    )
-  }
-
-  function windowCommand(args: string[]) {
-    if (process.platform === "darwin")
-      return [
-        "osascript",
-        "-e",
-        `tell application "Terminal" to do script ${JSON.stringify(args.map(quote).join(" "))}`,
-      ]
-    if (process.platform === "win32") {
-      return ["cmd.exe", "/c", "start", "", "powershell.exe", "-NoProfile", "-Command", psline(args)]
-    }
-    if (process.env.OPENCODE_TERMINAL) return [process.env.OPENCODE_TERMINAL, "-e", ...args]
-    const terms = [
-      ["gnome-terminal", "--", ...args],
-      ["konsole", "--new-tab", "-p", "tabtitle=opencode refs-ptyt", "-e", ...args],
-      ["xfce4-terminal", "--title", "opencode refs-ptyt", "-e", ...args],
-      ["mate-terminal", "--title", "opencode refs-ptyt", "-e", ...args],
-      ["tilix", "--title", "opencode refs-ptyt", "-e", ...args],
-      ["kitty", "--title", "opencode refs-ptyt", ...args],
-      ["alacritty", "--title", "opencode refs-ptyt", "-e", ...args],
-      ["wezterm", "start", "--", ...args],
-      ["xterm", "-T", "opencode refs-ptyt", "-e", ...args],
-      ["x-terminal-emulator", "-e", ...args],
-    ]
-    return terms.find((item) => exists(item[0]))
-  }
-
-  function refsMcpWsUrl(serverUrl: string) {
-    const url = new URL(`/session/${route.sessionID}/refs-mcp`, serverUrl)
-    if (url.protocol === "http:") url.protocol = "ws:"
-    else if (url.protocol === "https:") url.protocol = "wss:"
-    else if (url.protocol !== "ws:" && url.protocol !== "wss:") {
-      throw new Error(`refs-ptyt attach requires an http(s) or ws(s) server URL: ${serverUrl}`)
-    }
-    url.search = ""
-    url.hash = ""
-    return url.toString()
-  }
-
-  async function refsPtytArgs() {
-    const serverUrl = args.transport === "attach" && args.url ? args.url : await sdk.ensureServerUrl()
-    return [refsPtytBin(), "--server-url", refsMcpWsUrl(serverUrl), "--session", route.sessionID]
-  }
-
   async function openRefsPtyt() {
-    const cmdline = windowCommand(await refsPtytArgs())
-    if (!cmdline) throw new Error("No terminal window launcher found for refs-ptyt attach")
-    const proc = nodeSpawn(cmdline[0], cmdline.slice(1), { detached: true, stdio: "ignore", windowsHide: false })
-    proc.unref()
+    const serverUrl = args.transport === "attach" && args.url ? args.url : await sdk.ensureServerUrl()
+    const argv = RefsPtyt.args({ serverUrl, sessionID: route.sessionID })
+    const command = RefsPtyt.command(argv)
+    let error: string | undefined
+    try {
+      RefsPtyt.open(argv)
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err)
+    }
+    dialog.setSize("large")
+    dialog.replace(() => <DialogRefsPtyt command={command} error={error} />)
+    toast.show({
+      message: error ?? "refs-ptyt attach opened",
+      variant: error ? "error" : "info",
+    })
   }
 
   async function retrySessionNow() {
@@ -759,20 +681,13 @@ export function Session() {
         name: "refs-ptyt-attach",
       },
       onSelect: (dialog) => {
-        void openRefsPtyt()
-          .then(() => {
-            toast.show({
-              message: "refs-ptyt attach opened",
-              variant: "info",
-            })
-          })
-          .catch((error) => {
-            toast.show({
-              message: error instanceof Error ? error.message : String(error),
-              variant: "error",
-            })
-          })
         dialog.clear()
+        void openRefsPtyt().catch((error) => {
+          toast.show({
+            message: error instanceof Error ? error.message : String(error),
+            variant: "error",
+          })
+        })
       },
     },
     {

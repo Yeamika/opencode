@@ -1,13 +1,25 @@
 import { getHandle } from "./refs-bridge"
 
-type Request = {
+type BaseRequest = {
   id: number
   dbPath: string
   sessionID: string
   workdir: string
-  tool: string
-  args: string
 }
+
+type Request =
+  | (BaseRequest & {
+      kind: "tool"
+      tool: string
+      args: string
+    })
+  | (BaseRequest & {
+      kind: "raw"
+      request: string
+    })
+  | (BaseRequest & {
+      kind: "list-executors"
+    })
 
 type Response =
   | {
@@ -33,7 +45,7 @@ type Response =
 const subscribed = new Set<string>()
 
 function subscribe(input: Request) {
-  const key = `${input.dbPath}\n${input.workdir}`
+  const key = `${input.dbPath}\n${input.sessionID}\n${input.workdir}`
   if (subscribed.has(key)) return
   const handle = getHandle({
     dbPath: input.dbPath,
@@ -61,11 +73,17 @@ self.onmessage = (event: MessageEvent<Request>) => {
   const input = event.data
   try {
     subscribe(input)
-    const json = getHandle({
+    const handle = getHandle({
       dbPath: input.dbPath,
       sessionID: input.sessionID,
       workdir: input.workdir,
-    }).callTool(input.tool, input.args)
+    })
+    const json =
+      input.kind === "raw"
+        ? handle.handleRaw(input.request)
+        : input.kind === "list-executors"
+          ? handle.listExecutorsJson()
+          : handle.callTool(input.tool, input.args)
     self.postMessage({ id: input.id, json } satisfies Response)
   } catch (error) {
     self.postMessage({

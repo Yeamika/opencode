@@ -5,6 +5,7 @@ import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
 import { ExBashTask } from "../../src/session/exbash"
 import { ExBashTaskTable } from "../../src/session/session.sql"
+import * as RefsBridge from "../../src/tool/refs-bridge"
 import { tmpdir } from "../fixture/fixture"
 
 afterEach(async () => {
@@ -207,6 +208,64 @@ describe("ExBashTask.sync", () => {
         expect(rows).toHaveLength(1)
         expect(rows[0]?.session_id).toBe(next.id)
         expect(rows[0]?.time_end).toBeNull()
+      },
+    })
+  })
+})
+
+describe("exbash snapshot", () => {
+  test("attaches to the worker-owned running task", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const opts = { sessionID: session.id, workdir: session.directory }
+        const start = JSON.parse(
+          await RefsBridge.callToolAsync({
+            ...opts,
+            tool: "exbash",
+            argsJson: JSON.stringify({
+              ExecutorSessionID: session.id,
+              includeStructuredContent: true,
+              mode: "shell",
+              command: "printf sidebar-snapshot; sleep 30",
+              read_timeout: 200,
+            }),
+          }),
+        ) as {
+          result?: { structuredContent?: { metadata?: { asyncID?: string } } }
+        }
+        const id = start.result?.structuredContent?.metadata?.asyncID
+        expect(typeof id).toBe("string")
+
+        try {
+          const raw = JSON.parse(
+            await RefsBridge.handleRawAsync({
+              ...opts,
+              request: JSON.stringify({
+                jsonrpc: "2.0",
+                id: 1,
+                method: "tools/call",
+                params: {
+                  name: "exbash",
+                  arguments: {
+                    ExecutorSessionID: session.id,
+                    mode: "attach",
+                    asyncID: id,
+                    read_timeout: 0,
+                  },
+                },
+              }),
+            }),
+          ) as { result?: { content?: Array<{ text?: string }> } }
+          expect(raw.result?.content?.[0]?.text ?? "").toContain("sidebar-snapshot")
+
+          const shot = await RefsBridge.call("exbash", { mode: "attach", asyncID: id, read_timeout: 0 }, opts)
+          expect(shot.output).toContain("sidebar-snapshot")
+        } finally {
+          await RefsBridge.call("exbash", { mode: "remove", asyncID: id }, opts).catch(() => undefined)
+        }
       },
     })
   })

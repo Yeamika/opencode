@@ -26,14 +26,49 @@ type Result = {
   output: string
 }
 
-type WorkerRequest = {
+type WorkerBaseRequest = {
   id: number
   dbPath: string
   sessionID: string
   workdir: string
-  tool: string
-  args: string
 }
+
+type WorkerRequest =
+  | (WorkerBaseRequest & {
+      kind: "tool"
+      tool: string
+      args: string
+    })
+  | (WorkerBaseRequest & {
+      kind: "raw"
+      request: string
+    })
+  | (WorkerBaseRequest & {
+      kind: "list-executors"
+    })
+
+type WorkerInput =
+  | {
+      dbPath?: string
+      sessionID: string
+      workdir: string
+      kind: "tool"
+      tool: string
+      args: string
+    }
+  | {
+      dbPath?: string
+      sessionID: string
+      workdir: string
+      kind: "raw"
+      request: string
+    }
+  | {
+      dbPath?: string
+      sessionID: string
+      workdir: string
+      kind: "list-executors"
+    }
 
 type WorkerResponse =
   | {
@@ -79,7 +114,7 @@ type HandleInput = {
 }
 
 function handleKey(input: Required<HandleInput>) {
-  return `${input.dbPath}\n${input.workdir}`
+  return `${input.dbPath}\n${input.sessionID}\n${input.workdir}`
 }
 
 function linuxBinding() {
@@ -220,6 +255,31 @@ function refsWorker() {
   return worker
 }
 
+function request(input: WorkerInput, id: number): WorkerRequest {
+  const base = {
+    id,
+    dbPath: input.dbPath ?? Database.Path,
+    sessionID: input.sessionID,
+    workdir: input.workdir,
+  }
+  if (input.kind === "tool") return { ...base, kind: input.kind, tool: input.tool, args: input.args }
+  if (input.kind === "raw") return { ...base, kind: input.kind, request: input.request }
+  return { ...base, kind: input.kind }
+}
+
+function callWorker(input: WorkerInput): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const id = ++seq
+    pending.set(id, { resolve, reject })
+    try {
+      refsWorker().postMessage(request(input, id))
+    } catch (error) {
+      pending.delete(id)
+      reject(error instanceof Error ? error : new Error(String(error)))
+    }
+  })
+}
+
 export function callToolAsync(input: {
   dbPath?: string
   sessionID: string
@@ -227,22 +287,37 @@ export function callToolAsync(input: {
   tool: string
   argsJson: string
 }): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const id = ++seq
-    pending.set(id, { resolve, reject })
-    try {
-      refsWorker().postMessage({
-        id,
-        dbPath: input.dbPath ?? Database.Path,
-        sessionID: input.sessionID,
-        workdir: input.workdir,
-        tool: input.tool,
-        args: input.argsJson,
-      } satisfies WorkerRequest)
-    } catch (error) {
-      pending.delete(id)
-      reject(error instanceof Error ? error : new Error(String(error)))
-    }
+  return callWorker({
+    kind: "tool",
+    dbPath: input.dbPath,
+    sessionID: input.sessionID,
+    workdir: input.workdir,
+    tool: input.tool,
+    args: input.argsJson,
+  })
+}
+
+export function handleRawAsync(input: {
+  dbPath?: string
+  sessionID: string
+  workdir: string
+  request: string
+}): Promise<string> {
+  return callWorker({
+    kind: "raw",
+    dbPath: input.dbPath,
+    sessionID: input.sessionID,
+    workdir: input.workdir,
+    request: input.request,
+  })
+}
+
+function listExecutorsAsync(input: { dbPath?: string; sessionID: string; workdir: string }): Promise<string> {
+  return callWorker({
+    kind: "list-executors",
+    dbPath: input.dbPath,
+    sessionID: input.sessionID,
+    workdir: input.workdir,
   })
 }
 
@@ -287,7 +362,6 @@ export async function call(
   opts?: { signal?: AbortSignal; timeout?: number; executor?: string; sessionID?: string; workdir?: string },
 ): Promise<Result> {
   const sessionID = opts?.sessionID ?? "default"
-  const mcp = getHandle({ sessionID, workdir: opts?.workdir })
 
   // The MCP schema exposes this field, but OpenCode owns the value.
   const merged: Record<string, unknown> = { ExecutorSessionID: sessionID, ...args }
@@ -296,7 +370,12 @@ export async function call(
     merged.executor = opts.executor
   }
 
-  const json = mcp.callTool(tool, JSON.stringify(merged))
+  const json = await callToolAsync({
+    sessionID,
+    workdir: opts?.workdir ?? Instance.directory,
+    tool,
+    argsJson: JSON.stringify(merged),
+  })
   const parsed = JSON.parse(json) as {
     error?: { code: number; message: string }
     result?: ToolCallResult
@@ -311,7 +390,20 @@ export async function call(
     throw new Error(`REFS ${tool} returned no result`)
   }
 
-  return { title: tool, metadata: {}, output: result.content?.[0]?.text ?? "" }
+  const data = result.structuredContent
+  const metadata =
+    data && typeof data === "object" && !Array.isArray(data)
+      ? (data as Record<string, unknown>).metadata
+      : undefined
+
+  return {
+    title: tool,
+    metadata:
+      metadata && typeof metadata === "object" && !Array.isArray(metadata)
+        ? (metadata as Record<string, unknown>)
+        : {},
+    output: result.content?.[0]?.text ?? "",
+  }
 }
 
 /**
@@ -319,7 +411,11 @@ export async function call(
  */
 export async function enabled(): Promise<boolean> {
   try {
-    getHandle()
+    await handleRawAsync({
+      sessionID: "default",
+      workdir: Instance.directory,
+      request: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    })
     return true
   } catch {
     return false
@@ -332,8 +428,12 @@ export async function list(
   dir?: string,
   sessionID?: string,
 ): Promise<{ executors: ExecutorListItem[]; default?: string }> {
-  const mcp = getHandle({ workdir: dir, sessionID })
-  const parsed = JSON.parse(mcp.listExecutorsJson()) as { executors?: unknown; default?: unknown }
+  const parsed = JSON.parse(
+    await listExecutorsAsync({
+      workdir: dir ?? Instance.directory,
+      sessionID: sessionID ?? "default",
+    }),
+  ) as { executors?: unknown; default?: unknown }
   const defaultExecutor = typeof parsed.default === "string" ? parsed.default : undefined
   const executors = Array.isArray(parsed.executors)
     ? parsed.executors.flatMap((item) => {
