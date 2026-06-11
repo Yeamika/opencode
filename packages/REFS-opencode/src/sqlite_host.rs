@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use napi::threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use rusqlite::{Connection, OptionalExtension};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -53,19 +54,30 @@ pub struct SqliteSessionHost {
     workdir: String,
     conn: Mutex<Connection>,
     exbash_changed: Mutex<Option<ThreadsafeFunction<String, ErrorStrategy::Fatal>>>,
+    exbash: Mutex<ExbashMemory>,
 }
 
 const EXBASH_TASK_LIMIT: i64 = 10;
+
+type ExbashMemoryKey = (String, String, String);
+
+#[derive(Default)]
+struct ExbashMemory {
+    session: HashMap<ExbashMemoryKey, ExbashTaskSnapshot>,
+    workdir: HashMap<ExbashMemoryKey, ExbashTaskSnapshot>,
+}
 
 impl SqliteSessionHost {
     pub fn new(_session_id: String, workdir: String, db_path: PathBuf) -> anyhow::Result<Self> {
         let conn =
             Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)?;
-        conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;")?;
+        conn.execute_batch("PRAGMA busy_timeout = 5000;")?;
+        let exbash = load_exbash_memory(&conn);
         Ok(Self {
             workdir,
             conn: Mutex::new(conn),
             exbash_changed: Mutex::new(None),
+            exbash: Mutex::new(exbash),
         })
     }
 
@@ -76,15 +88,41 @@ impl SqliteSessionHost {
         *self.exbash_changed.lock().unwrap() = Some(callback);
     }
 
-    fn notify_exbash_changed(&self, session_id: &str, workdir: &str) {
-        let payload = json!({
+    fn emit_exbash_changed(&self, payload: Value) {
+        if let Some(callback) = self.exbash_changed.lock().unwrap().as_ref() {
+            let _ = callback.call(payload.to_string(), ThreadsafeFunctionCallMode::NonBlocking);
+        }
+    }
+
+    fn notify_exbash_upsert(&self, scope: &str, snapshot: &ExbashTaskSnapshot) {
+        let session_id = snapshot.session_id.as_deref().unwrap_or_default();
+        let workdir = snapshot.workdir.as_deref().unwrap_or(&self.workdir);
+        self.emit_exbash_changed(json!({
+            "type": "upsert",
             "sessionID": session_id,
             "workspace": workdir,
-        })
-        .to_string();
-        if let Some(callback) = self.exbash_changed.lock().unwrap().as_ref() {
-            let _ = callback.call(payload, ThreadsafeFunctionCallMode::NonBlocking);
-        }
+            "scope": scope,
+            "cwd": workdir,
+            "task": snapshot,
+        }));
+    }
+
+    fn notify_exbash_remove(
+        &self,
+        scope: &str,
+        session_id: &str,
+        workdir: &str,
+        async_id: &str,
+        executor: &str,
+    ) {
+        self.emit_exbash_changed(json!({
+            "type": "remove",
+            "sessionID": session_id,
+            "workspace": workdir,
+            "scope": scope,
+            "asyncID": async_id,
+            "executor": executor,
+        }));
     }
 }
 
@@ -320,6 +358,52 @@ fn exbash_row_to_snapshot(row: &rusqlite::Row) -> rusqlite::Result<ExbashTaskSna
     })
 }
 
+fn exbash_memory_key(owner: &str, executor: &str, async_id: &str) -> ExbashMemoryKey {
+    (
+        owner.to_string(),
+        executor.to_string(),
+        async_id.to_string(),
+    )
+}
+
+fn load_exbash_memory(conn: &Connection) -> ExbashMemory {
+    let mut memory = ExbashMemory::default();
+    let Ok(mut stmt) = conn.prepare(
+        "SELECT async_id, executor, session_id, scope,
+                NULL as state,
+                exit_code, time_start, time_end, command, description, workspace
+         FROM exbash_task",
+    ) else {
+        return memory;
+    };
+    let Ok(rows) = stmt.query_map([], |row| {
+        let scope: String = row.get(3)?;
+        let snapshot = exbash_row_to_snapshot(row)?;
+        Ok((scope, snapshot))
+    }) else {
+        return memory;
+    };
+    for row in rows.flatten() {
+        let (scope, snapshot) = row;
+        if snapshot.executor == "local" && snapshot.state.as_deref() == Some("running") {
+            continue;
+        }
+        let session_id = snapshot.session_id.clone().unwrap_or_default();
+        let workdir = snapshot.workdir.clone().unwrap_or_default();
+        let key = if scope == "workspace" {
+            exbash_memory_key(&workdir, &snapshot.executor, &snapshot.async_id)
+        } else {
+            exbash_memory_key(&session_id, &snapshot.executor, &snapshot.async_id)
+        };
+        if scope == "workspace" {
+            memory.workdir.insert(key, snapshot);
+        } else {
+            memory.session.insert(key, snapshot);
+        }
+    }
+    memory
+}
+
 fn exbash_state(time_end: Option<i64>, exit_code: Option<&str>) -> Option<String> {
     if time_end.is_none() {
         return Some("running".into());
@@ -373,6 +457,81 @@ fn exbash_time_end(input: &ExbashSyncInput, exit_code: Option<&str>) -> Option<i
         .or_else(|| exbash_exit_storage_is_terminal(exit_code).then(now_ms))
 }
 
+fn exbash_snapshot_exit_storage(snapshot: &ExbashTaskSnapshot) -> Option<String> {
+    if let Some(code) = snapshot.exit_code {
+        return Some(code.to_string());
+    }
+    let state = snapshot.state.as_deref()?.trim();
+    match state {
+        "timeout" => Some("timeout".into()),
+        "stop" | "stopped" => Some("stop".into()),
+        value if value.starts_with("exit:") => value
+            .trim_start_matches("exit:")
+            .parse::<i32>()
+            .map(|code| code.to_string())
+            .ok(),
+        _ => None,
+    }
+}
+
+fn non_empty_exbash_text(value: Option<String>) -> Option<String> {
+    value.filter(|value| !value.trim().is_empty())
+}
+
+fn exbash_snapshot_from_input(
+    session_id: &str,
+    workdir: &str,
+    input: &ExbashSyncInput,
+    previous: Option<&ExbashTaskSnapshot>,
+) -> ExbashTaskSnapshot {
+    let async_id = input.async_id.clone().unwrap_or_default();
+    let executor = input.executor.clone().unwrap_or_else(|| "local".into());
+    let command = non_empty_exbash_text(input.command.clone())
+        .or_else(|| previous.and_then(|task| task.command.clone()))
+        .unwrap_or_default();
+    let description = non_empty_exbash_text(input.description.clone())
+        .or_else(|| previous.and_then(|task| task.description.clone()))
+        .unwrap_or_default();
+    let started_at = match (previous.and_then(|task| task.started_at), input.started_at) {
+        (Some(prev), Some(next)) => prev.min(next),
+        (Some(prev), None) => prev,
+        (None, Some(next)) => next,
+        (None, None) => now_ms(),
+    };
+    let exit_storage =
+        exbash_exit_storage(input).or_else(|| previous.and_then(exbash_snapshot_exit_storage));
+    let ended_at = exbash_time_end(input, exit_storage.as_deref())
+        .or_else(|| previous.and_then(|task| task.ended_at));
+    let state = exbash_state(ended_at, exit_storage.as_deref())
+        .or_else(|| input.state.clone())
+        .or_else(|| previous.and_then(|task| task.state.clone()));
+    let exit_code = exit_storage
+        .as_deref()
+        .and_then(|value| value.parse::<i32>().ok());
+
+    ExbashTaskSnapshot {
+        async_id,
+        executor,
+        session_id: Some(
+            input
+                .session_id
+                .clone()
+                .unwrap_or_else(|| session_id.to_string()),
+        ),
+        workdir: Some(input.workdir.clone().unwrap_or_else(|| workdir.to_string())),
+        state,
+        pid: input.pid.or_else(|| previous.and_then(|task| task.pid)),
+        exit_code,
+        started_at: Some(started_at),
+        ended_at,
+        command: Some(command),
+        description: Some(description),
+        total_output: input
+            .total_output
+            .or_else(|| previous.and_then(|task| task.total_output)),
+    }
+}
+
 #[async_trait]
 impl ExbashSessionStore for SqliteSessionHost {
     type Error = String;
@@ -383,31 +542,21 @@ impl ExbashSessionStore for SqliteSessionHost {
         input: &ExbashSyncInput,
     ) -> Result<(), Self::Error> {
         let executor = input.executor.as_deref().unwrap_or("local");
-        let conn = self.conn.lock().unwrap();
+        let exbash = self.exbash.lock().unwrap();
         if let Some(async_id) = input.async_id.as_deref().filter(|value| !value.is_empty()) {
-            let existing: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*)
-                     FROM exbash_task
-                     WHERE session_id = ?1 AND executor = ?2 AND async_id = ?3 AND scope = 'local'",
-                    rusqlite::params![session_id, executor, async_id],
-                    |row| row.get(0),
-                )
-                .map_err(|e| e.to_string())?;
-            if existing > 0 {
+            if exbash
+                .session
+                .contains_key(&exbash_memory_key(session_id, executor, async_id))
+            {
                 return Ok(());
             }
         }
-        let count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*)
-                 FROM exbash_task
-                 WHERE session_id = ?1 AND scope = 'local'",
-                rusqlite::params![session_id],
-                |row| row.get(0),
-            )
-            .map_err(|e| e.to_string())?;
-        if count >= EXBASH_TASK_LIMIT {
+        let count = exbash
+            .session
+            .values()
+            .filter(|task| task.session_id.as_deref() == Some(session_id))
+            .count();
+        if count >= EXBASH_TASK_LIMIT as usize {
             return Err(EXBASH_TASK_STACK_FULL_MESSAGE.to_string());
         }
         Ok(())
@@ -419,22 +568,13 @@ impl ExbashSessionStore for SqliteSessionHost {
         async_id: &str,
         executor: &str,
     ) -> Result<Option<ExbashTaskSnapshot>, Self::Error> {
-        let conn = self.conn.lock().unwrap();
-        let result = conn
-            .prepare(
-                "SELECT async_id, executor, session_id, scope,
-                        NULL as state,
-                        exit_code, time_start, time_end, command, description, workspace
-                 FROM exbash_task
-                 WHERE session_id = ?1 AND async_id = ?2 AND executor = ?3 AND scope = 'local'",
-            )
-            .map_err(|e| e.to_string())?
-            .query_row(
-                rusqlite::params![session_id, async_id, executor],
-                exbash_row_to_snapshot,
-            )
-            .ok();
-        Ok(result)
+        Ok(self
+            .exbash
+            .lock()
+            .unwrap()
+            .session
+            .get(&exbash_memory_key(session_id, executor, async_id))
+            .cloned())
     }
 
     async fn upsert_session_exbash(
@@ -452,67 +592,19 @@ impl ExbashSessionStore for SqliteSessionHost {
             .unwrap_or_else(|| self.workdir.clone());
         let async_id = input.async_id.clone().unwrap_or_default();
         let executor = input.executor.clone().unwrap_or_else(|| "local".into());
-        let command = input.command.clone().unwrap_or_default();
-        let description = input.description.clone().unwrap_or_default();
-        let time_start = input.started_at.unwrap_or_else(now_ms);
-        let exit_code = exbash_exit_storage(&input);
-        let time_end = exbash_time_end(&input, exit_code.as_deref());
-        let ts = now_ms();
+        let snapshot = {
+            let mut exbash = self.exbash.lock().unwrap();
+            let key = exbash_memory_key(&session_id, &executor, &async_id);
+            let previous = exbash.session.get(&key).cloned();
+            let snapshot =
+                exbash_snapshot_from_input(&session_id, &workdir, &input, previous.as_ref());
+            exbash.session.insert(key, snapshot.clone());
+            snapshot
+        };
 
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "INSERT INTO exbash_task
-                (async_id, session_id, workspace, scope, executor, description, command, cwd,
-                 time_start, time_end, exit_code, time_created, time_updated)
-             VALUES (?1, ?2, ?3, 'local', ?4, ?5, ?6, ?3, ?7, ?8, ?9, ?10, ?10)
-             ON CONFLICT(session_id, workspace, executor, async_id)
-             DO UPDATE SET description = CASE
-                             WHEN excluded.description <> '' THEN excluded.description
-                             ELSE exbash_task.description
-                           END,
-                           command = CASE
-                             WHEN excluded.command <> '' THEN excluded.command
-                             ELSE exbash_task.command
-                           END,
-                           cwd = CASE
-                             WHEN excluded.cwd <> '' THEN excluded.cwd
-                             ELSE exbash_task.cwd
-                           END,
-                           time_start = MIN(exbash_task.time_start, excluded.time_start),
-                           time_end = COALESCE(excluded.time_end, exbash_task.time_end),
-                           exit_code = COALESCE(excluded.exit_code, exbash_task.exit_code),
-                           time_updated = excluded.time_updated",
-            rusqlite::params![
-                async_id,
-                session_id,
-                workdir,
-                executor,
-                description,
-                command,
-                time_start,
-                time_end,
-                exit_code,
-                ts
-            ],
-        )
-        .map_err(|e| e.to_string())?;
+        self.notify_exbash_upsert("local", &snapshot);
 
-        self.notify_exbash_changed(&session_id, &workdir);
-
-        Ok(ExbashTaskSnapshot {
-            async_id,
-            executor,
-            session_id: Some(session_id),
-            workdir: Some(workdir),
-            state: exbash_state(time_end, exit_code.as_deref()),
-            pid: input.pid,
-            exit_code: input.exit_code,
-            started_at: Some(time_start),
-            ended_at: time_end,
-            command: Some(command),
-            description: Some(description),
-            total_output: input.total_output,
-        })
+        Ok(snapshot)
     }
 
     async fn list_session_exbash(
@@ -520,36 +612,16 @@ impl ExbashSessionStore for SqliteSessionHost {
         session_id: &str,
         executor: Option<&str>,
     ) -> Result<Vec<ExbashTaskSnapshot>, Self::Error> {
-        let conn = self.conn.lock().unwrap();
-        let sql = if executor.is_some() {
-            "SELECT async_id, executor, session_id, scope,
-                    NULL as state,
-                    exit_code, time_start, time_end, command, description, workspace
-             FROM exbash_task
-             WHERE session_id = ?1 AND executor = ?2 AND scope = 'local'
-             ORDER BY time_start ASC"
-        } else {
-            "SELECT async_id, executor, session_id, scope,
-                    NULL as state,
-                    exit_code, time_start, time_end, command, description, workspace
-             FROM exbash_task
-             WHERE session_id = ?1 AND scope = 'local'
-             ORDER BY time_start ASC"
-        };
-        let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
-        let rows = if let Some(executor) = executor {
-            stmt.query_map(
-                rusqlite::params![session_id, executor],
-                exbash_row_to_snapshot,
-            )
-            .map_err(|e| e.to_string())?
-            .collect::<Result<Vec<_>, _>>()
-        } else {
-            stmt.query_map(rusqlite::params![session_id], exbash_row_to_snapshot)
-                .map_err(|e| e.to_string())?
-                .collect::<Result<Vec<_>, _>>()
-        }
-        .map_err(|e| e.to_string())?;
+        let rows = self
+            .exbash
+            .lock()
+            .unwrap()
+            .session
+            .values()
+            .filter(|task| task.session_id.as_deref() == Some(session_id))
+            .filter(|task| executor.map(|value| task.executor == value).unwrap_or(true))
+            .cloned()
+            .collect::<Vec<_>>();
         Ok(rows)
     }
 
@@ -559,18 +631,18 @@ impl ExbashSessionStore for SqliteSessionHost {
         async_id: &str,
         executor: &str,
     ) -> Result<bool, Self::Error> {
-        let conn = self.conn.lock().unwrap();
-        let rows = conn
-            .execute(
-                "DELETE FROM exbash_task
-                 WHERE session_id = ?1 AND async_id = ?2 AND executor = ?3 AND scope = 'local'",
-                rusqlite::params![session_id, async_id, executor],
-            )
-            .map_err(|e| e.to_string())?;
-        if rows > 0 {
-            self.notify_exbash_changed(session_id, &self.workdir);
+        let removed = self
+            .exbash
+            .lock()
+            .unwrap()
+            .session
+            .remove(&exbash_memory_key(session_id, executor, async_id));
+        if let Some(snapshot) = removed {
+            let workdir = snapshot.workdir.as_deref().unwrap_or(&self.workdir);
+            self.notify_exbash_remove("local", session_id, workdir, async_id, executor);
+            return Ok(true);
         }
-        Ok(rows > 0)
+        Ok(false)
     }
 }
 
@@ -587,31 +659,21 @@ impl ExbashWorkdirStore for SqliteSessionHost {
         input: &ExbashSyncInput,
     ) -> Result<(), Self::Error> {
         let executor = input.executor.as_deref().unwrap_or("local");
-        let conn = self.conn.lock().unwrap();
+        let exbash = self.exbash.lock().unwrap();
         if let Some(async_id) = input.async_id.as_deref().filter(|value| !value.is_empty()) {
-            let existing: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*)
-                     FROM exbash_task
-                     WHERE workspace = ?1 AND executor = ?2 AND async_id = ?3 AND scope = 'workspace'",
-                    rusqlite::params![workdir, executor, async_id],
-                    |row| row.get(0),
-                )
-                .map_err(|e| e.to_string())?;
-            if existing > 0 {
+            if exbash
+                .workdir
+                .contains_key(&exbash_memory_key(workdir, executor, async_id))
+            {
                 return Ok(());
             }
         }
-        let count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*)
-                 FROM exbash_task
-                 WHERE workspace = ?1 AND scope = 'workspace'",
-                rusqlite::params![workdir],
-                |row| row.get(0),
-            )
-            .map_err(|e| e.to_string())?;
-        if count >= EXBASH_TASK_LIMIT {
+        let count = exbash
+            .workdir
+            .values()
+            .filter(|task| task.workdir.as_deref() == Some(workdir))
+            .count();
+        if count >= EXBASH_TASK_LIMIT as usize {
             return Err(EXBASH_TASK_STACK_FULL_MESSAGE.to_string());
         }
         Ok(())
@@ -624,22 +686,13 @@ impl ExbashWorkdirStore for SqliteSessionHost {
         async_id: &str,
         executor: &str,
     ) -> Result<Option<ExbashTaskSnapshot>, Self::Error> {
-        let conn = self.conn.lock().unwrap();
-        let result = conn
-            .prepare(
-                "SELECT async_id, executor, session_id, scope,
-                        NULL as state,
-                        exit_code, time_start, time_end, command, description, workspace
-                 FROM exbash_task
-                 WHERE workspace = ?1 AND async_id = ?2 AND executor = ?3 AND scope = 'workspace'",
-            )
-            .map_err(|e| e.to_string())?
-            .query_row(
-                rusqlite::params![workdir, async_id, executor],
-                exbash_row_to_snapshot,
-            )
-            .ok();
-        Ok(result)
+        Ok(self
+            .exbash
+            .lock()
+            .unwrap()
+            .workdir
+            .get(&exbash_memory_key(workdir, executor, async_id))
+            .cloned())
     }
 
     async fn upsert_workdir_exbash(
@@ -650,77 +703,23 @@ impl ExbashWorkdirStore for SqliteSessionHost {
     ) -> Result<ExbashTaskSnapshot, Self::Error> {
         let async_id = input.async_id.clone().unwrap_or_default();
         let executor = input.executor.clone().unwrap_or_else(|| "local".into());
-        let command = input.command.clone().unwrap_or_default();
-        let description = input.description.clone().unwrap_or_default();
-        let time_start = input.started_at.unwrap_or_else(now_ms);
-        let exit_code = exbash_exit_storage(&input);
-        let time_end = exbash_time_end(&input, exit_code.as_deref());
         let session_id = input
             .session_id
             .clone()
             .unwrap_or_else(|| session_id.to_string());
-        let ts = now_ms();
+        let snapshot = {
+            let mut exbash = self.exbash.lock().unwrap();
+            let key = exbash_memory_key(workdir, &executor, &async_id);
+            let previous = exbash.workdir.get(&key).cloned();
+            let snapshot =
+                exbash_snapshot_from_input(&session_id, workdir, &input, previous.as_ref());
+            exbash.workdir.insert(key, snapshot.clone());
+            snapshot
+        };
 
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "DELETE FROM exbash_task
-             WHERE workspace = ?1 AND executor = ?2 AND async_id = ?3 AND scope = 'workspace'",
-            rusqlite::params![workdir, executor, async_id],
-        )
-        .map_err(|e| e.to_string())?;
-        conn.execute(
-            "INSERT INTO exbash_task
-                (async_id, session_id, workspace, scope, executor, description, command, cwd,
-                 time_start, time_end, exit_code, time_created, time_updated)
-             VALUES (?1, ?2, ?3, 'workspace', ?4, ?5, ?6, ?3, ?7, ?8, ?9, ?10, ?10)
-             ON CONFLICT(session_id, workspace, executor, async_id)
-             DO UPDATE SET description = CASE
-                             WHEN excluded.description <> '' THEN excluded.description
-                             ELSE exbash_task.description
-                           END,
-                           command = CASE
-                             WHEN excluded.command <> '' THEN excluded.command
-                             ELSE exbash_task.command
-                           END,
-                           cwd = CASE
-                             WHEN excluded.cwd <> '' THEN excluded.cwd
-                             ELSE exbash_task.cwd
-                           END,
-                           time_start = MIN(exbash_task.time_start, excluded.time_start),
-                           time_end = COALESCE(excluded.time_end, exbash_task.time_end),
-                           exit_code = COALESCE(excluded.exit_code, exbash_task.exit_code),
-                           time_updated = excluded.time_updated",
-            rusqlite::params![
-                async_id,
-                session_id,
-                workdir,
-                executor,
-                description,
-                command,
-                time_start,
-                time_end,
-                exit_code,
-                ts
-            ],
-        )
-        .map_err(|e| e.to_string())?;
+        self.notify_exbash_upsert("workspace", &snapshot);
 
-        self.notify_exbash_changed(&session_id, workdir);
-
-        Ok(ExbashTaskSnapshot {
-            async_id,
-            executor,
-            session_id: Some(session_id),
-            workdir: Some(workdir.to_string()),
-            state: exbash_state(time_end, exit_code.as_deref()),
-            pid: input.pid,
-            exit_code: input.exit_code,
-            started_at: Some(time_start),
-            ended_at: time_end,
-            command: Some(command),
-            description: Some(description),
-            total_output: input.total_output,
-        })
+        Ok(snapshot)
     }
 
     async fn list_workdir_exbash(
@@ -729,33 +728,16 @@ impl ExbashWorkdirStore for SqliteSessionHost {
         workdir: &str,
         executor: Option<&str>,
     ) -> Result<Vec<ExbashTaskSnapshot>, Self::Error> {
-        let conn = self.conn.lock().unwrap();
-        let sql = if executor.is_some() {
-            "SELECT async_id, executor, session_id, scope,
-                    NULL as state,
-                    exit_code, time_start, time_end, command, description, workspace
-             FROM exbash_task
-             WHERE workspace = ?1 AND executor = ?2 AND scope = 'workspace'
-             ORDER BY time_start ASC"
-        } else {
-            "SELECT async_id, executor, session_id, scope,
-                    NULL as state,
-                    exit_code, time_start, time_end, command, description, workspace
-             FROM exbash_task
-             WHERE workspace = ?1 AND scope = 'workspace'
-             ORDER BY time_start ASC"
-        };
-        let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
-        let rows = if let Some(executor) = executor {
-            stmt.query_map(rusqlite::params![workdir, executor], exbash_row_to_snapshot)
-                .map_err(|e| e.to_string())?
-                .collect::<Result<Vec<_>, _>>()
-        } else {
-            stmt.query_map(rusqlite::params![workdir], exbash_row_to_snapshot)
-                .map_err(|e| e.to_string())?
-                .collect::<Result<Vec<_>, _>>()
-        }
-        .map_err(|e| e.to_string())?;
+        let rows = self
+            .exbash
+            .lock()
+            .unwrap()
+            .workdir
+            .values()
+            .filter(|task| task.workdir.as_deref() == Some(workdir))
+            .filter(|task| executor.map(|value| task.executor == value).unwrap_or(true))
+            .cloned()
+            .collect::<Vec<_>>();
         Ok(rows)
     }
 
@@ -766,18 +748,18 @@ impl ExbashWorkdirStore for SqliteSessionHost {
         async_id: &str,
         executor: &str,
     ) -> Result<bool, Self::Error> {
-        let conn = self.conn.lock().unwrap();
-        let rows = conn
-            .execute(
-                "DELETE FROM exbash_task
-                 WHERE workspace = ?1 AND async_id = ?2 AND executor = ?3 AND scope = 'workspace'",
-                rusqlite::params![workdir, async_id, executor],
-            )
-            .map_err(|e| e.to_string())?;
-        if rows > 0 {
-            self.notify_exbash_changed(_session_id, workdir);
+        let removed = self
+            .exbash
+            .lock()
+            .unwrap()
+            .workdir
+            .remove(&exbash_memory_key(workdir, executor, async_id));
+        if let Some(snapshot) = removed {
+            let session_id = snapshot.session_id.as_deref().unwrap_or(_session_id);
+            self.notify_exbash_remove("workspace", session_id, workdir, async_id, executor);
+            return Ok(true);
         }
-        Ok(rows > 0)
+        Ok(false)
     }
 }
 

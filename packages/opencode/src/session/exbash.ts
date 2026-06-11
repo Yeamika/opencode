@@ -64,6 +64,7 @@ export namespace ExBashTask {
       totalOutput?: number
       error?: string
     }) => Effect.Effect<Info | undefined>
+    readonly sync: (input: Entry) => Effect.Effect<Info>
     readonly lost: (input: { executor: string; asyncID: string }) => Effect.Effect<Info | undefined>
     readonly remove: (input: {
       sessionID: SessionID
@@ -199,6 +200,31 @@ export namespace ExBashTask {
         ...(task.memory === undefined ? {} : { memory: task.memory }),
         ...(task.error === undefined ? {} : { error: task.error }),
       })
+
+      const storageExit = (task: Entry) => {
+        if (task.exitCode !== undefined) return exitStorage(task.exitCode)
+        if (task.state === "timeout") return "timeout"
+        if (task.state === "stop") return "stop"
+        if (task.state.startsWith("exit:")) return task.state.slice("exit:".length)
+        return undefined
+      }
+
+      const values = (task: Entry) => {
+        const code = storageExit(task)
+        return {
+          async_id: task.asyncID,
+          session_id: task.sessionID,
+          workspace: task.workspace,
+          scope: task.scope,
+          executor: task.executor,
+          description: task.description,
+          command: task.command,
+          cwd: task.cwd,
+          time_start: task.startedAt,
+          ...(task.endedAt === undefined ? {} : { time_end: task.endedAt }),
+          ...(code === undefined ? {} : { exit_code: String(code) as never }),
+        } satisfies typeof ExBashTaskTable.$inferInsert
+      }
 
       const merge = (sessionID: string, workspace: string) => {
         const out = [...(ws.get(workspace)?.values() ?? []), ...(ses.get(sessionID)?.values() ?? [])]
@@ -353,6 +379,43 @@ export namespace ExBashTask {
         return view(task)
       })
 
+      const sync = Effect.fn("ExBashTask.sync")(function* (input: Entry) {
+        yield* ensure({ sessionID: input.sessionID, workspace: input.workspace })
+        const task = { ...input, memory: true }
+        drop(task)
+        mark(task)
+        yield* Effect.sync(() =>
+          Database.use((db) => {
+            if (task.scope === "workspace") {
+              db.delete(ExBashTaskTable)
+                .where(
+                  and(
+                    eq(ExBashTaskTable.workspace, task.workspace),
+                    eq(ExBashTaskTable.executor, task.executor),
+                    eq(ExBashTaskTable.async_id, task.asyncID),
+                    eq(ExBashTaskTable.scope, "workspace"),
+                  ),
+                )
+                .run()
+            }
+            db.insert(ExBashTaskTable)
+              .values(values(task))
+              .onConflictDoUpdate({
+                target: [
+                  ExBashTaskTable.session_id,
+                  ExBashTaskTable.workspace,
+                  ExBashTaskTable.executor,
+                  ExBashTaskTable.async_id,
+                ],
+                set: values(task),
+              })
+              .run()
+          }),
+        )
+        yield* note(task.sessionID, task.workspace)
+        return view(task)
+      })
+
       const lost = Effect.fn("ExBashTask.lost")(function* (input: { executor: string; asyncID: string }) {
         const ref = idx.get(key(input))
         if (!ref) return undefined
@@ -406,7 +469,7 @@ export namespace ExBashTask {
         yield* note(input.sessionID, input.workspace)
       })
 
-      return Service.of({ ensure, get, one, start, finish, lost, remove, refresh })
+      return Service.of({ ensure, get, one, start, finish, sync, lost, remove, refresh })
     }),
   )
 
@@ -438,6 +501,10 @@ export namespace ExBashTask {
     error?: string
   }) {
     return runPromise((svc) => svc.finish(input))
+  }
+
+  export async function sync(input: Entry) {
+    return runPromise((svc) => svc.sync(input))
   }
 
   export async function lost(input: { executor: string; asyncID: string }) {

@@ -5,6 +5,7 @@ import { iife } from "@/util/iife"
 import { Log } from "@/util/log"
 import { Context } from "../util/context"
 import { Project } from "./project"
+import { ProjectID } from "./schema"
 import { State } from "./state"
 
 export interface InstanceContext {
@@ -80,6 +81,26 @@ export const Instance = {
     return context.provide(ctx, async () => {
       return input.fn()
     })
+  },
+  async detached<R>(input: { directory: string; fn: () => R }): Promise<R> {
+    const directory = Filesystem.resolve(input.directory)
+    const now = Date.now()
+    return context.provide(
+      {
+        directory,
+        worktree: directory,
+        project: {
+          id: ProjectID.global,
+          worktree: directory,
+          time: {
+            created: now,
+            updated: now,
+          },
+          sandboxes: [directory],
+        },
+      },
+      async () => input.fn(),
+    )
   },
   get current() {
     return context.use()

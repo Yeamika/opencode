@@ -22,6 +22,12 @@ type Response =
       event: "exbash.changed"
       sessionID: string
       workspace: string
+      type?: string
+      scope?: string
+      cwd?: string
+      task?: unknown
+      asyncID?: string
+      executor?: string
     }
 
 const subscribed = new Set<string>()
@@ -36,9 +42,10 @@ function subscribe(input: Request) {
   })
   handle.setExbashChangedCallback((eventJson) => {
     try {
-      const event = JSON.parse(eventJson) as { sessionID?: string; workspace?: string }
-      if (!event.sessionID || !event.workspace) return
+      const event = JSON.parse(eventJson) as Record<string, unknown>
+      if (typeof event.sessionID !== "string" || typeof event.workspace !== "string") return
       self.postMessage({
+        ...event,
         event: "exbash.changed",
         sessionID: event.sessionID,
         workspace: event.workspace,

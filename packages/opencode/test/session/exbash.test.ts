@@ -141,3 +141,73 @@ describe("ExBashTask.ensure", () => {
     })
   })
 })
+
+describe("ExBashTask.sync", () => {
+  test("upserts native task events and replaces workspace ownership", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const next = await Session.create({})
+        const now = Date.now()
+
+        await ExBashTask.sync({
+          asyncID: "rex-sync",
+          sessionID: session.id,
+          workspace: session.directory,
+          scope: "workspace",
+          executor: "local",
+          description: "Tmp Running",
+          command: "sleep 1",
+          cwd: session.directory,
+          startedAt: now,
+          state: "running",
+        })
+        await ExBashTask.sync({
+          asyncID: "rex-sync",
+          sessionID: session.id,
+          workspace: session.directory,
+          scope: "workspace",
+          executor: "local",
+          description: "Tmp Running",
+          command: "sleep 1",
+          cwd: session.directory,
+          startedAt: now,
+          endedAt: now + 1,
+          exitCode: 0,
+          state: "exit:0",
+        })
+
+        const finished = await ExBashTask.get({ sessionID: session.id, workspace: session.directory })
+        expect(finished).toMatchObject([
+          {
+            asyncID: "rex-sync",
+            state: "exit:0",
+            endedAt: now + 1,
+          },
+        ])
+
+        await ExBashTask.sync({
+          asyncID: "rex-sync",
+          sessionID: next.id,
+          workspace: next.directory,
+          scope: "workspace",
+          executor: "local",
+          description: "Tmp Running",
+          command: "sleep 2",
+          cwd: next.directory,
+          startedAt: now + 2,
+          state: "running",
+        })
+
+        const rows = Database.use((db) => db.select().from(ExBashTaskTable).all()).filter(
+          (row) => row.async_id === "rex-sync",
+        )
+        expect(rows).toHaveLength(1)
+        expect(rows[0]?.session_id).toBe(next.id)
+        expect(rows[0]?.time_end).toBeNull()
+      },
+    })
+  })
+})

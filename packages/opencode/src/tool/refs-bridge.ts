@@ -48,6 +48,12 @@ type WorkerResponse =
       event: "exbash.changed"
       sessionID: string
       workspace: string
+      type?: string
+      scope?: string
+      cwd?: string
+      task?: unknown
+      asyncID?: string
+      executor?: string
     }
 
 export type ExecutorListItem = {
@@ -140,6 +146,50 @@ function workerTarget() {
   return new URL("./refs-worker.ts", import.meta.url)
 }
 
+const string = (value: unknown, fallback = "") => (typeof value === "string" ? value : fallback)
+const number = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : undefined)
+
+async function applyExbash(event: Extract<WorkerResponse, { event: "exbash.changed" }>) {
+  const sessionID = SessionID.zod.parse(event.sessionID)
+  const workspace = event.workspace
+  if (event.type === "remove") {
+    const asyncID = string(event.asyncID)
+    if (!asyncID) return ExBashTask.refresh({ sessionID, workspace })
+    return ExBashTask.remove({
+      sessionID,
+      workspace,
+      executor: string(event.executor, "local"),
+      asyncID,
+    })
+  }
+  if (event.type !== "upsert" || !event.task || typeof event.task !== "object" || Array.isArray(event.task)) {
+    return ExBashTask.refresh({ sessionID, workspace })
+  }
+  const scope = ExBashTask.Scope.safeParse(event.scope)
+  if (!scope.success) return ExBashTask.refresh({ sessionID, workspace })
+  const task = event.task as Record<string, unknown>
+  const asyncID = string(task.asyncID || task.asyncId)
+  if (!asyncID) return ExBashTask.refresh({ sessionID, workspace })
+  const state = ExBashTask.State.safeParse(task.state)
+  const exitCode = ExBashTask.ExitCode.safeParse(task.exitCode)
+  return ExBashTask.sync({
+    asyncID,
+    sessionID,
+    workspace,
+    scope: scope.data,
+    executor: string(task.executor, "local"),
+    description: string(task.description),
+    command: string(task.command),
+    cwd: string(event.cwd, workspace),
+    startedAt: number(task.startedAt) ?? Date.now(),
+    state: state.success ? state.data : number(task.endedAt) === undefined ? "running" : "unknown",
+    ...(number(task.pid) === undefined ? {} : { pid: number(task.pid) }),
+    ...(number(task.totalOutput) === undefined ? {} : { totalOutput: number(task.totalOutput) }),
+    ...(number(task.endedAt) === undefined ? {} : { endedAt: number(task.endedAt) }),
+    ...(exitCode.success ? { exitCode: exitCode.data } : {}),
+  })
+}
+
 function refsWorker() {
   if (worker) return worker
   worker = new Worker(workerTarget())
@@ -148,10 +198,7 @@ function refsWorker() {
   worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
     if ("event" in event.data) {
       if (event.data.event === "exbash.changed") {
-        void ExBashTask.refresh({
-          sessionID: SessionID.zod.parse(event.data.sessionID),
-          workspace: event.data.workspace,
-        }).catch(() => undefined)
+        void applyExbash(event.data).catch(() => undefined)
       }
       return
     }
