@@ -222,6 +222,20 @@ function appApi(): TuiPluginApi["app"] {
 }
 
 function displayApi(input: Input): TuiPluginApi["display"] {
+  function sessionID(value?: { sessionID?: string }) {
+    if (value?.sessionID) return value.sessionID
+    const current = input.route.data
+    if (current.type === "session") return current.sessionID
+  }
+
+  async function ptyt(value?: { sessionID?: string }) {
+    const id = sessionID(value)
+    if (!id) throw new Error("display.openRefsPtyt requires a sessionID")
+    const serverUrl = input.args.transport === "attach" && input.args.url ? input.args.url : await input.sdk.ensureServerUrl()
+    const argv = RefsPtyt.args({ serverUrl, sessionID: id })
+    return { argv, command: RefsPtyt.command(argv) }
+  }
+
   return {
     get id() {
       return input.sdk.displayID
@@ -296,17 +310,16 @@ function displayApi(input: Input): TuiPluginApi["display"] {
         throw new Error(`display.attachToRunningSession failed (${response.status})`)
       }
     },
+    async refsPtytCommand(value) {
+      return { command: (await ptyt(value)).command }
+    },
     async openRefsPtyt(value) {
-      const sessionID = value?.sessionID ?? this.sessionID
-      if (!sessionID) throw new Error("display.openRefsPtyt requires a sessionID")
-      const serverUrl = input.args.transport === "attach" && input.args.url ? input.args.url : await input.sdk.ensureServerUrl()
-      const argv = RefsPtyt.args({ serverUrl, sessionID })
-      const command = RefsPtyt.command(argv)
+      const next = await ptyt(value)
       try {
-        RefsPtyt.open(argv)
-        return { command }
+        RefsPtyt.open(next.argv)
+        return { command: next.command }
       } catch (error) {
-        return { command, error: error instanceof Error ? error.message : String(error) }
+        return { command: next.command, error: error instanceof Error ? error.message : String(error) }
       }
     },
   }

@@ -186,6 +186,7 @@ export function createTuiPluginApi(opts: Opts = {}): HostPluginApi {
       report: async () => {},
       selectSession: async () => {},
       attachToRunningSession: async () => {},
+      refsPtytCommand: async () => ({ command: "" }),
       openRefsPtyt: async () => ({ command: "" }),
     },
     event: {

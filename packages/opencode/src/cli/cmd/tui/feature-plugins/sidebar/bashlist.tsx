@@ -58,6 +58,8 @@ function Detail(props: { api: TuiPluginApi; session_id: string; job: Job }) {
   const term = useTerminalDimensions()
   const [shot, setShot] = createSignal("")
   const [err, setErr] = createSignal("")
+  const [ptyt, setPtyt] = createSignal("")
+  const [ptytErr, setPtytErr] = createSignal("")
   const [loading, setLoading] = createSignal(true)
   const close = () => props.api.ui.dialog.clear()
   const openPtyt = () => {
@@ -82,6 +84,11 @@ function Detail(props: { api: TuiPluginApi; session_id: string; job: Job }) {
     if (evt.name === "return" || evt.name === "escape") close()
   })
   onMount(() => {
+    props.api.display
+      .refsPtytCommand({ sessionID: props.session_id })
+      .then((result) => setPtyt(result.command))
+      .catch((error) => setPtytErr(error instanceof Error ? error.message : String(error)))
+
     if (!props.job.memory || props.job.state === "unknown") {
       setLoading(false)
       return
@@ -181,13 +188,13 @@ function Detail(props: { api: TuiPluginApi; session_id: string; job: Job }) {
           </box>
           <box flexDirection="column">
             <text fg={theme().textMuted}>refs-ptyt</text>
-            <box
-              paddingLeft={2}
-              paddingRight={2}
-              backgroundColor={theme().backgroundPanel}
-              onMouseUp={openPtyt}
-            >
-              <text fg={theme().text}>open attach command</text>
+            <text fg={ptytErr() ? theme().error : ptyt() ? theme().text : theme().textMuted} wrapMode="word">
+              {ptytErr() || ptyt() || "loading command..."}
+            </text>
+            <box flexDirection="row">
+              <box paddingLeft={2} paddingRight={2} backgroundColor={theme().backgroundPanel} onMouseUp={openPtyt}>
+                <text fg={theme().text}>attach</text>
+              </box>
             </box>
           </box>
         </box>
