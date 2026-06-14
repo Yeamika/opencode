@@ -18,6 +18,7 @@ import { ExBashTask } from "@/session/exbash"
 import * as RefsBridge from "@/tool/refs-bridge"
 import { Instance } from "@/project/instance"
 import { Agent } from "../../agent/agent"
+import { RefsPtyt } from "@/server/refs-ptyt"
 import { Snapshot } from "@/snapshot"
 import { Log } from "../../util/log"
 import { Permission } from "@/permission"
@@ -115,11 +116,31 @@ export const RefsRoutes = lazy(() =>
       },
     }),
     upgradeWebSocket(async () => {
+      let registered: { id: string; unregister: () => void } | undefined
       return {
         async onMessage(event, ws) {
           if (typeof event.data !== "string") return
-          const id = refsMcpRequestID(event.data)
+          let id: unknown = null
           try {
+            const control = RefsPtyt.parse(event.data)
+            if (control) {
+              if (control.type === "refs-ptyt.touch") {
+                RefsPtyt.touch(control.slotID ?? registered?.id)
+                return
+              }
+              registered?.unregister()
+              registered = undefined
+              const session = await Session.get(SessionID.zod.parse(control.sessionID))
+              registered = RefsPtyt.register({
+                sessionID: session.id,
+                workspace: session.directory,
+                socket: ws,
+                ...(control.slotID ? { slotID: control.slotID } : {}),
+                schedulable: control.schedulable,
+              })
+              return
+            }
+            id = refsMcpRequestID(event.data)
             const found = refsMcpSession(event.data)
             if (found) {
               const sessionID = SessionID.zod.parse(found)
@@ -149,6 +170,14 @@ export const RefsRoutes = lazy(() =>
               ),
             )
           }
+        },
+        onClose() {
+          registered?.unregister()
+          registered = undefined
+        },
+        onError() {
+          registered?.unregister()
+          registered = undefined
         },
       }
     }),
