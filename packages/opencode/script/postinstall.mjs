@@ -139,7 +139,7 @@ async function main() {
     }
     fs.chmodSync(target, 0o755)
 
-    installBundledBinary(path.dirname(binaryPath), "ptyt")
+    installBundledBinary(path.dirname(binaryPath), "refs-ptyt")
     installBundledRefsAddon(path.dirname(binaryPath))
   } catch (error) {
     console.error("Failed to setup opencode binary:", error.message)

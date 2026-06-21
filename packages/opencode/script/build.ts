@@ -247,6 +247,10 @@ function refsBinding(item: Target) {
   if (item.os === "darwin") return `refs-opencode.darwin-${item.arch}.node`
 }
 
+function ptyt(item: Target) {
+  return item.os === "win32" ? "refs-ptyt.exe" : "refs-ptyt"
+}
+
 async function bundleRefs(item: Target, bin: string) {
   const filename = refsBinding(item)
   if (!filename) return
@@ -265,6 +269,20 @@ async function bundleRefs(item: Target, bin: string) {
   const dest = path.join(bin, filename)
   await fs.promises.copyFile(src, dest)
   console.log(`bundled REFS-opencode ${filename}: ${dest}`)
+
+  const exe = ptyt(item)
+  const root = path.dirname(src)
+  const hit = [path.join(root, exe), path.join(root, "bin", exe)].find((file) => fs.existsSync(file))
+  if (!hit) {
+    const msg = `REFS ptyt binary ${exe} not found next to ${filename} in ${root}`
+    if (refsRequired) throw new Error(msg)
+    console.warn(msg)
+    return
+  }
+  const out = path.join(bin, exe)
+  await fs.promises.copyFile(hit, out)
+  if (item.os !== "win32") await fs.promises.chmod(out, 0o755)
+  console.log(`bundled REFS ptyt ${exe}: ${out}`)
 }
 
 await $`rm -rf dist`

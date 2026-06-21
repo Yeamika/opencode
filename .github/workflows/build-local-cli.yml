@@ -104,6 +104,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      - name: Checkout REFS
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ vars.REFS_REPOSITORY || 'Yeamika/RemoteExecutorForSession' }}
+          ref: ${{ vars.REFS_REF || 'main' }}
+          token: ${{ secrets.REFS_TOKEN || github.token }}
+          path: refs-source
+          submodules: recursive
+
       - name: Setup Bun
         uses: ./.github/actions/setup-bun
 
@@ -137,6 +146,10 @@ jobs:
         working-directory: packages/REFS-opencode
         shell: bash
         run: bunx napi build --platform --release --target ${{ matrix.target }}
+
+      - name: Build refs-ptyt
+        shell: bash
+        run: cargo build --release --manifest-path refs-source/Cargo.toml --bin refs-ptyt --target ${{ matrix.target }}
 
       - name: Smoke test native addon
         if: >
@@ -174,7 +187,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "refs/${{ matrix.package }}"
+          ext=""
+          if [[ "${{ runner.os }}" == "Windows" ]]; then ext=".exe"; fi
           cp packages/REFS-opencode/refs-opencode.*.node "refs/${{ matrix.package }}/"
+          cp "refs-source/target/${{ matrix.target }}/release/refs-ptyt${ext}" "refs/${{ matrix.package }}/"
 
       - name: Upload REFS-opencode artifact
         uses: actions/upload-artifact@v7
@@ -232,6 +248,8 @@ jobs:
         run: |
           set -euo pipefail
           test -x packages/opencode/dist/opencode-linux-x64/bin/opencode
+          test -x packages/opencode/dist/opencode-linux-x64/bin/refs-ptyt
+          test -f packages/opencode/dist/opencode-windows-x64/bin/refs-ptyt.exe
           test -f packages/opencode/dist/opencode-linux-x64/bin/refs-opencode.linux-x64-gnu.node
           test -f packages/opencode/dist/opencode-windows-x64/bin/refs-opencode.win32-x64-msvc.node
           packages/opencode/dist/opencode-linux-x64/bin/opencode --version
@@ -437,16 +455,19 @@ jobs:
             artifact: cli-binary-linux-x64
             executable: package/bin/opencode
             refsAddon: package/bin/refs-opencode.linux-x64-gnu.node
+            refsPtyt: package/bin/refs-ptyt
           - os: ubuntu-24.04-arm
             package: linux-arm64
             artifact: cli-binary-linux-arm64
             executable: package/bin/opencode
             refsAddon: package/bin/refs-opencode.linux-arm64-gnu.node
+            refsPtyt: package/bin/refs-ptyt
           - os: windows-latest
             package: windows-x64
             artifact: cli-binary-windows-x64
             executable: package/bin/opencode.exe
             refsAddon: package/bin/refs-opencode.win32-x64-msvc.node
+            refsPtyt: package/bin/refs-ptyt.exe
     steps:
       - name: Download packaged CLI
         uses: actions/download-artifact@v7
@@ -469,8 +490,10 @@ jobs:
           tar -xzf "$tgz"
           test -f "${{ matrix.executable }}"
           test -f "${{ matrix.refsAddon }}"
+          test -f "${{ matrix.refsPtyt }}"
           if [[ "${{ runner.os }}" != "Windows" ]]; then
             test -x "${{ matrix.executable }}"
+            test -x "${{ matrix.refsPtyt }}"
           fi
 
       - name: Install launcher package
@@ -489,6 +512,7 @@ jobs:
           npm install "$launcher_tgz" "$binary_tgz"
           if [[ "${{ runner.os }}" != "Windows" ]]; then
             test -f "./node_modules/opencode-ai/bin/$(basename "${{ matrix.refsAddon }}")"
+            test -x "./node_modules/opencode-ai/bin/refs-ptyt"
           fi
           node ./node_modules/opencode-ai/bin/opencode --version
 
